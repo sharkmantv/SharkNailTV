@@ -556,6 +556,7 @@ fun App() {
             when(catalogueKind) { "live" -> live=entries; "movie" -> movies=entries; else -> series=entries }
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; error="Catalogue request failed (${e.javaClass.simpleName})" } finally { entriesLoading=false }
     }
+    val serviceWatchRegion = if (section == "Hulu Catalogue") "US" else "GB"
     LaunchedEffect(section, serviceCategory, serviceGenre, tmdbKey) {
         if (!section.endsWith(" Catalogue")) return@LaunchedEffect
         serviceLoading = true
@@ -577,7 +578,7 @@ fun App() {
             val type = if (series) "tv" else "movie"
             val sort = if (serviceCategory == "New Releases") "primary_release_date.desc" else "popularity.desc"
             val genre = if (series) serviceGenre?.seriesId else serviceGenre?.movieId
-            serviceEntries = TmdbApi.providerCatalogue(tmdbKey, type, provider, sort, genre)
+            serviceEntries = TmdbApi.providerCatalogue(tmdbKey, type, provider, sort, genre, serviceWatchRegion)
         } catch(e: Exception) {
             if(e is kotlinx.coroutines.CancellationException) throw e
             serviceError = e.message ?: "Catalogue unavailable"
@@ -724,7 +725,8 @@ fun App() {
                         }
                         "Netflix Catalogue", "Apple TV Catalogue", "Prime Video Catalogue", "Disney+ Catalogue", "HBO Max Catalogue", "Hulu Catalogue" -> {
                             Text(section.removeSuffix(" Catalogue"),color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold)
-                            Text("TMDB availability in United Kingdom • availability can change; subscription access not included",color = Color.White,fontSize=12.sp)
+                            val catalogueRegion = if (serviceWatchRegion == "US") "United States" else "United Kingdom"
+                            Text("TMDB catalogue · $catalogueRegion", color = Color.White, fontSize = 12.sp)
                             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                 listOf("Movies","Series","New Releases").forEach { category ->
                                     FocusAction(if(serviceCategory==category) "● $category" else category) { serviceCategory=category }
@@ -1395,10 +1397,9 @@ private object TmdbApi {
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "" } finally { artGate.release() }
     }
 
-    suspend fun providerCatalogue(key:String,type:String,provider:Int,sort:String,genre:Int?):List<Entry> = withContext(Dispatchers.IO) {
+    suspend fun providerCatalogue(key:String,type:String,provider:Int,sort:String,genre:Int?,region:String):List<Entry> = withContext(Dispatchers.IO) {
         val token=key.trim().removePrefix("Bearer ").trim()
         val bearer=token.contains('.') || token.length>64
-        val region="GB"
         val genreFilter = genre?.let { "&with_genres=$it" }.orEmpty()
         val url="https://api.themoviedb.org/3/discover/$type?language=en-GB&watch_region=$region&with_watch_providers=$provider&sort_by=${URLEncoder.encode(sort,"UTF-8")}&page=1$genreFilter" + if(bearer) "" else "&api_key=${URLEncoder.encode(token,"UTF-8")}"
         val request=Request.Builder().url(url)
