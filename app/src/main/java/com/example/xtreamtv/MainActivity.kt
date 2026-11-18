@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.layout.ContentScale
@@ -320,15 +321,6 @@ fun App() {
     val heroArtworks = remember(sectionEntries) {
         sectionEntries.take(12).map { it.backdrop }.filter { it.isNotBlank() }.distinct()
     }
-    var heroIndex by remember(heroArtworks) { mutableIntStateOf(0) }
-    var focusedHero by remember(section) { mutableStateOf("") }
-    var pendingHero by remember(section) { mutableStateOf("") }
-    LaunchedEffect(pendingHero) { if(pendingHero.isNotBlank()) { delay(250); focusedHero=pendingHero } }
-    LaunchedEffect(heroArtworks, section, selected, focusedHero) {
-        if (section == "Home" && selected == null && focusedHero.isBlank() && heroArtworks.size > 1) {
-            while (true) { delay(12000); heroIndex = (heroIndex + 1) % heroArtworks.size }
-        }
-    }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         if(server.isNotBlank() && username.isNotBlank() && password.isNotBlank()) {
@@ -401,6 +393,47 @@ fun App() {
     var cacheMessage by remember { mutableStateOf<String?>(null) }
     var cacheTitle by remember { mutableStateOf("Cache cleaner") }
     var cacheBusy by remember { mutableStateOf(false) }
+    fun cleanAppCache() {
+        if (cacheBusy) return
+        cacheTitle = "App cache cleanup"
+        cacheBusy = true
+        val activeApi = api
+        scope.launch {
+            try {
+                cacheMessage = withContext(Dispatchers.IO) {
+                    val loader = coil.Coil.imageLoader(context)
+                    val memory = loader.memoryCache
+                    val disk = loader.diskCache
+                    val memoryBefore = memory?.size?.toLong() ?: 0L
+                    val diskBefore = disk?.size ?: 0L
+                    memory?.clear()
+                    disk?.clear()
+                    activeApi?.clearCatalogueCache()
+                    val staleDownload = java.io.File(context.cacheDir, "install/SharkNailTV.apk.part")
+                    val staleBytes = staleDownload.length()
+                    val removedDownload = staleDownload.lastModified() in 1L until
+                        (System.currentTimeMillis() - 24 * 60 * 60 * 1000L) && staleDownload.delete()
+                    val diskFreed = (diskBefore - (disk?.size ?: 0L)).coerceAtLeast(0L) + if (removedDownload) staleBytes else 0L
+                    val memoryFreed = (memoryBefore - (memory?.size?.toLong() ?: 0L)).coerceAtLeast(0L)
+                    "Storage reclaimed: ${formatBytes(diskFreed)}\nImage memory cache cleared: ${formatBytes(memoryFreed)}"
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                cacheMessage = "Cache cleanup failed. Please retry."
+            } finally {
+                cacheBusy = false
+            }
+        }
+    }
+    fun launchToolkitAction(intent: android.content.Intent) {
+        try {
+            context.startActivity(intent)
+        } catch (_: android.content.ActivityNotFoundException) {
+            cacheTitle = "Sharks Toolkit"
+            cacheMessage = "This TV does not have an app that can open this tool."
+        }
+    }
+    var livePreviewEnabled by remember { mutableStateOf(playbackPrefs(context).getBoolean("livePreviewEnabled", true)) }
     var diagnostics by remember { mutableStateOf(false) }
     var testRun by remember { mutableIntStateOf(0) }
     var networkReport by remember { mutableStateOf("Checking…") }
@@ -500,9 +533,7 @@ fun App() {
                 SafePlayer(api!!.url(entry),playerChoice,title=entry.title, liveStream=entry.kind=="live", programmes=epg, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
         } else Box(Modifier.fillMaxSize().background(Color(0xFF020916))) {
-            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("App Information","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
-            val heroUrl = focusedHero.ifBlank { heroArtworks.getOrNull(heroIndex).orEmpty() }
-            val heroEntry = remember(heroUrl,sectionEntries) { sectionEntries.firstOrNull { it.backdrop.ifBlank { it.image } == heroUrl } ?: sectionEntries.firstOrNull() }
+            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
@@ -564,16 +595,16 @@ fun App() {
                                     val verticalWidth = ((maxHeight.value - 68f) / 3.0f).toInt()
                                     val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,220)
                                     Column(Modifier.fillMaxSize().padding(top=2.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                                        HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth,onFocusEntry={ _ -> }){openTitle(it)}
-                                        HomeTmdbRow("TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth,onFocusEntry={ _ -> }){openTitle(it)}
+                                        HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth){openTitle(it)}
+                                        HomeTmdbRow("TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth){openTitle(it)}
                                     }
                                 }
                             } else {
                                 if(sectionEntries.isNotEmpty()) BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                                     val width=minOf(((maxHeight.value/2f-24f)/1.5f+14f).toInt(),((maxWidth.value-80f)/8f).toInt()).coerceIn(60,124)
                                     Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                                        V4PosterRow(tmdbKey,"",sectionEntries.filterIndexed { i,_ -> i%2==0 },cardWidth=width,onFocusEntry={ if(it!=null) focusedHero=it.backdrop }){openTitle(it)}
-                                        if(sectionEntries.size>1) V4PosterRow(tmdbKey,"",sectionEntries.filterIndexed { i,_ -> i%2==1 },cardWidth=width,onFocusEntry={ if(it!=null) focusedHero=it.backdrop }){openTitle(it)}
+                                        V4PosterRow(tmdbKey,"",sectionEntries.filterIndexed { i,_ -> i%2==0 },cardWidth=width){openTitle(it)}
+                                        if(sectionEntries.size>1) V4PosterRow(tmdbKey,"",sectionEntries.filterIndexed { i,_ -> i%2==1 },cardWidth=width){openTitle(it)}
                                     }
                                 }
                             }
@@ -593,17 +624,19 @@ fun App() {
                                 "Hulu" to R.drawable.premium_hulu
                             )
                             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                val availableWidth = (maxWidth - 12.dp - 10.dp * (services.size - 1)) / services.size
-                                val tileWidth = minOf(availableWidth, maxHeight - 20.dp).coerceIn(1.dp, 240.dp)
-                                Row(
-                                    Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    services.forEach { (provider, artwork) ->
-                                        StreamingBrandCard(provider, artwork, Modifier.size(tileWidth)) {
-                                            serviceCategory = "Movies"
-                                            serviceGenre = null
-                                            section = "$provider Catalogue"
+                                val tileWidth = minOf((maxWidth - 52.dp) / 5, maxHeight - 20.dp).coerceIn(1.dp, 280.dp)
+                                CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
+                                    LazyRow(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
+                                    ) {
+                                        items(services, key = { it.first }) { (provider, artwork) ->
+                                            StreamingBrandCard(provider, artwork, Modifier.size(tileWidth)) {
+                                                serviceCategory = "Movies"
+                                                serviceGenre = null
+                                                section = "$provider Catalogue"
+                                            }
                                         }
                                     }
                                 }
@@ -666,7 +699,7 @@ fun App() {
                             )
                         }
                         "Sports Guide" -> { PublicGuide(fixtures,fixtureStatus, onRefresh={sportsRefresh++}) }
-                        "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++},{section="EPG / TV Guide"}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
+                        "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,livePreviewEnabled,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++},{section="EPG / TV Guide"}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
                         "EPG / TV Guide" -> { if(connected) BroadcastGuide(live,api){section="Shark TV";selected=it} else ConnectPrompt{showLogin=true} }
                         "Search" -> { var query by remember { mutableStateOf("") }; OutlinedTextField(query,{query=it},label={Text("Search titles")}); if(query.isNotBlank()) V4PosterRow(tmdbKey,"Results",(trendingMovies+trendingSeries+movies+series).filter{it.title.contains(query,true)}){selected=it} }
                         "My List" -> {Text("My List",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(vertical=18.dp));Text("Saved favourites will appear here when the feature is connected.",color=Color(0xFFB6D4EE))}
@@ -729,7 +762,7 @@ fun App() {
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
                             Text("Posters: ${tmdbStatus.ifBlank { "Updated" }}  ·  Sports: $fixtureStatus",color=Color(0xFF8EDCF0),fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.height(18.dp))
-                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","App Information","Exit","System Health")
+                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
                             Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             options.chunked(3).forEach { labels ->
                                 Row(Modifier.fillMaxWidth().height(76.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -752,20 +785,7 @@ fun App() {
                                                 } }
                                                 "Refresh Posters" -> { tmdbStatus="Refreshing posters…"; posterRefresh++ }
                                                 "Refresh Sports" -> { fixtureStatus="Refreshing sports…"; sportsRefresh++ }
-                                                "Clear Memory Cache" -> if(!cacheBusy) { cacheTitle="Cache cleaner"; cacheBusy=true; scope.launch {
-                                                    cacheMessage=try { withContext(Dispatchers.IO) {
-                                                        val loader=coil.Coil.imageLoader(context)
-                                                        val memory=loader.memoryCache
-                                                        val disk=loader.diskCache
-                                                        val m=memory?.size?.toLong() ?: 0L
-                                                        val d=disk?.size ?: 0L
-                                                        memory?.clear(); disk?.clear(); api?.clearCatalogueCache()
-                                                        val freed=(d-(disk?.size ?: 0L)).coerceAtLeast(0L)
-                                                        val ram=(m-(memory?.size?.toLong() ?: 0L)).coerceAtLeast(0L)
-                                                        if(freed==0L && ram==0L) "No cached bytes reclaimed." else "Storage reclaimed: ${formatBytes(freed)}\nMemory reclaimed: ${formatBytes(ram)}"
-                                                    } } catch(e:Exception) { "Cache clearing failed. Please retry." }
-                                                    cacheBusy=false
-                                                } }
+                                                "Clear Memory Cache" -> cleanAppCache()
                                                 "Connection Status" -> { diagnostics=true; testRun++ }
                                                 else -> section=label
                                             }
@@ -773,12 +793,11 @@ fun App() {
                                             Row(
                                                 Modifier.fillMaxSize()
                                                     .background(Brush.verticalGradient(listOf(Color(0xFF142D50),Color(0xFF091A35))))
-                                                    .border(1.dp,if(focused) Color(0xFFFFD44D) else Color(0xFF22DFFF),RoundedCornerShape(0.dp))
                                                     .padding(horizontal=14.dp),
                                                 verticalAlignment=Alignment.CenterVertically,
                                                 horizontalArrangement=Arrangement.spacedBy(12.dp)
                                             ) {
-                                                GoldSettingsIcon(when(label){"Xtream Codes"->Icons.Outlined.List;"Refresh Posters","Refresh Sports"->Icons.Outlined.Refresh;"Connection Status"->Icons.Outlined.Wifi;"Clear Memory Cache"->Icons.Outlined.Delete;"App Information"->Icons.Outlined.Info;"Exit"->Icons.Outlined.ExitToApp;else->Icons.Outlined.Settings})
+                                                GoldSettingsIcon(when(label){"Xtream Codes"->Icons.Outlined.List;"Refresh Posters","Refresh Sports"->Icons.Outlined.Refresh;"Connection Status"->Icons.Outlined.Wifi;"Clear Memory Cache"->Icons.Outlined.Delete;"Sharks Toolkit"->Icons.Outlined.Info;"Exit"->Icons.Outlined.ExitToApp;else->Icons.Outlined.Settings})
                                                 Text(label,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Light)
                                             }
                                         }
@@ -803,7 +822,42 @@ fun App() {
                             FocusAction("Refresh readings"){section="Settings";section="System Health"}
                             FocusAction("Back to Settings"){section="Settings"}
                         }
-                        "App Information" -> { Text("SharkNailTV ${BuildConfig.VERSION_NAME}",color=Color.White); FocusAction("Back to Settings"){section="Settings"} }
+                        "Sharks Toolkit" -> {
+                            Text("Sharks Toolkit", color = Color.White, fontSize = 26.sp)
+                            Text("SharkNailTV ${BuildConfig.VERSION_NAME}", color = Color(0xFF8EDCF0), fontSize = 13.sp)
+                            val storageSummary by produceState("Reading storage…", cacheBusy) {
+                                value = withContext(Dispatchers.IO) {
+                                    val imageCache = coil.Coil.imageLoader(context).diskCache?.size ?: 0L
+                                    val freeSpace = android.os.StatFs(context.cacheDir.absolutePath).availableBytes
+                                    "Poster cache: ${formatBytes(imageCache)}  ·  Free storage: ${formatBytes(freeSpace)}"
+                                }
+                            }
+                            Text(storageSummary, color = Color.White, fontSize = 14.sp)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    PremiumButton(onClick = { cleanAppCache() }, enabled = !cacheBusy) {
+                                        Text(if (cacheBusy) "Cleaning…" else "Clean App Cache")
+                                    }
+                                    FocusAction("Test Connection") { diagnostics = true; testRun++ }
+                                    FocusAction("System Health") { section = "System Health" }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FocusAction("Android Storage") {
+                                        launchToolkitAction(android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
+                                    }
+                                    FocusAction("SD Maid SE") {
+                                        val installed = context.packageManager.getLaunchIntentForPackage("eu.darken.sdmse")
+                                        launchToolkitAction(installed ?: android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse("https://f-droid.org/packages/eu.darken.sdmse/")))
+                                    }
+                                    FocusAction(if (livePreviewEnabled) "Live Preview: On" else "Live Preview: Off") {
+                                        livePreviewEnabled = !livePreviewEnabled
+                                        playbackPrefs(context).edit().putBoolean("livePreviewEnabled", livePreviewEnabled).apply()
+                                    }
+                                }
+                                FocusAction("Back to Settings") { section = "Settings" }
+                            }
+                        }
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
                         "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", "").orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
                     }
@@ -816,16 +870,16 @@ fun App() {
             }
             }
             // Keep navigation geometry stable while the accent strips pulse.
-            val navigationPulse=rememberInfiniteTransition(label="navigation glow").animateFloat(0.45f,1f,infiniteRepeatable(tween(1200),RepeatMode.Reverse),label="navigation pulse")
+            val navigationPulse=LocalFramePulse.current
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
-                    val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Shark Stream" && section.endsWith(" Catalogue")) || (item=="Settings" && section in listOf("App Information","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
+                    val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Shark Stream" && section.endsWith(" Catalogue")) || (item=="Settings" && section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
                     val focused=focusedNav==item
                     val emphasized=focused || (focusedNav==null && active)
                     val accent=when(item){"Home"->Color(0xFFFFC34D);"Shark TV"->Color(0xFFFF8A35);"Movies"->Color(0xFFFF5260);"TV Series"->Color(0xFFED49A6);"Sports Guide"->Color(0xFFB66BFF);"Shark Stream"->Color(0xFF00D9F4);"Xtream Codes"->Color(0xFF36D9ED);"Settings"->Color(0xFF5D9EFF);else->Color(0xFFFF5374)}
                     val shape=RoundedCornerShape(0.dp)
-                    val steadyNav = section in listOf("Shark TV","Settings","Playback & Display","App Information","Connection Status","API Configuration","Xtream Codes","Home Playback Source")
+                    val steadyNav = section in listOf("Shark TV","Settings","Playback & Display","Sharks Toolkit","Connection Status","API Configuration","Xtream Codes","Home Playback Source")
                     val navTop by animateColorAsState(if(emphasized) Color(0xFF192D51) else Color(0xFF101C39), tween(if(steadyNav) 0 else 110), label="nav top")
                     val navBottom by animateColorAsState(if(emphasized) Color(0xFF101D38) else Color(0xFF0A132A), tween(if(steadyNav) 0 else 110), label="nav bottom")
                     Column(Modifier.weight(1f).height(64.dp).onFocusChanged { state ->
@@ -917,7 +971,7 @@ fun App() {
         else -> Icons.Filled.Cloud
     }
     Row(Modifier.padding(end=5.dp).onFocusChanged { focused=it.isFocused }
-        .border(2.dp,if(focused)Color(0xFFFFD44D) else if(active)Color(0xFF00C4FF) else Color.Transparent,RoundedCornerShape(0.dp))
+        .pulsingFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else if(active)Color(0xFF00C4FF) else Color(0xFF24476A))
         .background(if(focused||active)Brush.verticalGradient(listOf(Color(0xFF0089EF),Color(0xFF05316A))) else Brush.verticalGradient(listOf(Color.Transparent,Color.Transparent)),RoundedCornerShape(0.dp))
         .clickable(onClick=onClick).padding(horizontal=11.dp,vertical=9.dp), verticalAlignment=Alignment.CenterVertically) {
         Icon(symbol,contentDescription=null,tint=if(active||focused)Color.White else Color(0xFFC5E4FF),modifier=Modifier.size(18.dp))
@@ -980,7 +1034,9 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
     return this.drawWithContent {
         drawContent()
         val w=UniformPulseBorderWidth.toPx()
-        drawOutline(shape.createOutline(size,layoutDirection,this),color,alpha=pulse.value,style=Stroke(w))
+        inset(w / 2) {
+            drawOutline(shape.createOutline(size, layoutDirection, this), color, alpha = pulse.value, style = Stroke(w))
+        }
     }
 }
 @Composable private fun ElectricFocus(modifier:Modifier=Modifier,focused:Boolean,selected:Boolean=false,shape:RoundedCornerShape=RoundedCornerShape(0.dp),metal:Boolean=false,steady:Boolean=false,content:@Composable ()->Unit) {
@@ -988,7 +1044,7 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
     val glow=if(focused)Color(0xFFFFD44D) else Color(0xFF20517C)
     val brush=remember(focused,metal) { Brush.linearGradient(if(focused) listOf(Color(0xFFFFB900),Color(0xFFFFF4A8),Color(0xFFFFC400)) else if(metal) listOf(Color.White,Color(0xFF33383D),Color(0xFFFDFEFF),Color(0xFF525960),Color.White) else listOf(Color(0xFF168CE8),Color(0xFF70DFFF),Color(0xFF1462B5),Color(0xFF00BFFF))) }
     Box(modifier.padding(2.dp).shadow(if(focused && !steady)5.dp else 0.dp,shape,ambientColor=glow,spotColor=glow)
-        .drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawOutline(shape.createOutline(size,layoutDirection,this),brush,alpha=if(focused) pulse.value else 1f,style=Stroke(w)) }
+        .drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); inset(w / 2) { drawOutline(shape.createOutline(size,layoutDirection,this),brush,alpha=if(focused) 0.35f + 0.65f * pulse.value else pulse.value,style=Stroke(w)) } }
         .padding(2.dp).clip(shape)) { content() }
 
 }
@@ -1000,13 +1056,13 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = androidx.compose.ui.graphics.RectangleShape
-    val rim = if (focused) Color(0xFFFFD44D) else Color.White.copy(alpha = 0.2f)
+    val rim = if (focused) Color(0xFFFFD44D) else Color(0xFF55A9DE)
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
             .shadow(if (focused) 8.dp else 3.dp, shape)
             .clip(shape)
             .clickable(onClick = onClick)
-            .then(if (focused) Modifier.pulsingFrame(2.5.dp, rim, shape) else Modifier.border(1.dp, rim, shape))
+            .pulsingFrame(2.5.dp, rim, shape)
     ) {
         AsyncImage(
             model = artwork,
@@ -1018,8 +1074,7 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun HomeTmdbRow(title:String,entries:List<Entry>,cardWidth:Int=245,onFocusEntry:((Entry?)->Unit)?=null,onSelect:(Entry)->Unit) {
-    val posterPulse=rememberInfiniteTransition(label="poster glow").animateFloat(0.5f,1f,infiniteRepeatable(tween(1300),RepeatMode.Reverse),label="poster pulse")
+@Composable private fun HomeTmdbRow(title:String,entries:List<Entry>,cardWidth:Int=245,onSelect:(Entry)->Unit) {
     Column {
         if(title.isNotBlank()) Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.padding(bottom=3.dp)) {
             Box(Modifier.width(5.dp).height(16.dp).background(Color(0xFF00BFFF),RoundedCornerShape(0.dp)))
@@ -1034,12 +1089,11 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
                     var focused by remember {mutableStateOf(false)}
 
 
-                    Box(Modifier.width(cardWidth.dp).onFocusChanged{ if(focused != it.isFocused) { focused=it.isFocused; onFocusEntry?.invoke(if(focused) entry else null) } }
-                        .drawWithContent { drawContent(); val w=(if(focused) 2.5.dp else 1.5.dp).toPx(); val outer=if(focused) Color(0xFFFFD44D).copy(alpha=posterPulse.value) else Color(0xFF56BFFF); drawRect(outer,topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),style=Stroke(w)); val inset=3.dp.toPx(); drawRect(if(focused) Color(0xFFFFE58C) else Color(0xFF347CB9),topLeft=Offset(inset,inset),size=Size((size.width-2*inset).coerceAtLeast(0f),(size.height-2*inset).coerceAtLeast(0f)),style=Stroke(1.dp.toPx())) }.clickable {onSelect(entry)}.padding(3.dp)) {
+                    Box(Modifier.width(cardWidth.dp).onFocusChanged{ focused = it.isFocused }
+                        .pulsingFrame(2.5.dp, if (focused) Color(0xFFFFD44D) else Color(0xFF56BFFF)).clickable {onSelect(entry)}.padding(3.dp)) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
                             val posterUrl=entry.image.ifBlank { entry.backdrop }
-                            val posterContext=LocalContext.current
-                            AsyncImage(model=remember(posterUrl,posterContext) { coil.request.ImageRequest.Builder(posterContext).data(posterUrl).crossfade(false).size(600,900).build() },contentDescription=entry.title,
+                            AsyncImage(model=posterUrl,contentDescription=entry.title,
                                 modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
                             if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))
                         }
@@ -1050,7 +1104,7 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
     }
 }
 
-@Composable private fun V4PosterRow(tmdbKey:String,title:String,entries:List<Entry>,cardWidth:Int=245,onFocusEntry:((Entry?)->Unit)?=null,landscape:Boolean=false,onSelect:(Entry)->Unit) {
+@Composable private fun V4PosterRow(tmdbKey:String,title:String,entries:List<Entry>,cardWidth:Int=245,landscape:Boolean=false,onSelect:(Entry)->Unit) {
     Column {
         if(title.isNotBlank()) Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.padding(bottom=3.dp)) {
             Box(Modifier.width(5.dp).height(23.dp).background(Color(0xFF00BFFF),RoundedCornerShape(0.dp)))
@@ -1063,18 +1117,14 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
             items(entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" },key={"${it.kind}:${it.genre}:${it.id}"}) { entry ->
                 var focused by remember {mutableStateOf(false)}
                 // Fixed scale prevents poster rows jumping when D-pad focus changes.
-                val focusScale=remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
                 val matched by produceState("",entry.id,entry.kind,tmdbKey,entry.title) { if(entry.kind in listOf("movie","vod","series")) value=TmdbApi.catalogueArt(tmdbKey,entry) }
-                LaunchedEffect(focused,matched) { if(focused && !landscape && entry.kind!="tmdb") { delay(180); onFocusEntry?.invoke(entry.copy(backdrop=TmdbApi.catalogueBackdrop(tmdbKey,entry))) } }
                 val logo by produceState("",entry.id,entry.genre,tmdbKey) { if(landscape && entry.kind=="tmdb" && tmdbKey.isNotBlank()) value=TmdbApi.titleLogo(tmdbKey,entry) }
-                ElectricFocus(Modifier.width(cardWidth.dp).onFocusChanged{ if(focused != it.isFocused) { focused=it.isFocused; if(focused && entry.kind=="tmdb") onFocusEntry?.invoke(entry) } }
-                    .graphicsLayer { scaleX=focusScale.floatValue;scaleY=focusScale.floatValue }
+                ElectricFocus(Modifier.width(cardWidth.dp).onFocusChanged{ focused = it.isFocused }
                     .clickable {onSelect(entry)},focused=focused,selected=false,shape=RoundedCornerShape(0.dp)) {
                     Box(Modifier.fillMaxWidth().height((if(landscape) cardWidth*9f/16f else (cardWidth-14)*1.5f).dp).background(Color(0xFF071424))) {
                         var artworkReady by remember(entry.id,matched) { mutableStateOf(false) }
                         val posterUrl=if(entry.kind=="tmdb") (if(landscape) entry.backdrop.ifBlank { entry.image } else entry.image) else matched.ifBlank { entry.image }
-                        val posterContext=LocalContext.current
-                        AsyncImage(model=remember(posterUrl,posterContext) { coil.request.ImageRequest.Builder(posterContext).data(posterUrl).crossfade(false).size(600,900).build() },contentDescription=entry.title,
+                        AsyncImage(model=posterUrl,contentDescription=entry.title,
                             modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop,onSuccess={ artworkReady=true },onError={ artworkReady=false })
                         if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))
                         var logoReady by remember(logo) { mutableStateOf(false) }
@@ -1911,12 +1961,11 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
     val caps=cm.getNetworkCapabilities(cm.activeNetwork)
     val internet=caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)==true
     val type=when { caps==null -> "None"; caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"; caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"; caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile"; else -> "Other" }
-    val serverStatus=if(api==null) "Not configured" else try { val start=android.os.SystemClock.elapsedRealtime(); val ok=api.authenticate(); if(ok) "Connected (${android.os.SystemClock.elapsedRealtime()-start} ms response)" else "Login rejected" } catch(e:Exception) { "Unreachable" }
+    val serverStatus=if(api==null) "Not configured" else try { val start=android.os.SystemClock.elapsedRealtime(); val ok=api.authenticate(); if(ok) "Connected (${android.os.SystemClock.elapsedRealtime()-start} ms response)" else "Login rejected" } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "Unreachable" }
     return "Internet: ${if(internet) "Connected" else "Not validated"}\nNetwork: $type\nIPTV server: $serverStatus\nEstimated link bandwidth: ${caps?.linkDownstreamBandwidthKbps ?: 0} kbps (not a speed test)"
 }
 @Composable private fun PremiumDialog(onDismissRequest:()->Unit,title:@Composable ()->Unit,text:(@Composable ()->Unit)?=null,confirmButton:@Composable ()->Unit,dismissButton:(@Composable ()->Unit)?=null) {
-    val transition=rememberInfiniteTransition(label="dialog glow")
-    val pulse = transition.animateFloat(0.55f,1f,infiniteRepeatable(tween(1200),RepeatMode.Reverse),label="border")
+    val pulse = LocalFramePulse.current
     val shape=RoundedCornerShape(0.dp)
     Dialog(onDismissRequest=onDismissRequest,properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF172D48),Color(0xFF080F29)))).drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(Color(0xFF36CFFF).copy(alpha=pulse.value),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius.Zero,style=Stroke(w)) }.padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
@@ -1939,15 +1988,14 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun LiveBrowser(categories:List<Pair<String,String>>, categoryId:String?, channels:List<Entry>, api:XtreamApi?, lastId:String, loading:Boolean, onCategory:(String)->Unit, onRetry:()->Unit, onGuide:()->Unit, onPlay:(Entry)->Unit) {
+@Composable private fun LiveBrowser(categories:List<Pair<String,String>>, categoryId:String?, channels:List<Entry>, api:XtreamApi?, lastId:String, loading:Boolean, previewEnabled:Boolean, onCategory:(String)->Unit, onRetry:()->Unit, onGuide:()->Unit, onPlay:(Entry)->Unit) {
     val context=LocalContext.current
     var query by remember { mutableStateOf("") }
     var search by remember { mutableStateOf(false) }
-    val epgCache=remember(api) { object:LinkedHashMap<String,Pair<Long,List<Program>>>(64,0.75f,true) { override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,Pair<Long,List<Program>>>?):Boolean = size>64 } }
     val filtered=remember(channels,query){channels.distinctBy { it.id }.filter { it.title.contains(query,true) }}
     var current by remember(categoryId,channels){mutableStateOf(channels.firstOrNull { it.id==lastId } ?: channels.firstOrNull())}
     val preview = remember(channels,lastId) { channels.firstOrNull { it.id==lastId } }
-    var listings by remember { mutableStateOf<List<Program>>(emptyList()) }
+    var listings by remember(api, current) { mutableStateOf<List<Program>>(emptyList()) }
     var favouriteIds by remember { mutableStateOf(context.getSharedPreferences("live_browser",0).getStringSet("favourites",emptySet()).orEmpty().toSet()) }
     val channelState=androidx.compose.foundation.lazy.rememberLazyListState()
     val categoryState=androidx.compose.foundation.lazy.rememberLazyListState()
@@ -1956,9 +2004,11 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
     LaunchedEffect(current,api) {
         val entry=current ?: return@LaunchedEffect
         delay(300)
-        val cached=epgCache[entry.id]
-        listings=if(cached!=null && System.currentTimeMillis()-cached.first<120000L) cached.second else emptyList()
-        try { if(cached==null || System.currentTimeMillis()-cached.first>=120000L) { val loaded=api?.epg(entry.id).orEmpty(); epgCache[entry.id]=System.currentTimeMillis() to loaded; listings=loaded } } catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e}
+        try {
+            listings = api?.epg(entry.id).orEmpty()
+        } catch (e: Exception) {
+            if(e is kotlinx.coroutines.CancellationException) throw e
+        }
     }
     CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
     Column(Modifier.fillMaxSize().clipToBounds().background(Color(0xF507152E),RoundedCornerShape(0.dp)).padding(horizontal=8.dp,vertical=3.dp)) {
@@ -1984,7 +2034,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
             Column(Modifier.weight(0.40f).fillMaxHeight().padding(top=24.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                 Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color.Black).pulsingFrame(2.dp,Color(0xFF48CFFF)).padding(3.dp),contentAlignment=Alignment.Center) {
                     val entry=preview
-                    if(entry!=null && api!=null) LivePreview(api.url(entry)) else Text("Press OK to play a channel",color=Color.White,fontSize=12.sp)
+                    if(previewEnabled && entry!=null && api!=null) LivePreview(api.url(entry)) else Text("Press OK to play a channel",color=Color.White,fontSize=12.sp)
                 }
                 Text(current?.title.orEmpty(),modifier=Modifier.height(40.dp),color=Color.White,fontSize=15.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -2013,7 +2063,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 @Composable private fun BrowserRow(label:String,active:Boolean,image:String,onFocused:()->Unit,onClick:()->Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape=RoundedCornerShape(0.dp)
-    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.background(if(active || focused)Color(0xFF233653) else Color(0xFF121F38),shape).border(2.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF304564),shape).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.background(if(active || focused)Color(0xFF233653) else Color(0xFF121F38),shape).pulsingFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF304564),shape).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
         if(image=="sky") GlassChannelWord()
         Text(label,color=Color.White,fontWeight=FontWeight.Normal,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
     }

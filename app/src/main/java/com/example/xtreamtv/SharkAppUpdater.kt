@@ -75,13 +75,17 @@ object SharkAppUpdater {
             return connection.inputStream.bufferedReader().use { it.readText() }
         } finally { connection.disconnect() }
     }
+    private val downloadInProgress = java.util.concurrent.atomic.AtomicBoolean()
+
     private fun download(activity: Activity, url: String) {
+        if (activity.isFinishing || activity.isDestroyed || !downloadInProgress.compareAndSet(false, true)) return
         val progress = AlertDialog.Builder(activity).setTitle("Downloading SharkNailTV")
             .setMessage("Please wait while the update downloads…").setCancelable(false).show()
         thread {
+            val dir = File(activity.cacheDir, "install")
+            val temp = File(dir, "SharkNailTV.apk.part")
             try {
-                val dir = File(activity.cacheDir, "install").apply { mkdirs() }
-                val temp = File(dir, "SharkNailTV.apk.part")
+                if (!dir.isDirectory && !dir.mkdirs()) error("Could not create update cache")
                 val target = File(dir, "SharkNailTV.apk")
                 val connection = URL(url).openConnection() as HttpURLConnection
                 connection.connectTimeout = 15000; connection.readTimeout = 30000
@@ -99,11 +103,24 @@ object SharkAppUpdater {
                     } }
                 } finally { connection.disconnect() }
                 if (temp.length() < 1024 || !temp.renameTo(target)) error("Invalid APK download")
-                activity.runOnUiThread { progress.dismiss(); install(activity, target) }
+                activity.runOnUiThread {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        progress.dismiss()
+                        install(activity, target)
+                    }
+                }
             } catch (e: Exception) {
-                activity.runOnUiThread { progress.dismiss(); AlertDialog.Builder(activity)
-                    .setTitle("Update failed").setMessage(e.message ?: "Please try again later")
-                    .setPositiveButton("OK", null).show() }
+                activity.runOnUiThread {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        progress.dismiss()
+                        AlertDialog.Builder(activity).setTitle("Update failed")
+                            .setMessage(e.message ?: "Please try again later")
+                            .setPositiveButton("OK", null).show()
+                    }
+                }
+            } finally {
+                temp.delete()
+                downloadInProgress.set(false)
             }
         }
     }
