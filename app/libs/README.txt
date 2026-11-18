@@ -1,0 +1,1 @@
+Optional IJK: supply compatible, licensed IJKPlayer Java and native AARs here. No IJK binaries are included. Media3 works independently. The experimental IJK adapter is disabled if its Java class is not installed. Native ABI compatibility and full playback features are unverified.
