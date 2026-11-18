@@ -694,15 +694,15 @@ fun App() {
                         "Shark Streaming" -> {
                             Spacer(Modifier.height(8.dp))
                             val services = listOf(
-                                "Netflix" to R.drawable.marquee_netflix,
-                                "Apple TV" to R.drawable.marquee_apple,
-                                "Prime Video" to R.drawable.marquee_prime,
-                                "Disney+" to R.drawable.marquee_disney,
-                                "HBO Max" to R.drawable.marquee_max,
-                                "Hulu" to R.drawable.marquee_hulu
+                                "Netflix" to R.drawable.themed_marquee_netflix,
+                                "Apple TV" to R.drawable.themed_marquee_apple,
+                                "Prime Video" to R.drawable.themed_marquee_prime,
+                                "Disney+" to R.drawable.themed_marquee_disney,
+                                "HBO Max" to R.drawable.themed_marquee_max,
+                                "Hulu" to R.drawable.themed_marquee_hulu
                             )
                             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                val tileWidth = minOf((maxWidth - 62.dp) / 6, (maxHeight - 20.dp) * 1.3f).coerceIn(1.dp, 280.dp)
+                                val tileWidth = minOf((maxWidth - 62.dp) / 6, maxHeight - 20.dp).coerceIn(1.dp, 280.dp)
                                 CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
                                     LazyRow(
                                         Modifier.fillMaxWidth(),
@@ -710,7 +710,7 @@ fun App() {
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
                                     ) {
                                         items(services, key = { it.first }) { (provider, artwork) ->
-                                            StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).aspectRatio(1.3f)) {
+                                            StreamingBrandCard(provider, artwork, Modifier.size(tileWidth)) {
                                                 serviceCategory = "Movies"
                                                 serviceGenre = null
                                                 section = "$provider Catalogue"
