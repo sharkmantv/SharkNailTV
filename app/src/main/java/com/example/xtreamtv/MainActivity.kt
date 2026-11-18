@@ -126,6 +126,16 @@ private val navy = Color(0xFF061125)
 private val blue = Color(0xFF168EF1)
 private val gold = Color(0xFFD9B66C)
 data class Entry(val id:String, val title:String, val image:String="", val category:String="", val kind:String="live", val container:String="m3u8", val backdrop:String="",val year:String="",val rating:String="",val genre:String="",val overview:String="")
+private enum class ServiceGenre(val label: String, val movieId: Int, val seriesId: Int) {
+    ACTION("Action", 28, 10759),
+    ANIMATION("Animation", 16, 16),
+    COMEDY("Comedy", 35, 35),
+    CRIME("Crime", 80, 80),
+    DOCUMENTARY("Documentary", 99, 99),
+    DRAMA("Drama", 18, 18),
+    SCI_FI("Sci-fi", 878, 10765)
+}
+
 data class Program(val title:String,val start:String,val end:String)
 data class SportEvent(val channel:Entry,val program:Program,val startMillis:Long,val endMillis:Long)
 class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); SharkAppUpdater.check(this); setContent { App() } } }
@@ -279,9 +289,10 @@ fun App() {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var section by remember { mutableStateOf("Home") }
-    var serviceCategory by remember { mutableStateOf("All") }
-    var serviceMovies by remember { mutableStateOf<List<Entry>>(emptyList()) }
-    var serviceSeries by remember { mutableStateOf<List<Entry>>(emptyList()) }
+    var serviceCategory by remember { mutableStateOf("Movies") }
+    var serviceGenre by remember { mutableStateOf<ServiceGenre?>(null) }
+    var serviceGenreMenu by remember { mutableStateOf(false) }
+    var serviceEntries by remember { mutableStateOf<List<Entry>>(emptyList()) }
     var serviceLoading by remember { mutableStateOf(false) }
     var serviceError by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<Entry?>(null) }
@@ -435,12 +446,11 @@ fun App() {
             when(catalogueKind) { "live" -> live=entries; "movie" -> movies=entries; else -> series=entries }
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; error="Catalogue request failed (${e.javaClass.simpleName})" } finally { catalogueLoading=false }
     }
-    LaunchedEffect(section, serviceCategory, tmdbKey) {
+    LaunchedEffect(section, serviceCategory, serviceGenre, tmdbKey) {
         if (!section.endsWith(" Catalogue")) return@LaunchedEffect
         serviceLoading = true
         serviceError = ""
-        serviceMovies = emptyList()
-        serviceSeries = emptyList()
+        serviceEntries = emptyList()
         if (tmdbKey.isBlank()) { serviceError = "Set a TMDB key in Settings"; serviceLoading = false; return@LaunchedEffect }
         val provider = when(section) {
             "Netflix Catalogue" -> 8
@@ -453,15 +463,11 @@ fun App() {
         }
         if (provider == 0) { serviceLoading = false; return@LaunchedEffect }
         try {
-            val sort = if(serviceCategory == "New Releases") "primary_release_date.desc" else "popularity.desc"
-            kotlinx.coroutines.coroutineScope {
-                val m = async { runCatching { TmdbApi.providerCatalogue(tmdbKey, "movie", provider, sort) } }
-                val t = async { runCatching { TmdbApi.providerCatalogue(tmdbKey, "tv", provider, "popularity.desc") } }
-                val mr = m.await(); val tr = t.await()
-                serviceMovies = mr.getOrDefault(emptyList())
-                serviceSeries = tr.getOrDefault(emptyList())
-                serviceError = listOfNotNull(mr.exceptionOrNull()?.message, tr.exceptionOrNull()?.message).joinToString(" | ")
-            }
+            val series = serviceCategory == "Series"
+            val type = if (series) "tv" else "movie"
+            val sort = if (serviceCategory == "New Releases") "primary_release_date.desc" else "popularity.desc"
+            val genre = if (series) serviceGenre?.seriesId else serviceGenre?.movieId
+            serviceEntries = TmdbApi.providerCatalogue(tmdbKey, type, provider, sort, genre)
         } catch(e: Exception) {
             if(e is kotlinx.coroutines.CancellationException) throw e
             serviceError = e.message ?: "Catalogue unavailable"
@@ -596,7 +602,8 @@ fun App() {
                                 ) {
                                     items(services, key = { it.first }) { (provider, artwork) ->
                                         StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).aspectRatio(4f / 5f)) {
-                                            serviceCategory = "All"
+                                            serviceCategory = "Movies"
+                                            serviceGenre = null
                                             section = "$provider Catalogue"
                                         }
                                     }
@@ -609,9 +616,10 @@ fun App() {
                             Text(section.removeSuffix(" Catalogue"),color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold)
                             Text("TMDB availability in United Kingdom • availability can change; subscription access not included",color=Color(0xFF8CF5FF),fontSize=12.sp)
                             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                listOf("All","Movies","Series","New Releases").forEach { category ->
+                                listOf("Movies","Series","New Releases").forEach { category ->
                                     FocusAction(if(serviceCategory==category) "● $category" else category) { serviceCategory=category }
                                 }
+                                FocusAction(serviceGenre?.let { "Category: ${it.label}" } ?: "Category") { serviceGenreMenu = true }
                                 FocusAction("Back to Services") { section="Shark Streaming" }
                             }
                             Box(Modifier.fillMaxWidth().height(18.dp), contentAlignment = Alignment.CenterStart) {
@@ -621,17 +629,34 @@ fun App() {
                                 }
                             }
                             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                val showMovies = serviceCategory != "Series"
-                                val showSeries = serviceCategory == "All" || serviceCategory == "Series"
-                                val rowCount = if (showMovies && showSeries) 2 else 1
-                                // Reserve space for each row heading and padding before sizing the 2:3 cards.
-                                val posterWidth = ((maxHeight / rowCount - 30.dp) / 1.5f)
-                                    .value.toInt().coerceIn(1, 112)
-                                Column(Modifier.fillMaxWidth()) {
-                                    if (showMovies) HomeTmdbRow(tmdbKey, "Movies", serviceMovies, posterWidth, onSelect = { openTitle(it) })
-                                    if (showSeries) HomeTmdbRow(tmdbKey, "TV Series", serviceSeries, posterWidth, onSelect = { openTitle(it) })
+                                val posterWidth = ((maxHeight - 12.dp) / 1.5f).value.toInt().coerceIn(1, 200)
+                                if (!serviceLoading) {
+                                    if (serviceEntries.isEmpty() && serviceError.isBlank()) {
+                                        Text("No titles found for this category.", color = Color(0xFFB8D8F2), fontSize = 15.sp)
+                                    } else if (serviceEntries.isNotEmpty()) {
+                                        HomeTmdbRow(tmdbKey, "", serviceEntries, posterWidth, onSelect = { openTitle(it) })
+                                    }
                                 }
                             }
+                            if (serviceGenreMenu) AlertDialog(
+                                onDismissRequest = { serviceGenreMenu = false },
+                                title = { Text("Category") },
+                                text = {
+                                    Column(Modifier.heightIn(max = 290.dp).verticalScroll(rememberScrollState())) {
+                                        FocusAction("Any genre", modifier = Modifier.fillMaxWidth()) {
+                                            serviceGenre = null
+                                            serviceGenreMenu = false
+                                        }
+                                        ServiceGenre.entries.forEach { genre ->
+                                            FocusAction(genre.label, modifier = Modifier.fillMaxWidth()) {
+                                                serviceGenre = genre
+                                                serviceGenreMenu = false
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = { PremiumButton(onClick = { serviceGenreMenu = false }) { Text("Cancel") } }
+                            )
                         }
                         "Sports Guide" -> { PublicGuide(fixtures,fixtureStatus, onRefresh={sportsRefresh++}) }
                         "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++},{section="EPG / TV Guide"}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
@@ -967,7 +992,7 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = androidx.compose.ui.graphics.RectangleShape
     val rim = if (focused) Color(0xFFFFD44D) else Color.White.copy(alpha = 0.2f)
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
@@ -1185,11 +1210,12 @@ private object TmdbApi {
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "" } finally { artGate.release() }
     }
 
-    suspend fun providerCatalogue(key:String,type:String,provider:Int,sort:String):List<Entry> = withContext(Dispatchers.IO) {
+    suspend fun providerCatalogue(key:String,type:String,provider:Int,sort:String,genre:Int?):List<Entry> = withContext(Dispatchers.IO) {
         val token=key.trim().removePrefix("Bearer ").trim()
         val bearer=token.contains('.') || token.length>64
         val region="GB"
-        val url="https://api.themoviedb.org/3/discover/$type?language=en-GB&watch_region=$region&with_watch_providers=$provider&sort_by=${URLEncoder.encode(sort,"UTF-8")}&page=1" + if(bearer) "" else "&api_key=${URLEncoder.encode(token,"UTF-8")}" 
+        val genreFilter = genre?.let { "&with_genres=$it" }.orEmpty()
+        val url="https://api.themoviedb.org/3/discover/$type?language=en-GB&watch_region=$region&with_watch_providers=$provider&sort_by=${URLEncoder.encode(sort,"UTF-8")}&page=1$genreFilter" + if(bearer) "" else "&api_key=${URLEncoder.encode(token,"UTF-8")}"
         val request=Request.Builder().url(url)
         if(bearer) request.header("Authorization","Bearer $token")
         client.newCall(request.build()).execute().use { response ->

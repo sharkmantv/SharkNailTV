@@ -8,6 +8,8 @@ on:
       - '.github/workflows/build-zip.yml'
       - 'app/src/main/java/com/example/xtreamtv/MainActivity.kt'
       - 'app/src/main/res/drawable-nodpi/premium_*.webp'
+      - 'app/src/main/java/com/example/xtreamtv/SkyLikeTypography.kt'
+      - 'app/src/main/res/font/**'
   workflow_dispatch:
     inputs:
       source:

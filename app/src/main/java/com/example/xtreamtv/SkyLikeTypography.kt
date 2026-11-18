@@ -1,9 +1,13 @@
 package com.example.xtreamtv
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-internal val SkyLikeFamily = FontFamily.SansSerif
+internal val SkyLikeFamily = FontFamily(
+    Font(R.font.shark_tv_sans_regular, FontWeight.Normal),
+    Font(R.font.shark_tv_sans_bold, FontWeight.Bold)
+)
 internal fun skyLikeTypography(): Typography {
     val t = Typography()
     return Typography(
