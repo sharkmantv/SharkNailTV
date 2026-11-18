@@ -692,8 +692,6 @@ fun App() {
                             if((if(section=="Home") trendingMovies.isEmpty() && trendingSeries.isEmpty() && popularMovies.isEmpty() && popularSeries.isEmpty() else sectionEntries.isEmpty())) { if(connected && section!="Home") Text(if(catalogueLoading) "Loading catalogue…" else if(error.isNotBlank()) "$error — press Retry" else "No titles returned",color=Color.White) else if(section=="Home") FocusAction("Retry posters"){posterRefresh++} else ConnectPrompt{showLogin=true} }
                         }
                         "Shark Streaming" -> {
-                            Text("Shark Stream", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
-                            Text("Select a service to browse or open an installed TV app",color = Color.White,fontSize=15.sp)
                             Spacer(Modifier.height(8.dp))
                             val services = listOf(
                                 "Netflix" to R.drawable.marquee_netflix,
@@ -856,7 +854,6 @@ fun App() {
                         }
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
-                            Text("Posters: ${tmdbStatus.ifBlank { "Updated" }}  ·  Sports: $fixtureStatus",color = Color.White,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.height(18.dp))
                             val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
                             Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             options.chunked(3).forEach { labels ->
