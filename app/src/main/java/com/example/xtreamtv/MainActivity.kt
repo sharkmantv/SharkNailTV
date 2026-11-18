@@ -85,6 +85,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -95,6 +97,7 @@ import kotlinx.coroutines.coroutineScope
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -151,7 +154,7 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
         onFinished()
     }
     Box(Modifier.fillMaxSize().background(Color(0xFF020914)),contentAlignment=Alignment.Center) {
-        Image(painterResource(R.drawable.shark_intro_claws_background),"Claws-out shark intro background",
+        AsyncImage(R.drawable.shark_intro_claws_background,"Claws-out shark intro background",
             Modifier.fillMaxSize().graphicsLayer { alpha=reveal.value },contentScale=ContentScale.Crop)
         // Keep the existing original brand artwork rather than replacing its lettering.
         Image(painterResource(R.drawable.shark_brand),"Original SharkNailTV intro logo",
@@ -172,18 +175,66 @@ class XtreamApi(private val server:String,private val user:String,private val pa
     // The caller's explicit username/password take precedence over URL query values.
     private val base=server.trim().let { if(it.startsWith("http://",true) || it.startsWith("https://",true)) it else "http://$it" }
         .substringBefore('?').trimEnd('/').removeSuffix("/player_api.php").removeSuffix("/get.php").trimEnd('/')
-    private suspend fun request(url:String, catalogue:Boolean=false):okhttp3.Response {
-        repeat(if(catalogue) 1 else 2) { attempt ->
-            try { val call=client.newCall(Request.Builder().url(url).build()); if(catalogue) call.timeout().timeout(XtreamIntegrationConfig.catalogueTimeout.toLong(),java.util.concurrent.TimeUnit.SECONDS); return call.execute() } catch(e:java.io.IOException) { if(catalogue || attempt==1) throw e; delay(700) }
-        }; error("Request failed")
+    private suspend fun <T> request(url: String, catalogue: Boolean = false, read: (okhttp3.Response) -> T): T {
+        return try {
+            execute(url, catalogue, read)
+        } catch (error: java.io.IOException) {
+            if (catalogue) throw error
+            delay(700)
+            execute(url, false, read)
+        }
     }
+
+    private suspend fun <T> execute(url: String, catalogue: Boolean, read: (okhttp3.Response) -> T): T =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(Request.Builder().url(url).build())
+            if (catalogue) call.timeout().timeout(XtreamIntegrationConfig.catalogueTimeout.toLong(), java.util.concurrent.TimeUnit.SECONDS)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, error: java.io.IOException) {
+                    continuation.resumeWithException(error)
+                }
+
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    continuation.resumeWith(runCatching {
+                        response.use {
+                            continuation.context.ensureActive()
+                            if (!it.isSuccessful) error("HTTP ${it.code}")
+                            read(it)
+                        }
+                    })
+                }
+            })
+        }
+
     private fun encoded(s:String)=URLEncoder.encode(s,"UTF-8")
-    private suspend fun json(action:String,extra:String=""):Any=withContext(Dispatchers.IO){
+    private suspend fun json(action:String,extra:String=""):Any {
         val url="$base/player_api.php?username=${encoded(user)}&password=${encoded(pass)}${if(action.isBlank()) "" else "&action=$action"}$extra"
-        val response=request(url)
-        response.use { if(!it.isSuccessful) error("HTTP ${it.code}"); val stream=it.body?.charStream()?:error("Empty response"); val body=StringBuilder(); stream.use { r -> val buffer=CharArray(4096); while(true) { val n=r.read(buffer); if(n<0) break; if(body.length+n>2_000_000) error("Response too large"); body.append(buffer,0,n) } }; JSONTokenerCompat.parse(body.toString()) }
+        return request(url) { response ->
+            val stream = response.body?.charStream() ?: error("Empty response")
+            val body = StringBuilder()
+            val buffer = CharArray(4096)
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                if (body.length + count > 2_000_000) error("Response too large")
+                body.append(buffer, 0, count)
+            }
+            JSONTokenerCompat.parse(body.toString())
+        }
     }
-    suspend fun authenticate():Boolean { val data=json("") as? JSONObject ?:return false; val info=data.optJSONObject("user_info") ?: return false; return info.optString("auth") in listOf("1","true") && info.optString("status","Active").equals("Active",true) }
+
+    @Volatile private var liveFormats = emptySet<String>()
+
+    suspend fun authenticate(): Boolean {
+        val data = json("") as? JSONObject ?: return false
+        val info = data.optJSONObject("user_info") ?: return false
+        if (info.optString("auth") !in listOf("1", "true") || !info.optString("status", "Active").equals("Active", true)) return false
+        liveFormats = info.optJSONArray("allowed_output_formats")?.let { formats ->
+            (0 until formats.length()).map { formats.optString(it).trim().lowercase(Locale.ROOT) }.toSet()
+        }.orEmpty()
+        return true
+    }
     suspend fun categories(action:String):List<Pair<String,String>> {
         categoryCache.get(action)?.takeIf { System.currentTimeMillis()-it.first<120000L }?.let { return it.second }
         val arr=json(action) as? JSONArray ?: error("Invalid categories")
@@ -202,21 +253,25 @@ class XtreamApi(private val server:String,private val user:String,private val pa
         val url="$base/player_api.php?username=${encoded(user)}&password=${encoded(pass)}&action=$action${categoryId?.let { "&category_id=${encoded(it)}" }.orEmpty()}"
         val cacheKey="$action:$kind:$categoryId"
         if(titleFilter==null) entryCache.get(cacheKey)?.takeIf { System.currentTimeMillis()-it.first<120000L }?.let { return@withContext it.second }
-        val result=ArrayList<Entry>()
-        val seen=HashSet<String>()
-        request(url,titleFilter!=null).use { response ->
-            if(!response.isSuccessful) error("HTTP ${response.code}")
+        val requestContext = kotlinx.coroutines.currentCoroutineContext()
+        val result = request(url, catalogue = true) { response ->
+            val result = ArrayList<Entry>()
+            val seen = HashSet<String>()
             val body=response.body ?: error("Empty response")
             android.util.JsonReader(body.charStream()).use { reader ->
                 reader.beginArray()
                 while(reader.hasNext()) {
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    requestContext.ensureActive()
                     if(reader.peek()!=android.util.JsonToken.BEGIN_OBJECT) { reader.skipValue(); continue }
                     var id=""; var name="Untitled"; var image=""; var category=""; var extension="mp4"
                     reader.beginObject()
                     while(reader.hasNext()) {
                         val field=reader.nextName()
-                        if(field in listOf("stream_id","series_id","name","stream_icon","cover","category_id","container_extension") && reader.peek() in listOf(android.util.JsonToken.STRING,android.util.JsonToken.NUMBER)) {
+                        val textField = when (field) {
+                            "stream_id", "series_id", "name", "stream_icon", "cover", "category_id", "container_extension" -> true
+                            else -> false
+                        }
+                        if (textField && (reader.peek() == android.util.JsonToken.STRING || reader.peek() == android.util.JsonToken.NUMBER)) {
                             val value=reader.nextString()
                             when(field) { "stream_id","series_id" -> id=value; "name" -> name=value; "stream_icon","cover" -> image=value; "category_id" -> category=value; "container_extension" -> extension=value }
                         } else reader.skipValue()
@@ -226,6 +281,7 @@ class XtreamApi(private val server:String,private val user:String,private val pa
                     if(result.size >= (if(titleFilter==null) 10000 else 100000)) break
                 }
             }
+            result
         }
         if(titleFilter==null) entryCache.put(cacheKey,System.currentTimeMillis() to result)
         result
@@ -251,7 +307,26 @@ class XtreamApi(private val server:String,private val user:String,private val pa
             if(text.contains('\uFFFD') || text.any { it.isISOControl() && it!='\n' && it!='\t' }) s else text
         } catch(_:Exception) { s }
     }
-    fun url(e:Entry):String { val folder=when(e.kind){"live"->"live";"episode"->"series";else->"movie"};val ext=if(e.kind=="live") "m3u8" else e.container.ifBlank { "mp4" };return "$base/$folder/${encoded(user)}/${encoded(pass)}/${e.id}.$ext" }
+    fun url(entry: Entry, format: String? = null): String {
+        val folder = when (entry.kind) {
+            "live" -> "live"
+            "episode" -> "series"
+            else -> "movie"
+        }
+        val formats = liveFormats
+        val extension = when {
+            entry.kind != "live" -> entry.container.ifBlank { "mp4" }
+            format == "MPEG-TS (.ts)" -> "ts"
+            format == "HLS (.m3u8)" -> "m3u8"
+            "m3u8" !in formats && "hls" !in formats && ("ts" in formats || "mpegts" in formats) -> "ts"
+            else -> "m3u8"
+        }
+        val baseUrl = base.toHttpUrl()
+        return baseUrl.newBuilder().encodedPath(baseUrl.encodedPath.trimEnd('/') + "/")
+            .addPathSegment(folder).addPathSegment(user).addPathSegment(pass)
+            .addPathSegment("${entry.id}.$extension").build().toString()
+    }
+
 }
 object JSONTokenerCompat {fun parse(s:String):Any {val t=s.trim();return if(t.startsWith("[")) JSONArray(t) else JSONObject(t)} }
 @OptIn(ExperimentalCoilApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -260,7 +335,6 @@ fun App() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("shark_settings", 0) }
     var exitPrompt by remember { mutableStateOf(false) }
-    val playerChoice = playbackPrefs(context).getString("engine", "Media3") ?: "Media3"
     var introFinished by remember { mutableStateOf(false) }
     var server by remember { mutableStateOf(prefs.getString("server", "") ?: "") }
     var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
@@ -281,15 +355,18 @@ fun App() {
         }
     }
     var api by remember { mutableStateOf<XtreamApi?>(null) }
-    var categories by remember { mutableStateOf<List<Pair<String,String>>>(emptyList()) }
-    var categoryId by remember { mutableStateOf<String?>(null) }
-    var catalogueLoading by remember { mutableStateOf(false) }
-    var categoryMenu by remember { mutableStateOf(false) }
+    var section by remember { mutableStateOf("Home") }
+    val catalogueKind=when(section) { "Shark TV", "EPG / TV Guide" -> "live"; "Movies" -> "movie"; "TV Series" -> "series"; else -> "" }
     var catalogueRetry by remember { mutableIntStateOf(0) }
+    var categories by remember(api, catalogueKind, catalogueRetry) { mutableStateOf<List<Pair<String,String>>>(emptyList()) }
+    var categoryId by remember(api, catalogueKind, catalogueRetry) { mutableStateOf<String?>(null) }
+    var categoriesLoading by remember(api, catalogueKind, catalogueRetry) { mutableStateOf(api != null && catalogueKind.isNotBlank()) }
+    var entriesLoading by remember(api, catalogueKind, catalogueRetry, categoryId) { mutableStateOf(categoryId != null) }
+    val catalogueLoading = categoriesLoading || entriesLoading
+    var categoryMenu by remember(api, catalogueKind, catalogueRetry) { mutableStateOf(false) }
     var connected by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
-    var section by remember { mutableStateOf("Home") }
     var serviceCategory by remember { mutableStateOf("Movies") }
     var serviceGenre by remember { mutableStateOf<ServiceGenre?>(null) }
     var serviceGenreMenu by remember { mutableStateOf(false) }
@@ -459,26 +536,25 @@ fun App() {
             tmdbStatus = listOfNotNull(m.exceptionOrNull()?.let { "Movies: ${it.javaClass.simpleName} ${it.message.orEmpty().substringBefore("https://")}" }, t.exceptionOrNull()?.let { "TV: ${it.javaClass.simpleName} ${it.message.orEmpty().substringBefore("https://")}" }).joinToString(" | ")
         }
     }
-    val catalogueKind=when(section) { "Shark TV", "EPG / TV Guide" -> "live"; "Movies" -> "movie"; "TV Series" -> "series"; else -> "" }
     LaunchedEffect(api,catalogueKind,catalogueRetry) {
-        categories=emptyList(); categoryId=null; categoryMenu=false; error=""; catalogueLoading=false
+        error=""
         live=emptyList(); movies=emptyList(); series=emptyList()
         val a=api ?: return@LaunchedEffect
         if(catalogueKind.isBlank()) return@LaunchedEffect
-        catalogueLoading=true
+        categoriesLoading=true
         try { categories=a.categories(when(catalogueKind) { "live" -> "get_live_categories"; "movie" -> "get_vod_categories"; else -> "get_series_categories" }); categoryId=categories.firstOrNull()?.first ?: "" }
-        catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; error="Category request failed (${e.javaClass.simpleName})" } finally { catalogueLoading=false }
+        catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; error="Category request failed (${e.javaClass.simpleName})" } finally { categoriesLoading=false }
     }
     LaunchedEffect(api,catalogueKind,categoryId,catalogueRetry) {
         val a=api ?: return@LaunchedEffect
         val cat=categoryId ?: return@LaunchedEffect
         if(catalogueKind.isBlank()) return@LaunchedEffect
-        error=""; catalogueLoading=true
+        error=""; entriesLoading=true
         when(catalogueKind) { "live" -> live=emptyList(); "movie" -> movies=emptyList(); else -> series=emptyList() }
         try {
             val entries=a.entries(when(catalogueKind) { "live" -> "get_live_streams"; "movie" -> "get_vod_streams"; else -> "get_series" },catalogueKind,cat.ifBlank { null })
             when(catalogueKind) { "live" -> live=entries; "movie" -> movies=entries; else -> series=entries }
-        } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; error="Catalogue request failed (${e.javaClass.simpleName})" } finally { catalogueLoading=false }
+        } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; error="Catalogue request failed (${e.javaClass.simpleName})" } finally { entriesLoading=false }
     }
     LaunchedEffect(section, serviceCategory, serviceGenre, tmdbKey) {
         if (!section.endsWith(" Catalogue")) return@LaunchedEffect
@@ -526,12 +602,12 @@ fun App() {
         if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
             BackHandler { homePlaying=null }
-            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,playerChoice,onExit={homePlaying=null},title=stream.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) } }
+            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=stream.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) } }
         } else if(selected?.kind in listOf("live","movie","episode") && api!=null) {
             val entry=selected!!
             BackHandler { selected=episodeParent; episodeParent=null }
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                SafePlayer(api!!.url(entry),playerChoice,title=entry.title, liveStream=entry.kind=="live", programmes=epg, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
+                SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
         } else Box(Modifier.fillMaxSize().background(Color(0xFF020916))) {
             BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
@@ -559,7 +635,7 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url, playerChoice, onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) }
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) }
                             } else {
                                 Text(e.title,color=Color.White,fontSize=28.sp)
                                 Text(e.overview,color=Color.White,maxLines=5)
@@ -582,7 +658,7 @@ fun App() {
                             }
                         }
                         "series" -> { var episodes by remember(e.id){mutableStateOf<List<Entry>>(emptyList())}; var status by remember(e.id){mutableStateOf("Loading episodes…")}; LaunchedEffect(e.id){try { episodes=api?.episodes(e.id).orEmpty(); status=if(episodes.isEmpty()) "No episodes returned" else "" } catch(ex:Exception){if(ex is kotlinx.coroutines.CancellationException) throw ex; status="Episode request failed (${ex.javaClass.simpleName})"}}; Text(status,color=Color.White); episodes.forEach { episode -> FocusAction(episode.title){episodeParent=e;selected=episode} } }
-                        else -> {val a=api;if(a!=null)key(e.id){SafePlayer(a.url(e),playerChoice)} else ConnectPrompt{showLogin=true};if(e.kind=="live") { Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) { FocusAction("Previous channel"){val i=live.indexOf(e);if(i>0)selected=live[i-1]}; FocusAction("TV Guide"){selected=null;section="EPG / TV Guide"}; FocusAction("Next channel"){val i=live.indexOf(e);if(i>=0 && i+1<live.size)selected=live[i+1]} }; epg.orEmpty().forEach {Text("${it.start} — ${it.title}",color=Color.White)} }}
+                        else -> {val a=api;if(a!=null)key(e.id){SafePlayer(a.url(e, playbackPrefs(context).getString("streamFormat", "Auto")), inferFormat=true)} else ConnectPrompt{showLogin=true};if(e.kind=="live") { Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) { FocusAction("Previous channel"){val i=live.indexOf(e);if(i>0)selected=live[i-1]}; FocusAction("TV Guide"){selected=null;section="EPG / TV Guide"}; FocusAction("Next channel"){val i=live.indexOf(e);if(i>=0 && i+1<live.size)selected=live[i+1]} }; epg.orEmpty().forEach {Text("${it.start} — ${it.title}",color=Color.White)} }}
                     }
                 } else {
                     if(connected && catalogueKind.isNotBlank() && section!="Shark TV") { Row { FocusAction(categories.firstOrNull { it.first==categoryId }?.second ?: "Categories") { categoryMenu=true }; FocusAction("Retry") { api?.clearCatalogueCache(); catalogueRetry++ } } }
@@ -836,7 +912,7 @@ fun App() {
                             Text("System Health · SHARK ${BuildConfig.VERSION_NAME}",color=Color.White,fontSize=22.sp)
                             Text("App heap used: ${formatBytes(used)} / ${formatBytes(max)}",color=Color.White)
                             Text("Available app storage: ${formatBytes(free)}",color=Color.White)
-                            Text("Selected player: ${playbackPrefs(context).getString("engine","Media3")}",color=Color.White)
+                            Text("Built-in player: Media3",color=Color.White)
                             Text("Stream format: ${playbackPrefs(context).getString("streamFormat","Auto")}",color=Color.White)
                             Text("These are live device readings, not a guarantee against buffering.",color=Color.LightGray)
                             FocusAction("Refresh readings"){section="Settings";section="System Health"}
@@ -1084,13 +1160,16 @@ internal val SharkFrameShape = object : androidx.compose.ui.graphics.Shape {
     val rim = remember(accent) {
         Brush.linearGradient(listOf(accent, Color(0xFF645596), accent))
     }
-    return clip(SharkFrameShape).drawWithContent {
-        drawContent()
-        if (size.width <= 0f || size.height <= 0f) return@drawWithContent
-        val w = width.toPx().coerceAtMost(minOf(size.width, size.height) / 4f)
-        inset(w) {
-            drawOutline(SharkFrameShape.createOutline(size, layoutDirection, this), rim,
-                alpha = if (focused) .8f + .2f * pulse.value else .66f, style = Stroke(w))
+    return clip(SharkFrameShape).drawWithCache {
+        val strokeWidth = width.toPx().coerceAtMost(minOf(size.width, size.height) / 4f)
+        val outlineSize = Size(size.width - 2 * strokeWidth, size.height - 2 * strokeWidth)
+        val outline = SharkFrameShape.createOutline(outlineSize, layoutDirection, this)
+        val stroke = Stroke(strokeWidth)
+        onDrawWithContent {
+            drawContent()
+            if (strokeWidth > 0f) inset(strokeWidth) {
+                drawOutline(outline, rim, alpha = if (focused) .8f + .2f * pulse.value else .66f, style = stroke)
+            }
         }
     }
 }
@@ -1419,7 +1498,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
 @Composable private fun MetallicText(value:String,size:Int) {
     Text(value,color=Color(0xFFF0F5FA),fontSize=size.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
 }
-@Composable private fun SafePlayer(url:String,choice:String="Media3",onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null) {
+@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false) {
     val context=LocalContext.current
     var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(url, liveStream) {
@@ -1451,9 +1530,8 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
     val player=remember { configuredPlayer(context) }
     LaunchedEffect(player,url) {
         playerError=""
-        val started=android.os.SystemClock.elapsedRealtime()
         android.util.Log.d("SharkPlayback","Preparing stream")
-        player.setMediaItem(sharkMediaItem(context,url));if(resumeMs>0L) player.seekTo(resumeMs);player.prepare();player.playWhenReady=true
+        player.setMediaItem(sharkMediaItem(context,url,inferFormat));if(resumeMs>0L) player.seekTo(resumeMs);player.prepare();player.playWhenReady=true
     }
     val latestFailure by rememberUpdatedState(onFailure)
     var firstFrame by remember(url) { mutableStateOf(false) }
@@ -2164,7 +2242,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
             Column(Modifier.weight(0.40f).fillMaxHeight().padding(top=24.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                 Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color.Black).pulsingFrame(2.dp,Color(0xFF48CFFF)).padding(3.dp),contentAlignment=Alignment.Center) {
                     val entry=preview
-                    if(previewEnabled && entry!=null && api!=null) LivePreview(api.url(entry)) else Text("Press OK to play a channel",color=Color.White,fontSize=12.sp)
+                    if(previewEnabled && entry!=null && api!=null) LivePreview(api.url(entry, playbackPrefs(context).getString("streamFormat", "Auto"))) else Text("Press OK to play a channel",color=Color.White,fontSize=12.sp)
                 }
                 Text(current?.title.orEmpty(),modifier=Modifier.height(40.dp),color=Color.White,fontSize=15.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -2201,8 +2279,8 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 @Composable private fun LivePreview(url:String) {
     val context=LocalContext.current
     var failed by remember(url){mutableStateOf(false)}
-    val player=remember { configuredPlayer(context).apply { volume=0f } }
-    LaunchedEffect(player,url) { failed=false; player.setMediaItem(sharkMediaItem(context,url));player.prepare();player.playWhenReady=true }
+    val player=remember { configuredPlayer(context, preview = true).apply { volume=0f } }
+    LaunchedEffect(player,url) { failed=false; player.setMediaItem(sharkMediaItem(context,url,inferFormat=true));player.prepare();player.playWhenReady=true }
     DisposableEffect(player,url) {
         var recoveryCount=0
         var lastRecovery=0L
