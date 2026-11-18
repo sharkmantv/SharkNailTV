@@ -91,7 +91,7 @@ internal fun Modifier.glassFrame(
         opacity.asState()
     }
     return drawWithCache {
-        val line = stroke.toPx()
+        val line = stroke.toPx() * 1.2f
         val inset = line / 2
         val outlineSize = Size((size.width - line).coerceAtLeast(0f), (size.height - line).coerceAtLeast(0f))
         onDrawWithContent {
