@@ -613,7 +613,7 @@ fun App() {
                         }
                         "Shark Streaming" -> {
                             Text("Shark Stream", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
-                            Text("Choose a service to browse films and series available in the UK",color=Color(0xFF9DD9F5),fontSize=15.sp)
+                            Text("Select a service to browse or open an installed TV app",color=Color(0xFF9DD9F5),fontSize=15.sp)
                             Spacer(Modifier.height(8.dp))
                             val services = listOf(
                                 "Netflix" to R.drawable.premium_netflix,
@@ -636,6 +636,28 @@ fun App() {
                                                 serviceCategory = "Movies"
                                                 serviceGenre = null
                                                 section = "$provider Catalogue"
+                                            }
+                                        }
+                                        item(key = "magis-tv") {
+                                            StreamingBrandCard("Magis TV", null, Modifier.size(tileWidth)) {
+                                                val packageName = "com.magis.tioNel"
+                                                val manager = context.packageManager
+                                                val launch = manager.getLeanbackLaunchIntentForPackage(packageName)
+                                                    ?: manager.getLaunchIntentForPackage(packageName)
+                                                if (launch == null) {
+                                                    cacheTitle = "Magis TV"
+                                                    cacheMessage = "Install Magis TV on this TV, then return to Shark Stream and open this tile."
+                                                } else {
+                                                    try {
+                                                        context.startActivity(launch)
+                                                    } catch (_: android.content.ActivityNotFoundException) {
+                                                        cacheTitle = "Magis TV"
+                                                        cacheMessage = "Magis TV could not be opened on this TV."
+                                                    } catch (_: SecurityException) {
+                                                        cacheTitle = "Magis TV"
+                                                        cacheMessage = "Android blocked Magis TV from opening."
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1050,7 +1072,7 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
 }
 @Composable private fun StreamingBrandCard(
     name: String,
-    artwork: Int,
+    artwork: Int?,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -1061,10 +1083,14 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
         modifier.onFocusChanged { focused = it.isFocused }
             .shadow(if (focused) 8.dp else 3.dp, shape)
             .clip(shape)
+            .background(Brush.verticalGradient(listOf(Color(0xFF10263A), Color(0xFF070D16))))
             .clickable(onClick = onClick)
             .pulsingFrame(2.5.dp, rim, shape)
     ) {
-        AsyncImage(
+        if (artwork == null) {
+            Text(name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 1)
+        } else AsyncImage(
             model = artwork,
             contentDescription = "$name — browse catalogue",
             modifier = Modifier.fillMaxSize(),
