@@ -1008,8 +1008,8 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
             .clickable(onClick = onClick)
             .then(if (focused) Modifier.pulsingFrame(2.5.dp, rim, shape) else Modifier.border(1.dp, rim, shape))
     ) {
-        Image(
-            painter = painterResource(artwork),
+        AsyncImage(
+            model = artwork,
             contentDescription = "$name — browse catalogue",
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop
