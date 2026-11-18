@@ -515,7 +515,7 @@ fun App() {
                 GlassHeader()
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
-                val serviceCatalogue = selected == null && section.endsWith(" Catalogue")
+                val serviceCatalogue = selected == null && (section == "Shark Streaming" || section.endsWith(" Catalogue"))
                 Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
                 if(selected!=null) {
                     val e=selected!!
@@ -564,8 +564,8 @@ fun App() {
                                     val verticalWidth = ((maxHeight.value - 68f) / 3.0f).toInt()
                                     val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,220)
                                     Column(Modifier.fillMaxSize().padding(top=2.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                                        HomeTmdbRow(tmdbKey,"Movies",trendingMovies.ifEmpty { popularMovies },cardWidth,onFocusEntry={ _ -> }){openTitle(it)}
-                                        HomeTmdbRow(tmdbKey,"TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth,onFocusEntry={ _ -> }){openTitle(it)}
+                                        HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth,onFocusEntry={ _ -> }){openTitle(it)}
+                                        HomeTmdbRow("TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth,onFocusEntry={ _ -> }){openTitle(it)}
                                     }
                                 }
                             } else {
@@ -592,16 +592,15 @@ fun App() {
                                 "HBO Max" to R.drawable.premium_max,
                                 "Hulu" to R.drawable.premium_hulu
                             )
-                            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                val tileWidth = ((maxWidth - 12.dp - 10.dp * (services.size - 1)) / services.size)
-                                    .coerceIn(110.dp, 240.dp)
-                                LazyRow(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
+                            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                                val availableWidth = (maxWidth - 12.dp - 10.dp * (services.size - 1)) / services.size
+                                val tileWidth = minOf(availableWidth, maxHeight - 20.dp).coerceIn(1.dp, 240.dp)
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    items(services, key = { it.first }) { (provider, artwork) ->
-                                        StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).aspectRatio(4f / 5f)) {
+                                    services.forEach { (provider, artwork) ->
+                                        StreamingBrandCard(provider, artwork, Modifier.size(tileWidth)) {
                                             serviceCategory = "Movies"
                                             serviceGenre = null
                                             section = "$provider Catalogue"
@@ -634,23 +633,31 @@ fun App() {
                                     if (serviceEntries.isEmpty() && serviceError.isBlank()) {
                                         Text("No titles found for this category.", color = Color(0xFFB8D8F2), fontSize = 15.sp)
                                     } else if (serviceEntries.isNotEmpty()) {
-                                        HomeTmdbRow(tmdbKey, "", serviceEntries, posterWidth, onSelect = { openTitle(it) })
+                                        HomeTmdbRow( "", serviceEntries, posterWidth, onSelect = { openTitle(it) })
                                     }
                                 }
                             }
-                            if (serviceGenreMenu) AlertDialog(
+                            if (serviceGenreMenu) PremiumDialog(
                                 onDismissRequest = { serviceGenreMenu = false },
-                                title = { Text("Category") },
+                                title = { Text("Category", color = Color.White, fontSize = 23.sp) },
                                 text = {
-                                    Column(Modifier.heightIn(max = 290.dp).verticalScroll(rememberScrollState())) {
-                                        FocusAction("Any genre", modifier = Modifier.fillMaxWidth()) {
-                                            serviceGenre = null
-                                            serviceGenreMenu = false
-                                        }
-                                        ServiceGenre.entries.forEach { genre ->
-                                            FocusAction(genre.label, modifier = Modifier.fillMaxWidth()) {
-                                                serviceGenre = genre
-                                                serviceGenreMenu = false
+                                    val genres = listOf<ServiceGenre?>(null) + ServiceGenre.entries
+                                    Column(
+                                        Modifier.heightIn(max = 184.dp).clipToBounds().verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        genres.chunked(2).forEach { row ->
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                row.forEach { genre ->
+                                                    PremiumButton(
+                                                        onClick = { serviceGenre = genre; serviceGenreMenu = false },
+                                                        modifier = Modifier.weight(1f).height(34.dp),
+                                                        compact = true
+                                                    ) {
+                                                        val name = genre?.label ?: "Any genre"
+                                                        Text(if (genre == serviceGenre) "✓ $name" else name, maxLines = 1)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -813,7 +820,7 @@ fun App() {
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
-                    val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Settings" && section in listOf("App Information","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
+                    val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Shark Stream" && section.endsWith(" Catalogue")) || (item=="Settings" && section in listOf("App Information","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
                     val focused=focusedNav==item
                     val emphasized=focused || (focusedNav==null && active)
                     val accent=when(item){"Home"->Color(0xFFFFC34D);"Shark TV"->Color(0xFFFF8A35);"Movies"->Color(0xFFFF5260);"TV Series"->Color(0xFFED49A6);"Sports Guide"->Color(0xFFB66BFF);"Shark Stream"->Color(0xFF00D9F4);"Xtream Codes"->Color(0xFF36D9ED);"Settings"->Color(0xFF5D9EFF);else->Color(0xFFFF5374)}
@@ -823,7 +830,7 @@ fun App() {
                     val navBottom by animateColorAsState(if(emphasized) Color(0xFF101D38) else Color(0xFF0A132A), tween(if(steadyNav) 0 else 110), label="nav bottom")
                     Column(Modifier.weight(1f).height(64.dp).onFocusChanged { state ->
                         if(state.isFocused) focusedNav=item else if(focusedNav==item) focusedNav=null
-                    }.clip(shape).background(Brush.verticalGradient(listOf(navTop,navBottom))).then(if(emphasized) Modifier.drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(Color(0xFFFFD44D).copy(alpha=if(focused) navigationPulse.value else 1f),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius(0f),style=Stroke(w)) } else Modifier)
+                    }.clip(shape).background(Brush.verticalGradient(listOf(navTop,navBottom))).then(if(emphasized) Modifier.drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(Color(0xFFFFD44D).copy(alpha=navigationPulse.value),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius(0f),style=Stroke(w)) } else Modifier)
                     .clickable { if(item=="Exit") exitPrompt=true else {homeLookupJob?.cancel();homePlaying=null;selected=null;section=if(item=="Shark Stream") "Shark Streaming" else item} },horizontalAlignment=Alignment.CenterHorizontally) {
                         Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp).clip(RoundedCornerShape(0.dp)).graphicsLayer { alpha=navigationPulse.value }.background(Brush.horizontalGradient(listOf(accent,accent.copy(alpha=0.7f)))))
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
@@ -999,7 +1006,7 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
             .shadow(if (focused) 8.dp else 3.dp, shape)
             .clip(shape)
             .clickable(onClick = onClick)
-            .border(if (focused) 3.dp else 1.dp, rim, shape)
+            .then(if (focused) Modifier.pulsingFrame(2.5.dp, rim, shape) else Modifier.border(1.dp, rim, shape))
     ) {
         Image(
             painter = painterResource(artwork),
@@ -1010,7 +1017,8 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
     }
 }
 
-@Composable private fun HomeTmdbRow(tmdbKey:String,title:String,entries:List<Entry>,cardWidth:Int=245,onFocusEntry:((Entry?)->Unit)?=null,onSelect:(Entry)->Unit) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable private fun HomeTmdbRow(title:String,entries:List<Entry>,cardWidth:Int=245,onFocusEntry:((Entry?)->Unit)?=null,onSelect:(Entry)->Unit) {
     val posterPulse=rememberInfiniteTransition(label="poster glow").animateFloat(0.5f,1f,infiniteRepeatable(tween(1300),RepeatMode.Reverse),label="poster pulse")
     Column {
         if(title.isNotBlank()) Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.padding(bottom=3.dp)) {
@@ -1020,23 +1028,21 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
         }
         if(entries.isEmpty()) {
             Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color=Color(0xFFB8D8F2),fontSize=13.sp,modifier=Modifier.padding(16.dp))}
-        } else LazyRow(modifier=Modifier.height((cardWidth*1.5f+5f).dp).clipToBounds(),horizontalArrangement=Arrangement.spacedBy(7.dp),contentPadding=PaddingValues(start=2.dp,end=6.dp,top=2.dp,bottom=3.dp)) {
-            items(entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" },key={"${it.kind}:${it.genre}:${it.id}"}) { entry ->
-                var focused by remember {mutableStateOf(false)}
+        } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
+            LazyRow(modifier=Modifier.height((cardWidth*1.5f+5f).dp).clipToBounds(),horizontalArrangement=Arrangement.spacedBy(7.dp),contentPadding=PaddingValues(start=2.dp,end=6.dp,top=2.dp,bottom=3.dp)) {
+                items(entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" },key={"${it.kind}:${it.genre}:${it.id}"}) { entry ->
+                    var focused by remember {mutableStateOf(false)}
 
-                
-                val logo by produceState("",entry.id,entry.genre,tmdbKey) { if(entry.kind=="tmdb" && tmdbKey.isNotBlank()) value=TmdbApi.titleLogo(tmdbKey,entry) }
-                Box(Modifier.width(cardWidth.dp).onFocusChanged{ if(focused != it.isFocused) { focused=it.isFocused; onFocusEntry?.invoke(if(focused) entry else null) } }
-                    .drawWithContent { drawContent(); val w=(if(focused) 2.5.dp else 1.5.dp).toPx(); val outer=if(focused) Color(0xFFFFD44D).copy(alpha=posterPulse.value) else Color(0xFF56BFFF); drawRect(outer,topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),style=Stroke(w)); val inset=3.dp.toPx(); drawRect(if(focused) Color(0xFFFFE58C) else Color(0xFF347CB9),topLeft=Offset(inset,inset),size=Size((size.width-2*inset).coerceAtLeast(0f),(size.height-2*inset).coerceAtLeast(0f)),style=Stroke(1.dp.toPx())) }.clickable {onSelect(entry)}.padding(3.dp)) {
-                    Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
-                        val posterUrl=entry.image.ifBlank { entry.backdrop }
-                        val posterContext=LocalContext.current
-                        AsyncImage(model=remember(posterUrl,posterContext) { coil.request.ImageRequest.Builder(posterContext).data(posterUrl).crossfade(false).size(600,900).build() },contentDescription=entry.title,
-                            modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
-                        if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))
-                        var logoReady by remember(logo) { mutableStateOf(false) }
-                        if(false && logo.isNotBlank()) AsyncImage(model=logo,contentDescription=entry.title,modifier=Modifier.align(Alignment.BottomStart).padding(8.dp).fillMaxWidth(0.78f).height(26.dp),contentScale=ContentScale.Fit,alignment=Alignment.BottomStart,onSuccess={logoReady=true},onError={logoReady=false})
-                        if(false && !logoReady) Text(entry.title,color=Color.White,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=2,overflow=TextOverflow.Ellipsis,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,2f),5f)),modifier=Modifier.align(Alignment.BottomStart).padding(7.dp))
+
+                    Box(Modifier.width(cardWidth.dp).onFocusChanged{ if(focused != it.isFocused) { focused=it.isFocused; onFocusEntry?.invoke(if(focused) entry else null) } }
+                        .drawWithContent { drawContent(); val w=(if(focused) 2.5.dp else 1.5.dp).toPx(); val outer=if(focused) Color(0xFFFFD44D).copy(alpha=posterPulse.value) else Color(0xFF56BFFF); drawRect(outer,topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),style=Stroke(w)); val inset=3.dp.toPx(); drawRect(if(focused) Color(0xFFFFE58C) else Color(0xFF347CB9),topLeft=Offset(inset,inset),size=Size((size.width-2*inset).coerceAtLeast(0f),(size.height-2*inset).coerceAtLeast(0f)),style=Stroke(1.dp.toPx())) }.clickable {onSelect(entry)}.padding(3.dp)) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
+                            val posterUrl=entry.image.ifBlank { entry.backdrop }
+                            val posterContext=LocalContext.current
+                            AsyncImage(model=remember(posterUrl,posterContext) { coil.request.ImageRequest.Builder(posterContext).data(posterUrl).crossfade(false).size(600,900).build() },contentDescription=entry.title,
+                                modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+                            if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))
+                        }
                     }
                 }
             }
@@ -1410,9 +1416,9 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(androidx.compose.ui.graphics.RectangleShape)
                     .background(Brush.verticalGradient(listOf(Color(0xEF142441), Color(0xFA090F20))))
-                    .border(1.dp, Color(0xFF354761), RoundedCornerShape(20.dp))
+                    .pulsingFrame(2.5.dp, Color(0xFF58CFFF))
                     .padding(horizontal = 22.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
@@ -1421,7 +1427,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                         fontSize = 23.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val badge = if (liveStream) "● LIVE" else player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
                     if (badge.isNotBlank()) Text(badge, color = Color(0xFF92E8F5), fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.background(Color(0xFF233752), RoundedCornerShape(20.dp)).padding(horizontal = 11.dp, vertical = 5.dp))
+                        modifier = Modifier.background(Color(0xFF233752), androidx.compose.ui.graphics.RectangleShape).padding(horizontal = 11.dp, vertical = 5.dp))
                 }
                 if (liveStream) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -1491,10 +1497,12 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
 
 @Composable private fun PlayerTile(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = androidx.compose.ui.graphics.RectangleShape
     Box(modifier.height(42.dp).onFocusChanged { focused = it.isFocused }
         .clip(shape).background(if (focused) Color(0xFFDFF7FF) else Color(0xFF243651))
-        .clickable(onClick = onClick).padding(horizontal = 3.dp), contentAlignment = Alignment.Center) {
+        .clickable(onClick = onClick)
+        .then(if (focused) Modifier.pulsingFrame(2.5.dp, Color(0xFFD5AD48), shape) else Modifier)
+        .padding(horizontal = 3.dp), contentAlignment = Alignment.Center) {
         Text(label, color = if (focused) Color(0xFF102039) else Color.White, fontSize = 13.sp,
             fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -1911,7 +1919,7 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
     val pulse = transition.animateFloat(0.55f,1f,infiniteRepeatable(tween(1200),RepeatMode.Reverse),label="border")
     val shape=RoundedCornerShape(0.dp)
     Dialog(onDismissRequest=onDismissRequest,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF172D48),Color(0xFF080F29)))).drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(Color(0xFF36CFFF).copy(alpha=pulse.value),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius(16.dp.toPx()),style=Stroke(w)) }.padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF172D48),Color(0xFF080F29)))).drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(Color(0xFF36CFFF).copy(alpha=pulse.value),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius.Zero,style=Stroke(w)) }.padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFE0EFFF),fontSize=23.sp,fontWeight=FontWeight.Medium)) { title() }
             Box(Modifier.fillMaxWidth().height(2.dp).graphicsLayer { alpha=pulse.value }.background(Brush.horizontalGradient(listOf(Color.Transparent,Color(0xFF55DFFF),Color.Transparent))))
             if(text!=null) CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFDCEEFF),fontSize=15.sp)) { text() }
@@ -1920,6 +1928,15 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
     }
 }
 
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = when {
+        offset < 0f -> offset
+        offset + size > containerSize -> offset + size - containerSize
+        else -> 0f
+    }
+}
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun LiveBrowser(categories:List<Pair<String,String>>, categoryId:String?, channels:List<Entry>, api:XtreamApi?, lastId:String, loading:Boolean, onCategory:(String)->Unit, onRetry:()->Unit, onGuide:()->Unit, onPlay:(Entry)->Unit) {
@@ -1943,8 +1960,7 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
         listings=if(cached!=null && System.currentTimeMillis()-cached.first<120000L) cached.second else emptyList()
         try { if(cached==null || System.currentTimeMillis()-cached.first>=120000L) { val loaded=api?.epg(entry.id).orEmpty(); epgCache[entry.id]=System.currentTimeMillis() to loaded; listings=loaded } } catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e}
     }
-    val minimalScroll = remember { object : androidx.compose.foundation.gestures.BringIntoViewSpec { override fun calculateScrollDistance(offset:Float,size:Float,containerSize:Float):Float = when { offset>=0f && offset+size<=containerSize -> 0f; offset<0f -> offset; else -> (offset+size-containerSize).coerceAtLeast(0f) } } }
-    CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides minimalScroll) {
+    CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
     Column(Modifier.fillMaxSize().clipToBounds().background(Color(0xF507152E),RoundedCornerShape(0.dp)).padding(horizontal=8.dp,vertical=3.dp)) {
         CompactLiveAction("TV Guide", Modifier.align(Alignment.End), onGuide)
         if(search) OutlinedTextField(query,{query=it},singleLine=true,label={Text("Find channel")},modifier=Modifier.fillMaxWidth())
