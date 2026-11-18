@@ -569,15 +569,26 @@ fun App() {
                             Text("SHARK STREAMING",color=Color(0xFF26E7FF),fontSize=20.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=6.dp))
                             Text("Choose a service to browse films and series available in the UK",color=Color(0xFF9DD9F5),fontSize=15.sp)
                             Spacer(Modifier.height(8.dp))
-                            // Seven equal-width raised cards; horizontal scrolling on narrow screens.
+                            val services = listOf(
+                                "Netflix" to R.drawable.premium_netflix,
+                                "Apple TV" to R.drawable.premium_apple,
+                                "Prime Video" to R.drawable.premium_prime,
+                                "Disney+" to R.drawable.premium_disney,
+                                "HBO Max" to R.drawable.premium_max,
+                                "Hulu" to R.drawable.premium_hulu
+                            )
                             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                val tileWidth=((maxWidth.value - 6f*10f - 12f)/7f).toInt().coerceIn(110,240)
-                                LazyRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(horizontal=6.dp,vertical=10.dp)) {
-                                    items(listOf("Netflix", "Apple TV", "Prime Video", "Disney+", "HBO Max", "Hulu", "Nuvio")) { provider ->
-                                        StreamingBrandCard(provider,Modifier.width(tileWidth.dp).height((tileWidth*4f/9f+10f).dp)) {
-                                            if(provider=="Nuvio") section="Home Playback Source" else {
-                                                serviceCategory="All"; section="$provider Catalogue"
-                                            }
+                                val tileWidth = ((maxWidth - 12.dp - 10.dp * (services.size - 1)) / services.size)
+                                    .coerceIn(110.dp, 240.dp)
+                                LazyRow(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
+                                ) {
+                                    items(services, key = { it.first }) { (provider, artwork) ->
+                                        StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).aspectRatio(16f / 9f)) {
+                                            serviceCategory = "All"
+                                            section = "$provider Catalogue"
                                         }
                                     }
                                 }
@@ -928,26 +939,28 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
         .padding(2.dp).clip(shape)) { content() }
 
 }
-@Composable private fun StreamingBrandCard(name:String,modifier:Modifier=Modifier,onClick:()->Unit) {
+@Composable private fun StreamingBrandCard(
+    name: String,
+    artwork: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     var focused by remember { mutableStateOf(false) }
-    val art = when(name) {
-        "Netflix" -> R.drawable.premium_netflix
-        "Apple TV" -> R.drawable.premium_apple
-        "Prime Video" -> R.drawable.premium_prime
-        "Disney+" -> R.drawable.premium_disney
-        "HBO Max" -> R.drawable.premium_max
-        "Hulu" -> R.drawable.premium_hulu
-        else -> R.drawable.premium_nuvio
-    }
-    val shape=RoundedCornerShape(7.dp)
-    val rim=if(focused) Color(0xFFFFD44D) else Color(0xFF38DFFF)
-    Box(modifier.onFocusChanged { focused=it.isFocused }
-        .shadow(if(focused) 8.dp else 5.dp,shape,ambientColor=rim,spotColor=rim)
-        .background(Brush.verticalGradient(listOf(Color(0xFF163D61),Color(0xFF061326),Color(0xFF030914))),shape)
-        .border(if(focused) 3.dp else 1.5.dp,Brush.linearGradient(listOf(rim,if(focused) Color(0xFFFFF3AE) else Color(0xFF144D93),rim)),shape)
-        .clip(shape).clickable(onClick=onClick).padding(5.dp),contentAlignment=Alignment.Center) {
-        Image(painter=painterResource(id=art),contentDescription=if(name=="Nuvio") "Nuvio account settings" else "$name — browse catalogue",
-            modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
+    val shape = RoundedCornerShape(10.dp)
+    val rim = if (focused) Color(0xFFFFD44D) else Color.White.copy(alpha = 0.2f)
+    Box(
+        modifier.onFocusChanged { focused = it.isFocused }
+            .shadow(if (focused) 8.dp else 3.dp, shape)
+            .clip(shape)
+            .clickable(onClick = onClick)
+            .border(if (focused) 3.dp else 1.dp, rim, shape)
+    ) {
+        Image(
+            painter = painterResource(artwork),
+            contentDescription = "$name — browse catalogue",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
     }
 }
 

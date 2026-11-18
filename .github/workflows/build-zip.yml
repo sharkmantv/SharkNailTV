@@ -98,12 +98,12 @@ jobs:
           set -euo pipefail
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
             python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([30000] + [a*10000+b*100+c for a,b,c in versions]) + 1)')
-          # The installed updater parses v3.02 as 3 * 10000 + 2 * 100.
-          if (( code <= 30200 )); then
-            code=30200
-            version=3.02
+          # The installed updater parses v3.3 as 3 * 10000 + 3 * 100.
+          if (( code <= 30300 )); then
+            code=30300
+            version=3.3
           else
-                    version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+                      version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
           fi
           printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
           if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
@@ -119,12 +119,10 @@ jobs:
           SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
           SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
           SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
         run: |
           set -euo pipefail
           cd "$SOURCE_DIR"
-          if [[ -n "$TMDB_API_KEY" ]]; then printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties; fi
           if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
           if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
             export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"

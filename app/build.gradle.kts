@@ -6,11 +6,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val tmdbProperties = Properties().apply {
-    val file = rootProject.file("tmdb.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
-}
-
 val updateManifest = providers.gradleProperty("SHARK_UPDATE_MANIFEST").orElse("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest").get()
 
 val nuvioProperties = Properties().apply {
@@ -30,7 +25,7 @@ android {
     defaultConfig { buildConfigField("String", "UPDATE_MANIFEST_URL", "\"${updateManifest.replace("\\", "\\\\").replace("\"", "\\\"")}\"") }
     buildFeatures { compose = true; buildConfig = true }
     packaging { jniLibs { useLegacyPackaging = true } }
-    defaultConfig { buildConfigField("String", "TMDB_API_KEY", "\"${tmdbProperties.getProperty("TMDB_API_KEY", "")}\"") }
+    defaultConfig { buildConfigField("String", "TMDB_API_KEY", "\"2c67bb8f745b1db06a58acfffff805f4\"") }
     defaultConfig { buildConfigField("String", "SPORTS_API_KEY", "\"${sportsProperties.getProperty("SPORTS_API_KEY", "")}\"") }
     defaultConfig {
         buildConfigField("String", "NUVIO_BACKEND_URL", "\"${nuvioProperties.getProperty("NUVIO_BACKEND_URL", "https://api.nuvio.tv").replace("\\", "\\\\").replace("\"", "\\\"")}\"")
