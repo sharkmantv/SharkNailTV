@@ -74,7 +74,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -599,7 +605,7 @@ fun App() {
         if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
             BackHandler { homePlaying=null }
-            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=stream.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) } }
+            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) } }
         } else if(selected?.kind in listOf("live","movie","episode") && api!=null) {
             val entry=selected!!
             BackHandler { selected=episodeParent; episodeParent=null }
@@ -1447,6 +1453,11 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
 @Composable private fun MetallicText(value:String,size:Int) {
     Text(value,color=Color(0xFFF0F5FA),fontSize=size.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
 }
+private data class AudioTrackSwitch(
+    val previous: TrackSelectionParameters,
+    val startedAt: Long
+)
+
 @Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false) {
     val context=LocalContext.current
     var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
@@ -1477,6 +1488,36 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
     val rootFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val player=remember { configuredPlayer(context) }
+    var audioSwitch by remember(player, url) { mutableStateOf<AudioTrackSwitch?>(null) }
+    var trackNotice by remember(url) { mutableStateOf("") }
+    var tracks by remember(player, url) { mutableStateOf(Tracks.EMPTY) }
+    LaunchedEffect(trackNotice) {
+        if (trackNotice.isNotEmpty()) {
+            delay(5_000)
+            trackNotice = ""
+        }
+    }
+    fun selectTrack(type: Int, override: TrackSelectionOverride? = null) {
+        val previous = player.trackSelectionParameters
+        val next = previous.buildUpon().clearOverridesOfType(type)
+            .setTrackTypeDisabled(type, type == C.TRACK_TYPE_TEXT && override == null)
+        if (override != null) next.setOverrideForType(override)
+        val selection = next.build()
+        if (selection != previous) {
+            if (type == C.TRACK_TYPE_AUDIO) {
+                audioSwitch = AudioTrackSwitch(previous, android.os.SystemClock.elapsedRealtime())
+            }
+            try {
+                player.trackSelectionParameters = selection
+            } catch (error: RuntimeException) {
+                if (type == C.TRACK_TYPE_AUDIO) audioSwitch = null
+                trackNotice = "Could not switch tracks. Playback settings were kept."
+                android.util.Log.w("SharkPlayback", "Track selection failed", error)
+            }
+        }
+        panel = ""
+        interaction++
+    }
     LaunchedEffect(player,url) {
         playerError=""
         android.util.Log.d("SharkPlayback","Preparing stream")
@@ -1532,20 +1573,39 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         val started=android.os.SystemClock.elapsedRealtime()
         var recoveryCount=0
         var lastRecovery=0L
+        val handler = android.os.Handler(player.applicationLooper)
         val listener=object:androidx.media3.common.Player.Listener {
             override fun onPlayerError(error:androidx.media3.common.PlaybackException){
                 val now=android.os.SystemClock.elapsedRealtime()
+                val pending = audioSwitch
+                val renderer = error as? ExoPlaybackException
+                val audioError = renderer?.rendererFormat?.sampleMimeType?.startsWith("audio/") == true ||
+                    error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
+                if (pending != null && now - pending.startedAt <= 10_000L && audioError) {
+                    audioSwitch = null
+                    handler.post {
+                        player.trackSelectionParameters = pending.previous
+                        player.prepare()
+                        trackNotice = "This audio track couldn’t play. Restored the previous audio."
+                    }
+                    return
+                }
                 if(now-lastRecovery>60000L) recoveryCount=0
                 if(liveStream && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && recoveryCount<3){
                     recoveryCount++;lastRecovery=now;playerError=""
                     player.seekToDefaultPosition();player.prepare();player.playWhenReady=true
                 }else {playerError="Playback failed (${error.errorCodeName})";reportFailure()}
             }
+            override fun onTracksChanged(current: Tracks) { tracks = current }
             override fun onPlaybackStateChanged(state:Int){android.util.Log.d("SharkPlayback","State $state after ${android.os.SystemClock.elapsedRealtime()-started} ms")}
             override fun onRenderedFirstFrame(){firstFrame=true;android.util.Log.d("SharkPlayback","First frame after ${android.os.SystemClock.elapsedRealtime()-started} ms")}
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener) }
+        onDispose {
+            player.removeListener(listener)
+            handler.removeCallbacksAndMessages(null)
+        }
     }
     PlayerLifecycle(player)
     DisposableEffect(player) { onDispose {player.release()} }
@@ -1668,18 +1728,49 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                     }
                 }
                 "Audio","Subtitles" -> {
-                    val type=if(panel=="Audio") androidx.media3.common.C.TRACK_TYPE_AUDIO else androidx.media3.common.C.TRACK_TYPE_TEXT
-                    val groups=player.currentTracks.groups.filter { it.type==type }
-                    FocusAction(if(type==androidx.media3.common.C.TRACK_TYPE_TEXT) "Off" else "Automatic") {player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type,type==androidx.media3.common.C.TRACK_TYPE_TEXT).build();panel="";interaction++}
-                    groups.forEach { group -> for(i in 0 until group.length) { if(group.isTrackSupported(i)) { val format=group.getTrackFormat(i); FocusAction(listOfNotNull(format.label,format.language,format.sampleMimeType).joinToString(" • ").ifBlank { "Track ${i+1}" } + if(group.isTrackSelected(i)) " ✓" else "") {player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type,false).setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup,listOf(i))).build();panel="";interaction++} } } }
-                    if(groups.isEmpty())Text("No tracks available",color=Color.White)
+                    val type = if (panel == "Audio") C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
+                    val options = tracks.groups.filter { it.type == type }.flatMap { group ->
+                        (0 until group.length).filter { group.isTrackSupported(it) }.map { group to it }
+                    }
+                    FocusAction(if (type == C.TRACK_TYPE_TEXT) "Off" else "Automatic") {
+                        selectTrack(type)
+                    }
+                    options.forEach { (group, index) ->
+                        val format = group.getTrackFormat(index)
+                        val language = format.language?.let {
+                            Locale.forLanguageTag(it).getDisplayLanguage(Locale.ENGLISH).ifBlank { it }
+                        }
+                        val label = listOfNotNull(format.label, language, format.sampleMimeType)
+                            .distinct().joinToString(" • ").ifBlank { "Track ${index + 1}" }
+                        val selectedTrack = group.isTrackSelected(index)
+                        FocusAction(label + if (selectedTrack) " ✓" else "") {
+                            val current = player.currentTracks.groups.firstOrNull {
+                                it.mediaTrackGroup == group.mediaTrackGroup
+                            }
+                            if (current == null || index >= current.length || !current.isTrackSupported(index)) {
+                                trackNotice = "That track is no longer available."
+                                panel = ""
+                                interaction++
+                            } else if (current.isTrackSelected(index)) {
+                                panel = ""
+                                interaction++
+                            } else {
+                                selectTrack(type, TrackSelectionOverride(current.mediaTrackGroup, index))
+                            }
+                        }
+                    }
+                    if (options.isEmpty()) Text("No supported tracks available", color = Color.White)
                 }
                 "Screen" -> listOf("Fit" to 0,"Fill" to 3,"Zoom" to 4).forEach { (name,mode) -> FocusAction(if(resize==mode) "$name (selected)" else name){resize=mode;panel="";interaction++} }
                 "Settings" -> { listOf(0.75f,1f,1.25f,1.5f,2f).forEach { speed -> FocusAction("Speed ${speed}x"){player.setPlaybackSpeed(speed);panel="";interaction++} };FocusAction("Retry playback"){playerError="";player.prepare();player.playWhenReady=true;panel="";interaction++} }
                 "Info" -> {Text("Video: ${player.videoFormat?.width ?: 0} × ${player.videoFormat?.height ?: 0}\nCodec: ${player.videoFormat?.sampleMimeType ?: "Unknown"}\nAudio: ${player.audioFormat?.sampleMimeType ?: "Unknown"}\nFPS: ${player.videoFormat?.frameRate ?: 0}",color=Color.White)}
             }
         }},confirmButton={PremiumButton(onClick={panel="";interaction++}){Text("Close",color=Color.White)}})
-        if(playerError.isNotBlank()) Text(playerError,color=Color.White,modifier=Modifier.align(Alignment.TopCenter).padding(16.dp))
+        val playbackMessage = playerError.ifBlank { trackNotice }
+        if (playbackMessage.isNotBlank()) {
+            Text(playbackMessage, color = Color.White,
+                modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).hudSurface().padding(10.dp))
+        }
     }
 }
 
@@ -2231,6 +2322,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
     DisposableEffect(player,url) {
         var recoveryCount=0
         var lastRecovery=0L
+        val handler = android.os.Handler(player.applicationLooper)
         val listener=object:androidx.media3.common.Player.Listener {
             override fun onPlayerError(error:androidx.media3.common.PlaybackException){
                 val now=android.os.SystemClock.elapsedRealtime()
