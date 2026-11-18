@@ -11,3 +11,12 @@ sports.properties
 release-config/
 *.jks
 *.keystore
+
+# Local configuration and credentials
+nuvio.properties
+*.p12
+*.pfx
+*.pem
+*.key
+*.env
+.env*
