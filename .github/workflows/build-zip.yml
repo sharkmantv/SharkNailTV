@@ -1,0 +1,115 @@
+name: Build SharkNailTV ZIP and publish OTA
+
+on:
+  push:
+    branches: [main]
+    paths: ['incoming/SharkNailTV.zip']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sharknailtv-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract Android project
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+
+          with ZipFile('incoming/SharkNailTV.zip') as archive:
+              files = archive.infolist()
+              if sum(item.file_size for item in files) > 2 * 1024**3:
+                  raise SystemExit('Expanded ZIP exceeds 2 GiB')
+              for item in files:
+                  path = PurePosixPath(item.filename)
+                  if path.is_absolute() or '..' in path.parts or '\\' in item.filename or '.git' in path.parts:
+                      raise SystemExit(f'Unsafe archive path: {item.filename!r}')
+              archive.extractall('zip-build')
+
+          candidates = [path.parent for path in Path('zip-build').rglob('settings.gradle.kts')
+                        if (path.parent / 'app/build.gradle.kts').is_file()]
+          if len(candidates) != 1:
+              raise SystemExit('Expected one Android project with settings.gradle.kts and app/build.gradle.kts')
+          project = candidates[0].resolve()
+          with Path(__import__('os').environ['GITHUB_ENV']).open('a') as env:
+              print(f'SOURCE_DIR={project}', file=env)
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([30000] + [a*10000+b*100+c for a,b,c in versions]) + 1)')
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          else
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-APK
+          path: SharkNailTV*.apk
+          if-no-files-found: error
+      - name: Publish signed APK for Software Update
+        if: github.ref == 'refs/heads/main' && hashFiles('SharkNailTV.apk') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION_NAME"
+          gh release create "$tag" SharkNailTV.apk --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes 'Built from the uploaded Android source ZIP.' --latest
