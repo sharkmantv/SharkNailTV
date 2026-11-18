@@ -696,15 +696,15 @@ fun App() {
                             Text("Select a service to browse or open an installed TV app",color = Color.White,fontSize=15.sp)
                             Spacer(Modifier.height(8.dp))
                             val services = listOf(
-                                "Netflix" to R.drawable.premium_netflix,
-                                "Apple TV" to R.drawable.premium_apple,
-                                "Prime Video" to R.drawable.premium_prime,
-                                "Disney+" to R.drawable.premium_disney,
-                                "HBO Max" to R.drawable.premium_max,
-                                "Hulu" to R.drawable.premium_hulu
+                                "Netflix" to R.drawable.marquee_netflix,
+                                "Apple TV" to R.drawable.marquee_apple,
+                                "Prime Video" to R.drawable.marquee_prime,
+                                "Disney+" to R.drawable.marquee_disney,
+                                "HBO Max" to R.drawable.marquee_max,
+                                "Hulu" to R.drawable.marquee_hulu
                             )
                             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                val tileWidth = minOf((maxWidth - 52.dp) / 5, maxHeight - 20.dp).coerceIn(1.dp, 280.dp)
+                                val tileWidth = minOf((maxWidth - 62.dp) / 6, (maxHeight - 20.dp) * 1.3f).coerceIn(1.dp, 280.dp)
                                 CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
                                     LazyRow(
                                         Modifier.fillMaxWidth(),
@@ -712,7 +712,7 @@ fun App() {
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
                                     ) {
                                         items(services, key = { it.first }) { (provider, artwork) ->
-                                            StreamingBrandCard(provider, artwork, Modifier.size(tileWidth)) {
+                                            StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).aspectRatio(1.3f)) {
                                                 serviceCategory = "Movies"
                                                 serviceGenre = null
                                                 section = "$provider Catalogue"
@@ -1172,29 +1172,26 @@ fun App() {
 
 @Composable private fun StreamingBrandCard(
     name: String,
-    artwork: Int?,
+    artwork: Int,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = SharkFrameShape
-    val rim = if (focused) SharkFocusGold else Color(0xFF55A9DE)
+    val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(140), label = "Marquee focus")
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
-            .shadow(if (focused) 8.dp else 3.dp, shape)
-            .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF10263A), Color(0xFF070D16))))
-            .clickable(onClick = onClick)
-            .glassFrame(2.5.dp, rim, shape, focused = focused)
+            .clickable(interactionSource = null, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        if (artwork == null) {
-            Text(name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.Center).padding(8.dp), maxLines = 1)
-        } else AsyncImage(
-            model = artwork,
+        Image(
+            painterResource(artwork),
             contentDescription = "$name — browse catalogue",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            modifier = Modifier.fillMaxSize().padding(5.dp).graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                alpha = if (focused) 1f else .79f
+            },
+            contentScale = ContentScale.Fit
         )
     }
 }
