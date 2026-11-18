@@ -501,7 +501,8 @@ fun App() {
                 GlassHeader(compact=selected==null && section=="Home", liveCompact=false)
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
-                Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().then(if(featuredPage || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
+                val serviceCatalogue = selected == null && section.endsWith(" Catalogue")
+                Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
                 if(selected!=null) {
                     val e=selected!!
                     Spacer(Modifier.height(16.dp))
@@ -605,11 +606,23 @@ fun App() {
                                 }
                                 FocusAction("Back to Services") { section="Shark Streaming" }
                             }
-                            if(serviceLoading) Text("Loading provider catalogue…",color=Color.White)
-                            if(serviceError.isNotBlank()) Text(serviceError,color=Color(0xFFFFC66D),fontSize=12.sp)
-                            Column(Modifier.fillMaxWidth()) {
-                                if(serviceCategory!="Series") HomeTmdbRow(tmdbKey,"Movies",serviceMovies,112,onSelect={openTitle(it)})
-                                if(serviceCategory!="Movies" && serviceCategory!="New Releases") HomeTmdbRow(tmdbKey,"TV Series",serviceSeries,112,onSelect={openTitle(it)})
+                            Box(Modifier.fillMaxWidth().height(18.dp), contentAlignment = Alignment.CenterStart) {
+                                when {
+                                    serviceLoading -> Text("Loading provider catalogue…", color = Color.White, fontSize = 12.sp, maxLines = 1)
+                                    serviceError.isNotBlank() -> Text(serviceError, color = Color(0xFFFFC66D), fontSize = 12.sp, maxLines = 1)
+                                }
+                            }
+                            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                                val showMovies = serviceCategory != "Series"
+                                val showSeries = serviceCategory == "All" || serviceCategory == "Series"
+                                val rowCount = if (showMovies && showSeries) 2 else 1
+                                // Reserve space for each row heading and padding before sizing the 2:3 cards.
+                                val posterWidth = ((maxHeight / rowCount - 30.dp) / 1.5f)
+                                    .value.toInt().coerceIn(1, 112)
+                                Column(Modifier.fillMaxWidth()) {
+                                    if (showMovies) HomeTmdbRow(tmdbKey, "Movies", serviceMovies, posterWidth, onSelect = { openTitle(it) })
+                                    if (showSeries) HomeTmdbRow(tmdbKey, "TV Series", serviceSeries, posterWidth, onSelect = { openTitle(it) })
+                                }
                             }
                         }
                         "Sports Guide" -> { PublicGuide(fixtures,fixtureStatus, onRefresh={sportsRefresh++}) }
@@ -754,10 +767,10 @@ fun App() {
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
                         "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", "").orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
                     }
-                    if(section!="Settings" && section!="Shark TV" && (loading || catalogueLoading)) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && (loading || catalogueLoading)) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if(section in listOf("Home","Movies","TV Series") && tmdbStatus.isNotBlank()) Text(tmdbStatus,color=Color(0xFFB8D8F2),fontSize=12.sp)
-                    if(section!="Settings" && section!="Shark TV" && error.isNotBlank())Text(error,color=Color(0xFFFFB8B8),fontSize=12.sp)
-                    Spacer(Modifier.height(if(featuredPage || section in listOf("Shark TV","Settings")) 6.dp else 30.dp))
+                    if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && error.isNotBlank())Text(error,color=Color(0xFFFFB8B8),fontSize=12.sp)
+                    Spacer(Modifier.height(if(featuredPage || serviceCatalogue || section in listOf("Shark TV","Settings")) 6.dp else 30.dp))
                 }
                 }
             }

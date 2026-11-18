@@ -98,13 +98,7 @@ jobs:
           set -euo pipefail
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
             python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([30000] + [a*10000+b*100+c for a,b,c in versions]) + 1)')
-          # The installed updater parses v3.3 as 3 * 10000 + 3 * 100.
-          if (( code <= 30300 )); then
-            code=30300
-            version=3.3
-          else
-                      version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
-          fi
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
           printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
           if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
             umask 077
