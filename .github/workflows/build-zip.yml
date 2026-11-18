@@ -3,7 +3,7 @@ name: Build SharkNailTV ZIP and publish OTA
 on:
   push:
     branches: [main]
-    paths: ['incoming/SharkNailTV.zip']
+    paths: ['incoming/SharkNailTV.zip', '.github/workflows/build-zip.yml']
   workflow_dispatch:
     inputs:
       source:
@@ -26,10 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Use repository source
-        if: github.event_name == 'workflow_dispatch' && inputs.source == 'repository'
+        if: (github.event_name == 'workflow_dispatch' && inputs.source == 'repository') || (github.event_name == 'push' && hashFiles('incoming/SharkNailTV.zip') == '')
         run: printf 'SOURCE_DIR=%s\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
       - name: Extract Android project
-        if: github.event_name != 'workflow_dispatch' || inputs.source == 'zip'
+        if: (github.event_name == 'workflow_dispatch' && inputs.source == 'zip') || (github.event_name == 'push' && hashFiles('incoming/SharkNailTV.zip') != '')
         run: |
           set -euo pipefail
           python - <<'PY'
