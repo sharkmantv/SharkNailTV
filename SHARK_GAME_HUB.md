@@ -1,0 +1,2 @@
+# Shark Game Hub initial build
+Six original, locally implemented arcade games. No third-party source or artwork was downloaded because network access was unavailable. New source is offered under MIT (see accompanying license). No emulators or PC streaming are bundled. D-pad and digital controller buttons are supported; analogue axes are not implemented. Recent game, favourites and high scores persist, not in-progress sessions. Android compilation/device testing remains outstanding.

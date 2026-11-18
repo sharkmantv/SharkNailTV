@@ -1,0 +1,1 @@
+Renamed RetroConsoleHub's private Entry model to SharkRetroLibraryEntry to avoid a package-level redeclaration with MainActivity's media Entry. All retro library references updated; persisted JSON keys unchanged. Renamed local key helper to gameKey to distinguish it from Compose key. Full Android compilation not performed (SDK and Gradle unavailable).

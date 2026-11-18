@@ -1,0 +1,13 @@
+tmdb.properties
+local.properties
+.gradle/
+build/
+app/build/
+
+tmdb.properties
+
+sports.properties
+
+release-config/
+*.jks
+*.keystore

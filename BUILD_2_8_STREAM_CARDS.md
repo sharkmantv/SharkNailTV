@@ -1,0 +1,1 @@
+Build 2.8: seven raised service cards based on concept 3; Nuvio opens existing account settings. No Nuvio URL or backend credentials added. Home poster layout, logos and intro unchanged from 2.7. Source only; not compiled or device tested. Card artwork cropped from approved concept, not official logo files.

@@ -1,0 +1,4 @@
+# Expanded Shark Game Hub
+Based on Larger Home Posters source. Twelve local original games: six existing plus Maze, Memory, Slide Fifteen, Lights Out, Mines and Tic Tac Toe. All twelve have original local cover illustrations, category filters, favourites and ordered recent history. Existing arcade high scores retained; puzzle rounds display moves/score and are not saved across launches. No network, accounts or downloads required for the games. Mines uses Menu/X to flag; D-pad and OK/A select. New game logic is MIT under LICENSE-SharkArcade.txt.
+
+Validation: pure Kotlin puzzle rules compiled and 600 seeded smoke checks passed (tests/SharkPuzzleSmoke.kt). Android SDK/Gradle unavailable; APK not built and Android UI/controller not tested. GitHub network unavailable, so third-party games, RetroArch, Moonlight and planned 50+ catalogue are not included. No changes to home posters, streaming artwork or playback logic.

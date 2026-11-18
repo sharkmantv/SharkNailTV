@@ -1,0 +1,7 @@
+SHARK 15.7 - additional playback settings (source only)
+
+Playback engine: Media3 built-in, existing IJK if bundled, external VLC and external mpv if installed. External apps open via Android intent; these are NOT embedded engines.
+Stream type: Auto (recommended), HLS, MPEG-TS, DASH, SmoothStreaming, RTSP by URL scheme, MP4/progressive. Forced formats only work for matching source URLs.
+Clock: 12/24-hour selection for EPG guide times. Other schedule views retain existing formats.
+Retains Neon Glass and previous playback BACK changes.
+No APK built; Android compile and TV playback not verified.
