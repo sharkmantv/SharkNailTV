@@ -591,7 +591,10 @@ fun App() {
         }
     }
     CompositionLocalProvider(androidx.compose.foundation.LocalOverscrollConfiguration provides null) {
-    MaterialTheme(typography = skyLikeTypography(), colorScheme = darkColorScheme(primary = HudAccent, background = HudBackground, surface = HudSurface,
+    MaterialTheme(typography = skyLikeTypography(), shapes = Shapes(
+        extraSmall = SharkFrameShape, small = SharkFrameShape, medium = SharkFrameShape,
+        large = SharkFrameShape, extraLarge = SharkFrameShape
+    ), colorScheme = darkColorScheme(primary = HudAccent, background = HudBackground, surface = HudSurface,
         surfaceVariant = Color(0xFF25385F), outline = Color(0xFF6989BB), onSurface = Color(0xFFE7EFFF))) {
         if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
@@ -878,7 +881,7 @@ fun App() {
                                         },focused,shape=RoundedCornerShape(0.dp),steady=true) {
                                             Row(
                                                 Modifier.fillMaxSize()
-                                                    .hudSurface(focused)
+                                                    .hudSurface()
                                                     .padding(horizontal=10.dp),
                                                 verticalAlignment=Alignment.CenterVertically,
                                                 horizontalArrangement=Arrangement.spacedBy(12.dp)
@@ -960,14 +963,6 @@ fun App() {
             }
             }
             val homeNav = section == "Home" && selected == null
-            val homeNavPulse = if (homeNav) {
-                rememberInfiniteTransition(label = "Home navigation accents").animateFloat(
-                    initialValue = 0.48f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(tween(1250), RepeatMode.Reverse),
-                    label = "Top strip opacity"
-                )
-            } else null
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
@@ -975,14 +970,16 @@ fun App() {
                     val focused=focusedNav==item
                     val emphasized=focused || (focusedNav==null && active)
                     val tile = if (homeNav) {
-                        val fill = if (emphasized) listOf(Color(0xFF192D51), Color(0xFF101D38))
+                        val fill = if (active) listOf(Color(0xFF192D51), Color(0xFF101D38))
                             else listOf(Color(0xFF101C39), Color(0xFF0A132A))
                         Modifier.background(Brush.verticalGradient(fill))
-                            .then(if (emphasized) Modifier.border(2.dp, Color(0xFFFFD44D)) else Modifier)
-                    } else Modifier.hudSurface(emphasized).glassFrame(2.dp, if (emphasized) Color.White else HudAccent)
+                    } else Modifier.hudSurface(active)
+                    val frameColor = if (emphasized) {
+                        if (homeNav) Color(0xFFFFD44D) else Color.White
+                    } else HudAccent
                     Column(Modifier.weight(1f).height(64.dp).onFocusChanged { state ->
                         if(state.isFocused) focusedNav=item else if(focusedNav==item) focusedNav=null
-                    }.then(tile)
+                    }.then(tile).glassFrame(2.dp, frameColor, focused = focused)
                     .clickable { if(item=="Exit") exitPrompt=true else {homeLookupJob?.cancel();homePlaying=null;selected=null;section=if(item=="Shark Stream") "Shark Streaming" else item} },horizontalAlignment=Alignment.CenterHorizontally) {
                         if (homeNav) {
                             val accent = when (item) {
@@ -995,7 +992,6 @@ fun App() {
                                 else -> Color(0xFF5D9EFF)
                             }
                             Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp)
-                                .graphicsLayer { alpha = homeNavPulse?.value ?: 1f }
                                 .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha=.7f)))))
                         }
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
@@ -1058,8 +1054,8 @@ fun App() {
         else->Icons.Filled.Star
     }
     Row(Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }
-        .hudSurface(focused || active)
-        .glassFrame(1.5.dp, if (focused || active) Color.White else HudAccent)
+        .hudSurface(active)
+        .glassFrame(1.5.dp, if (focused || active) Color.White else HudAccent, focused = focused)
         .clickable(onClick=onClick).padding(horizontal=7.dp,vertical=5.dp),verticalAlignment=Alignment.CenterVertically) {
         Icon(symbol,contentDescription=null,tint=Color.White,modifier=Modifier.size(15.dp))
         Spacer(Modifier.width(6.dp))
@@ -1079,7 +1075,7 @@ fun App() {
         else -> Icons.Filled.Cloud
     }
     Row(Modifier.padding(end=5.dp).onFocusChanged { focused=it.isFocused }
-        .glassFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else if(active)Color(0xFF00C4FF) else Color(0xFF24476A))
+        .glassFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else if(active)Color(0xFF00C4FF) else Color(0xFF24476A), focused = focused)
         .background(if(focused||active)Brush.verticalGradient(listOf(Color(0xFF0089EF),Color(0xFF05316A))) else Brush.verticalGradient(listOf(Color.Transparent,Color.Transparent)),RoundedCornerShape(0.dp))
         .clickable(onClick=onClick).padding(horizontal=11.dp,vertical=9.dp), verticalAlignment=Alignment.CenterVertically) {
         Icon(symbol,contentDescription=null,tint=if(active||focused)Color.White else Color(0xFFC5E4FF),modifier=Modifier.size(18.dp))
@@ -1142,7 +1138,7 @@ fun App() {
     @Suppress("UNUSED_PARAMETER") steady: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    Box(modifier.padding(2.dp).glassFrame(2.dp, if (focused || selected) Color.White else Color.Cyan)
+    Box(modifier.padding(2.dp).glassFrame(2.dp, if (focused || selected) Color.White else Color.Cyan, focused = focused)
         .padding(2.dp).clip(SharkFrameShape)) { content() }
 }
 
@@ -1161,7 +1157,7 @@ fun App() {
             .clip(shape)
             .background(Brush.verticalGradient(listOf(Color(0xFF10263A), Color(0xFF070D16))))
             .clickable(onClick = onClick)
-            .glassFrame(2.5.dp, rim, shape)
+            .glassFrame(2.5.dp, rim, shape, focused = focused)
     ) {
         if (artwork == null) {
             Text(name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold,
@@ -1192,7 +1188,7 @@ fun App() {
 
 
                     Box(Modifier.width(cardWidth.dp).onFocusChanged{ focused = it.isFocused }
-                        .glassFrame(2.5.dp, if (focused) Color(0xFFFFD44D) else Color(0xFF56BFFF)).clickable {onSelect(entry)}.padding(3.dp)) {
+                        .glassFrame(2.5.dp, if (focused) Color(0xFFFFD44D) else Color(0xFF56BFFF), focused = focused).clickable {onSelect(entry)}.padding(3.dp)) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
                             val posterUrl=entry.image.ifBlank { entry.backdrop }
                             AsyncImage(model=posterUrl,contentDescription=entry.title,
@@ -1253,7 +1249,7 @@ fun App() {
         } else LazyRow(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
             items(events.take(12)) { event ->
                 var focused by remember {mutableStateOf(false)}
-                Column(Modifier.width(260.dp).onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF1A588B),RoundedCornerShape(0.dp)).background(Color(0xFF0B203B),RoundedCornerShape(0.dp)).clickable(onClick=onGuide).padding(10.dp)) {
+                Column(Modifier.width(260.dp).onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF1A588B),RoundedCornerShape(0.dp), focused = focused).background(Color(0xFF0B203B),RoundedCornerShape(0.dp)).clickable(onClick=onGuide).padding(10.dp)) {
                     Text(if(event.startMillis<=System.currentTimeMillis())"● LIVE" else displayTime(event.startMillis),color=Color(0xFF49C8FF),fontSize=11.sp,fontWeight=FontWeight.Medium)
                     Text(event.program.title,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
                     Text(event.channel.title,color=Color(0xFFAAC8E8),fontSize=11.sp,maxLines=1)
@@ -1273,7 +1269,7 @@ fun App() {
             Column(Modifier.width(148.dp)
                 .onFocusChanged { cardFocused=it.isFocused }
                 .graphicsLayer { scaleX=1f; scaleY=1f }
-                .glassFrame(2.dp,if(cardFocused)gold else Color(0xFF195CA5),RoundedCornerShape(0.dp))
+                .glassFrame(2.dp,if(cardFocused)gold else Color(0xFF195CA5),RoundedCornerShape(0.dp), focused = cardFocused)
                 .clip(RoundedCornerShape(0.dp)).background(Color(0xFF0A1D39))
                 .clickable {onSelect(e)}) {
                 if(e.image.isNotBlank()) AsyncImage(model=e.image,contentDescription=e.title,modifier=Modifier.fillMaxWidth().height(182.dp),contentScale=ContentScale.Crop)
@@ -1436,12 +1432,12 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         "System Health" -> Icons.Filled.Favorite
         else -> Icons.Filled.Settings
     }
-    val circle = androidx.compose.foundation.shape.CircleShape
+    val shape = SharkFrameShape
     Box(
         Modifier.size(36.dp)
-            .background(chromeBrush(), circle)
+            .background(chromeBrush(), shape)
             .padding(2.dp)
-            .background(Brush.verticalGradient(listOf(Color(0xFF14515B), Color(0xFF06252E))), circle),
+            .background(Brush.verticalGradient(listOf(Color(0xFF14515B), Color(0xFF06252E))), shape),
         contentAlignment = Alignment.Center
     ) {
         ChromeIcon(symbol, iconSize = 21)
@@ -1601,7 +1597,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
             exit = androidx.compose.animation.fadeOut()
         ) {
             Row(
-                Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xD9081126))
+                Modifier.clip(SharkFrameShape).background(Color(0xD9081126))
                     .padding(horizontal = 12.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1628,7 +1624,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.width(4.dp).height(25.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFF327AFF)))
+                    Box(Modifier.width(4.dp).height(25.dp).clip(SharkFrameShape).background(Color(0xFF327AFF)))
                     Text(title.ifBlank { "SharkNailTV" }, modifier = Modifier.weight(1f), color = Color.White,
                         fontSize = 23.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val badge = if (liveStream) "● LIVE" else player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
@@ -1643,12 +1639,12 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                     if (currentProgramme != null) {
                         val elapsed = (guideTime-currentProgramme.start).toFloat() / (currentProgramme.end-currentProgramme.start)
                         LinearProgressIndicator(progress = { elapsed.coerceIn(0f,1f) },
-                            modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(4.dp)),
+                            modifier = Modifier.fillMaxWidth().height(3.dp).clip(SharkFrameShape),
                             color = Color(0xFF327AFF), trackColor = Color(0xFF2D3B59))
                     }
                 } else {
                     LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat()/duration).coerceIn(0f,1f) else 0f },
-                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(4.dp)),
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(SharkFrameShape),
                         color = Color(0xFF327AFF), trackColor = Color(0xFF2D3B59))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(playTime(position), color = Color(0xFFCFDAF4), fontSize = 12.sp)
@@ -1700,7 +1696,7 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
 
 @Composable private fun ProgrammeTile(label: String, programme: TimedProgramme?, fallback: String, modifier: Modifier) {
     val context = LocalContext.current
-    Column(modifier.background(Color(0xFF182844), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp)) {
+    Column(modifier.background(Color(0xFF182844), SharkFrameShape).padding(horizontal = 12.dp, vertical = 7.dp)) {
         val time = programme?.let { "  ·  ${guideClock(context,it.start)}–${guideClock(context,it.end)}" }.orEmpty()
         Text(label + time, color = Color(0xFF92E8F5), fontSize = 11.sp, maxLines = 1)
         Text(programme?.title ?: fallback, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1713,8 +1709,8 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
     Column(
         modifier.height(54.dp).onFocusChanged { focused = it.isFocused }
             .clip(shape)
-            .hudSurface(focused)
-            .glassFrame(1.5.dp, if (focused) Color.White else Color.Cyan)
+            .hudSurface()
+            .glassFrame(1.5.dp, if (focused) Color.White else Color.Cyan, focused = focused)
             .clickable(onClick = onClick)
             .padding(horizontal = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1751,7 +1747,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
     var focused by remember { mutableStateOf(false) }
     val symbol=when(name){"Shark TV"->"◉";"Movies"->"▣";"TV Series"->"▥";else->"⚽"}
     Column(Modifier.width(148.dp).height(84.dp).onFocusChanged{focused=it.isFocused}
-        .glassFrame(2.dp,if(focused)gold else Color(0xFF22528A),RoundedCornerShape(0.dp))
+        .glassFrame(2.dp,if(focused)gold else Color(0xFF22528A),RoundedCornerShape(0.dp), focused = focused)
         .background(Brush.verticalGradient(listOf(Color(0xFF143F77),Color(0xFF081B37))),RoundedCornerShape(0.dp))
         .clickable(onClick=onClick).padding(12.dp),verticalArrangement=Arrangement.Center) {
         Text(symbol,color=gold,fontSize=24.sp,fontWeight=FontWeight.Medium)
@@ -1778,7 +1774,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
                     val event=active.getOrNull(index)
                     var focused by remember { mutableStateOf(false) }
                     Column(Modifier.weight(1f).fillMaxHeight().onFocusChanged{focused=it.isFocused}
-                        .glassFrame(2.dp,if(focused)gold else Color(0xFF2667B2),RoundedCornerShape(0.dp))
+                        .glassFrame(2.dp,if(focused)gold else Color(0xFF2667B2),RoundedCornerShape(0.dp), focused = focused)
                         .background(Brush.verticalGradient(listOf(Color(0xFF123568),Color(0xFF06142B))),RoundedCornerShape(0.dp))
                         .clickable(onClick=onOpen).padding(11.dp),verticalArrangement=Arrangement.SpaceBetween) {
                         Text(if(event!=null) "● LIVE" else "SPORTS",color=if(event!=null)Color(0xFFFF7777) else gold,fontSize=11.sp,fontWeight=FontWeight.Medium)
@@ -1814,7 +1810,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
         Spacer(Modifier.height(14.dp))
         LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) { items(listOf("All Sports","Football","F1","Combat","Cricket","Rugby","Tennis","Other")) { option ->
             var focused by remember {mutableStateOf(false)}
-            Box(Modifier.onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)gold else Color(0xFF2474BD),RoundedCornerShape(0.dp)).background(if(option==filter)Color(0xFF1268C4) else Color(0xFF0B2548),RoundedCornerShape(0.dp)).clickable{onFilter(option)}.padding(horizontal=16.dp,vertical=12.dp)) {Text(option,color=Color.White,fontWeight=FontWeight.SemiBold)}
+            Box(Modifier.onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)gold else Color(0xFF2474BD),RoundedCornerShape(0.dp), focused = focused).background(if(option==filter)Color(0xFF1268C4) else Color(0xFF0B2548),RoundedCornerShape(0.dp)).clickable{onFilter(option)}.padding(horizontal=16.dp,vertical=12.dp)) {Text(option,color=Color.White,fontWeight=FontWeight.SemiBold)}
         } }
         Spacer(Modifier.height(16.dp))
         if(!connected) {Text("Connect your IPTV account to display real fixtures, start times and channels.",color=Color.White);ConnectPrompt(onConnect)}
@@ -1838,7 +1834,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
 }
 @Composable private fun SportsEventCard(event:SportEvent,isLive:Boolean,onSelect:(Entry)->Unit) {
     var focused by remember {mutableStateOf(false)}
-    Row(Modifier.fillMaxWidth().padding(bottom=8.dp).onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)gold else Color(0xFF24588C),RoundedCornerShape(0.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF0E315E),Color(0xFF06182E))),RoundedCornerShape(0.dp)).clickable{onSelect(event.channel)}.padding(15.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(bottom=8.dp).onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)gold else Color(0xFF24588C),RoundedCornerShape(0.dp), focused = focused).background(Brush.horizontalGradient(listOf(Color(0xFF0E315E),Color(0xFF06182E))),RoundedCornerShape(0.dp)).clickable{onSelect(event.channel)}.padding(15.dp),verticalAlignment=Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(if(isLive)"● LIVE NOW" else sportCategory(event).uppercase(Locale.US),color=if(isLive)Color(0xFFFF7777) else gold,fontSize=11.sp,fontWeight=FontWeight.Medium)
             Text(event.program.title,color=Color.White,fontWeight=FontWeight.Medium,fontSize=17.sp,maxLines=2)
@@ -1857,8 +1853,8 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
 @Composable private fun PremiumNavTile(label:String,onClick:()->Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().height(45.dp).onFocusChanged { focused=it.isFocused }
-        .glassFrame(if(focused) 3.dp else 2.dp,if(focused) Color(0xFFFFD44D) else Color(0xFF159BFF),RoundedCornerShape(0.dp))
-        .hudSurface(focused)
+        .glassFrame(if(focused) 3.dp else 2.dp,if(focused) Color(0xFFFFD44D) else Color(0xFF159BFF),RoundedCornerShape(0.dp), focused = focused)
+        .hudSurface()
         .clickable(onClick=onClick),contentAlignment=Alignment.Center) {
         Text(label,color=Color.White,fontWeight=FontWeight.Medium,fontSize=11.sp,maxLines=1)
     }
@@ -2064,7 +2060,7 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
         }
         LazyColumn(state=listState,modifier=Modifier.weight(1f).clipToBounds(),verticalArrangement=Arrangement.spacedBy(3.dp),contentPadding=PaddingValues(bottom=3.dp)) { items(uniqueChannels,key={it.id}) { channel ->
             var focused by remember(channel.id){mutableStateOf(false)}
-            Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused; if(focused)focusedEntry=channel }.hudSurface(focused).glassFrame(2.dp,if(focused)Color.White else HudAccent).clickable { onSelect(channel) },verticalAlignment=Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused; if(focused)focusedEntry=channel }.hudSurface().glassFrame(2.dp,if(focused)Color.White else HudAccent, focused = focused).clickable { onSelect(channel) },verticalAlignment=Alignment.CenterVertically) {
                 Row(Modifier.width(150.dp).padding(4.dp),verticalAlignment=Alignment.CenterVertically) {
                     GlassChannelWord()
                     Text(channel.title,color=Color.White,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(start=4.dp))
@@ -2230,7 +2226,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 @Composable private fun BrowserRow(label:String,active:Boolean,image:String,onFocused:()->Unit,onClick:()->Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape=RoundedCornerShape(0.dp)
-    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.hudSurface(active || focused).glassFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF304564),shape).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.hudSurface(active).glassFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF304564),shape, focused = focused).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
         if(image=="sky") GlassChannelWord()
         Text(label,color=Color.White,fontWeight=FontWeight.Normal,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
