@@ -2,6 +2,12 @@ name: Publish SharkNailTV Update
 on:
   push:
     branches: [main]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - '*.gradle.kts'
+      - '*.properties'
+      - '.github/workflows/publish-update.yml'
   workflow_dispatch:
 
 permissions:
