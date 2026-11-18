@@ -595,7 +595,7 @@ fun App() {
         extraSmall = SharkFrameShape, small = SharkFrameShape, medium = SharkFrameShape,
         large = SharkFrameShape, extraLarge = SharkFrameShape
     ), colorScheme = darkColorScheme(primary = HudAccent, background = HudBackground, surface = HudSurface,
-        surfaceVariant = Color(0xFF25385F), outline = Color(0xFF6989BB), onSurface = Color(0xFFE7EFFF))) {
+        surfaceVariant = Color(0xFF17294B), outline = Color(0xFF6989BB), onSurface = Color(0xFFE7EFFF))) {
         if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
             BackHandler { homePlaying=null }
@@ -612,7 +612,7 @@ fun App() {
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
             } else HomeHeroBackground("", subdued=true)
-            selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(1280,720).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(Color(0xA006142B))) }
+            selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(1280,720).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(HudBackground.copy(alpha = .78f))) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color(0x10091A30),Color(0x55061538)))))
             Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
@@ -962,38 +962,30 @@ fun App() {
                 }
             }
             }
-            val homeNav = section == "Home" && selected == null
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
                     val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Shark Stream" && section.endsWith(" Catalogue")) || (item=="Settings" && section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
                     val focused=focusedNav==item
                     val emphasized=focused || (focusedNav==null && active)
-                    val tile = if (homeNav) {
-                        val fill = if (active) listOf(Color(0xFF192D51), Color(0xFF101D38))
-                            else listOf(Color(0xFF101C39), Color(0xFF0A132A))
-                        Modifier.background(Brush.verticalGradient(fill))
-                    } else Modifier.hudSurface(active)
-                    val frameColor = if (emphasized) {
-                        if (homeNav) Color(0xFFFFD44D) else Color.White
-                    } else HudAccent
+                    val tileFill = if (active) listOf(Color(0xFF192D51), Color(0xFF101D38))
+                        else listOf(Color(0xFF101C39), Color(0xFF0A132A))
+                    val frameColor = if (emphasized) SharkFocusGold else HudAccent
                     Column(Modifier.weight(1f).height(64.dp).onFocusChanged { state ->
                         if(state.isFocused) focusedNav=item else if(focusedNav==item) focusedNav=null
-                    }.then(tile).glassFrame(2.dp, frameColor, focused = focused)
+                    }.background(Brush.verticalGradient(tileFill)).glassFrame(2.dp, frameColor, focused = focused)
                     .clickable { if(item=="Exit") exitPrompt=true else {homeLookupJob?.cancel();homePlaying=null;selected=null;section=if(item=="Shark Stream") "Shark Streaming" else item} },horizontalAlignment=Alignment.CenterHorizontally) {
-                        if (homeNav) {
-                            val accent = when (item) {
-                                "Home" -> Color(0xFFFFC34D)
-                                "Shark TV" -> Color(0xFFFF8A35)
-                                "Movies" -> Color(0xFFFF5260)
-                                "TV Series" -> Color(0xFFED49A6)
-                                "Sports Guide" -> Color(0xFFB66BFF)
-                                "Shark Stream" -> Color(0xFF00D9F4)
-                                else -> Color(0xFF5D9EFF)
-                            }
-                            Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp)
-                                .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha=.7f)))))
+                        val accent = when (item) {
+                            "Home" -> Color(0xFFFFC34D)
+                            "Shark TV" -> Color(0xFFFF8A35)
+                            "Movies" -> Color(0xFFFF5260)
+                            "TV Series" -> Color(0xFFED49A6)
+                            "Sports Guide" -> Color(0xFFB66BFF)
+                            "Shark Stream" -> Color(0xFF00D9F4)
+                            else -> Color(0xFF5D9EFF)
                         }
+                        Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp)
+                            .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha=.7f)))))
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
                             Text(item,color=if(emphasized) Color.White else Color(0xFFBACAE3),fontSize=13.sp,fontWeight=FontWeight.Normal,maxLines=1,style=TextStyle(textAlign=TextAlign.Center),overflow=TextOverflow.Ellipsis)
                         }
@@ -1075,7 +1067,7 @@ fun App() {
         else -> Icons.Filled.Cloud
     }
     Row(Modifier.padding(end=5.dp).onFocusChanged { focused=it.isFocused }
-        .glassFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else if(active)Color(0xFF00C4FF) else Color(0xFF24476A), focused = focused)
+        .glassFrame(2.5.dp,if(focused)SharkFocusGold else if(active)Color(0xFF00C4FF) else Color(0xFF24476A), focused = focused)
         .background(if(focused||active)Brush.verticalGradient(listOf(Color(0xFF0089EF),Color(0xFF05316A))) else Brush.verticalGradient(listOf(Color.Transparent,Color.Transparent)),RoundedCornerShape(0.dp))
         .clickable(onClick=onClick).padding(horizontal=11.dp,vertical=9.dp), verticalAlignment=Alignment.CenterVertically) {
         Icon(symbol,contentDescription=null,tint=if(active||focused)Color.White else Color(0xFFC5E4FF),modifier=Modifier.size(18.dp))
@@ -1150,7 +1142,7 @@ fun App() {
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = SharkFrameShape
-    val rim = if (focused) Color(0xFFFFD44D) else Color(0xFF55A9DE)
+    val rim = if (focused) SharkFocusGold else Color(0xFF55A9DE)
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
             .shadow(if (focused) 8.dp else 3.dp, shape)
@@ -1188,7 +1180,7 @@ fun App() {
 
 
                     Box(Modifier.width(cardWidth.dp).onFocusChanged{ focused = it.isFocused }
-                        .glassFrame(2.5.dp, if (focused) Color(0xFFFFD44D) else Color(0xFF56BFFF), focused = focused).clickable {onSelect(entry)}.padding(3.dp)) {
+                        .glassFrame(2.5.dp, if (focused) SharkFocusGold else Color(0xFF56BFFF), focused = focused).clickable {onSelect(entry)}.padding(3.dp)) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
                             val posterUrl=entry.image.ifBlank { entry.backdrop }
                             AsyncImage(model=posterUrl,contentDescription=entry.title,
@@ -1249,7 +1241,7 @@ fun App() {
         } else LazyRow(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
             items(events.take(12)) { event ->
                 var focused by remember {mutableStateOf(false)}
-                Column(Modifier.width(260.dp).onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF1A588B),RoundedCornerShape(0.dp), focused = focused).background(Color(0xFF0B203B),RoundedCornerShape(0.dp)).clickable(onClick=onGuide).padding(10.dp)) {
+                Column(Modifier.width(260.dp).onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)SharkFocusGold else Color(0xFF1A588B),RoundedCornerShape(0.dp), focused = focused).background(Color(0xFF0B203B),RoundedCornerShape(0.dp)).clickable(onClick=onGuide).padding(10.dp)) {
                     Text(if(event.startMillis<=System.currentTimeMillis())"● LIVE" else displayTime(event.startMillis),color=Color(0xFF49C8FF),fontSize=11.sp,fontWeight=FontWeight.Medium)
                     Text(event.program.title,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
                     Text(event.channel.title,color=Color(0xFFAAC8E8),fontSize=11.sp,maxLines=1)
@@ -1853,7 +1845,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
 @Composable private fun PremiumNavTile(label:String,onClick:()->Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().height(45.dp).onFocusChanged { focused=it.isFocused }
-        .glassFrame(if(focused) 3.dp else 2.dp,if(focused) Color(0xFFFFD44D) else Color(0xFF159BFF),RoundedCornerShape(0.dp), focused = focused)
+        .glassFrame(if(focused) 3.dp else 2.dp,if(focused) SharkFocusGold else Color(0xFF159BFF),RoundedCornerShape(0.dp), focused = focused)
         .hudSurface()
         .clickable(onClick=onClick),contentAlignment=Alignment.Center) {
         Text(label,color=Color.White,fontWeight=FontWeight.Medium,fontSize=11.sp,maxLines=1)
@@ -2102,7 +2094,7 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
                     AsyncImage(model=remember(url,context) { coil.request.ImageRequest.Builder(context).data(url).size(1280,720).build() },
                         contentDescription=null, modifier=Modifier.align(Alignment.TopEnd).fillMaxWidth(0.88f).fillMaxHeight(0.85f).graphicsLayer { alpha=if(subdued) 0.22f else 1f },
                         contentScale=ContentScale.Crop, alignment=Alignment.TopEnd)
-                    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to base, 0.28f to base, 0.48f to base.copy(alpha=0.85f), 0.76f to base.copy(alpha=0.15f), 1f to base.copy(alpha=0.05f))))
+                    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to base, 0.28f to base, 0.48f to base.copy(alpha=0.85f), 0.76f to base.copy(alpha=0.40f), 1f to base.copy(alpha=0.24f))))
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to base.copy(alpha=0.24f), 0.30f to base.copy(alpha=0.08f), 0.58f to base.copy(alpha=0.55f), 0.83f to base, 1f to base)))
                 }
             }
@@ -2226,7 +2218,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 @Composable private fun BrowserRow(label:String,active:Boolean,image:String,onFocused:()->Unit,onClick:()->Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape=RoundedCornerShape(0.dp)
-    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.hudSurface(active).glassFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF304564),shape, focused = focused).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.hudSurface(active).glassFrame(2.5.dp,if(focused)SharkFocusGold else Color(0xFF304564),shape, focused = focused).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
         if(image=="sky") GlassChannelWord()
         Text(label,color=Color.White,fontWeight=FontWeight.Normal,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
     }

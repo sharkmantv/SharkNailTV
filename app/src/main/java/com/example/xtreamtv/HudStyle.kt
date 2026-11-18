@@ -20,37 +20,38 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-internal val HudBackground = Color(0xFF09132F)
-internal val HudSurface = Color(0xFF17264A)
+internal val HudBackground = Color(0xFF060D23)
+internal val HudSurface = Color(0xFF101D38)
+internal val SharkFocusGold = Color(0xFFFFD44D)
 internal val HudAccent = Color(0xFFA8E8FF)
 internal val SharkFrameShape = RoundedCornerShape(0.dp)
 
 private val hudFill = Brush.verticalGradient(
-    listOf(Color(0xD93E5484), Color(0xDF1C2B52), Color(0xE9141E3D))
+    listOf(Color(0xD92C406B), Color(0xDF152443), Color(0xE90E1933))
 )
 private val hudFocusedFill = Brush.verticalGradient(
-    listOf(Color(0xEF527FAB), Color(0xEF2B527F), Color(0xF01F355F))
+    listOf(Color(0xEF355686), Color(0xEF203A64), Color(0xF017294C))
 )
 
 internal fun Modifier.hudSurface(highlighted: Boolean = false, shape: Shape = SharkFrameShape): Modifier =
     background(if (highlighted) hudFocusedFill else hudFill, shape)
 
 internal fun Modifier.hudBackdrop(): Modifier = drawWithCache {
-    val base = Brush.verticalGradient(listOf(Color(0xFF142450), HudBackground))
+    val base = Brush.verticalGradient(listOf(Color(0xFF0C1B3D), HudBackground))
     val blueLight = Brush.radialGradient(
-        listOf(Color(0xB32E66AE), Color.Transparent),
+        listOf(Color(0x98244685), Color.Transparent),
         center = Offset(size.width * .83f, size.height * .10f),
         radius = (size.width * .68f).coerceAtLeast(1f)
     )
-    val violetLight = Brush.radialGradient(
-        listOf(Color(0x664B4294), Color.Transparent),
+    val lowerBlueLight = Brush.radialGradient(
+        listOf(Color(0x381C3373), Color.Transparent),
         center = Offset(size.width * .12f, size.height * .80f),
         radius = (size.width * .55f).coerceAtLeast(1f)
     )
     onDrawBehind {
         drawRect(base)
         drawRect(blueLight)
-        drawRect(violetLight)
+        drawRect(lowerBlueLight)
     }
 }
 
@@ -63,7 +64,8 @@ internal fun Modifier.glassFrame(
 ): Modifier {
     val highlight = focused || (color != HudAccent && color.red > .65f && color.green > .55f)
     val edge = Brush.verticalGradient(
-        if (highlight) listOf(Color(0xFFECF8FF), HudAccent, Color(0xFF688BCD))
+        if (focused || color == SharkFocusGold) listOf(SharkFocusGold, Color(0xFFD8A43D))
+        else if (highlight) listOf(Color(0xFFECF8FF), HudAccent, Color(0xFF688BCD))
         else listOf(Color(0x8296BAEA), Color(0x3B809DDF), Color(0x566888C5))
     )
     val stroke = if (highlight) width.coerceIn(1.dp, 2.dp) else width.coerceAtMost(1.dp)
@@ -81,7 +83,7 @@ internal fun Modifier.glassFrame(
         val outlineSize = Size((size.width - line).coerceAtLeast(0f), (size.height - line).coerceAtLeast(0f))
         onDrawWithContent {
             drawContent()
-            drawRect(Color.White, Offset(inset, inset), outlineSize, alpha = pulse.value, style = Stroke(line))
+            drawRect(Color(0xFFFFE990), Offset(inset, inset), outlineSize, alpha = pulse.value, style = Stroke(line))
         }
     }.then(frame)
 }
