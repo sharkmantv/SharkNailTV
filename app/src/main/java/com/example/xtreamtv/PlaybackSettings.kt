@@ -48,7 +48,7 @@ internal fun readSavedPassword(context:Context):String = runCatching {
 }.getOrDefault("")
 internal fun playbackPrefs(context:Context)=context.getSharedPreferences("playback_config",0)
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-internal fun configuredPlayer(context:Context, preview:Boolean = false):ExoPlayer {
+internal fun configuredPlayer(context:Context, preview:Boolean = false, sourceFactory:androidx.media3.datasource.DataSource.Factory? = null):ExoPlayer {
     val p=playbackPrefs(context)
     val factory=DefaultRenderersFactory(context.applicationContext).setEnableDecoderFallback(p.getBoolean("fallback",true))
     val decoder=p.getString("decoder","Hardware preferred")
@@ -68,7 +68,7 @@ internal fun configuredPlayer(context:Context, preview:Boolean = false):ExoPlaye
             .setTargetBufferBytes(8 * 1024 * 1024)
             .build()
     } else DefaultLoadControl.Builder().setBufferDurationsMs(min,min*2,startup,5000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(when(p.getString("buffer","Normal")){"Small"->24*1024*1024;"Large"->96*1024*1024;else->48*1024*1024}).build()
-    return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
+    return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(sourceFactory ?: androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
         setVideoChangeFrameRateStrategy(if(p.getString("refreshRate","Auto")=="Auto") androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
         trackSelectionParameters=trackSelectionParameters.buildUpon().apply {
             if (preview) {
@@ -103,7 +103,7 @@ internal fun applyDisplaySettings(activity:android.app.Activity) {
 
 }
 private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080;"1440p"->1440;"4K"->2160;"8K"->4320;else->0}
-@Composable internal fun PlaybackSettings(onBack:()->Unit) {
+@Composable internal fun PlaybackSettings(onOpenTorrent: () -> Unit, onBack:()->Unit) {
     val context=LocalContext.current
     val p=playbackPrefs(context)
     var hdr by remember { mutableStateOf(p.getString("hdr","Auto").orEmpty()) }
@@ -117,6 +117,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
     var decoder by remember { mutableStateOf(p.getString("decoder","Hardware preferred").orEmpty()) }
     var smartMode by remember { mutableStateOf(p.getString("smartMode","Shark Smart").orEmpty()) }
     var smartAuto by remember { mutableStateOf(p.getBoolean("smartAuto",true)) }
+    var torrentSettingsReset by remember { mutableIntStateOf(0) }
     var buffer by remember { mutableStateOf(p.getString("buffer","Normal").orEmpty()) }
     var fallback by remember { mutableStateOf(p.getBoolean("fallback",true)) }
     var subtitles by remember { mutableStateOf(p.getBoolean("subtitles",true)) }
@@ -157,6 +158,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                 listOf("Automatic","Hardware preferred","Software preferred").forEach { v -> PremiumButton(compact=true,onClick={decoder=v;p.edit().putString("decoder",v).apply()},modifier=Modifier.fillMaxWidth()) { Text(if(decoder==v) "✓ $v" else v) } }
                 Text("Buffer",color=Color.White)
                 listOf("Small","Normal","Large").forEach { v -> PremiumButton(compact=true,onClick={buffer=v;p.edit().putString("buffer",v).apply()},modifier=Modifier.fillMaxWidth()) { Text(if(buffer==v) "✓ $v" else v) } }
+                key(torrentSettingsReset) { TorrentSettings(p, onOpenTorrent) }
                 PremiumButton(compact=true,onClick={fallback=!fallback;p.edit().putBoolean("fallback",fallback).apply()}) { Text("Fallback: ${if(fallback) "On" else "Off"}") }
             }
             SettingsPanel("Screen & audio",Modifier.weight(1f)) {
@@ -172,7 +174,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                 listOf(null,"en","es","fr","de","it").forEach { v -> PremiumButton(compact=true,onClick={audioLanguage=v;p.edit().putString("audioLanguage",v).apply()},modifier=Modifier.fillMaxWidth()) { Text((if(audioLanguage==v) "✓ " else "")+(v?:"Automatic")) } }
                 Text("Preferred subtitle language",color=Color.White)
                 listOf(null,"en","es","fr","de","it").forEach { v -> PremiumButton(compact=true,onClick={textLanguage=v;p.edit().putString("textLanguage",v).apply()},modifier=Modifier.fillMaxWidth()) { Text((if(textLanguage==v) "✓ " else "")+(v?:"Automatic")) } }
-                PremiumButton(compact=true,onClick={p.edit().clear().apply();streamFormat="Auto";clockFormat="24-hour";decoder="Hardware preferred";smartMode="Shark Smart";smartAuto=true;buffer="Normal";fallback=true;subtitles=true;resize=0;hdr="Auto";resolution="Automatic";refresh="Auto";audioLanguage=null;textLanguage=null}) { Text("Reset settings") }
+                PremiumButton(compact=true,onClick={p.edit().clear().apply();torrentSettingsReset++;streamFormat="Auto";clockFormat="24-hour";decoder="Hardware preferred";smartMode="Shark Smart";smartAuto=true;buffer="Normal";fallback=true;subtitles=true;resize=0;hdr="Auto";resolution="Automatic";refresh="Auto";audioLanguage=null;textLanguage=null}) { Text("Reset settings") }
                 PremiumButton(compact=true,onClick=onBack){Text("Back to Settings")}
             }
         }
@@ -198,3 +200,51 @@ internal fun streamMimeType(context:Context):String? = when(playbackPrefs(contex
 }
 internal fun sharkMediaItem(context:Context,url:String,inferFormat:Boolean=false):androidx.media3.common.MediaItem =
     androidx.media3.common.MediaItem.Builder().setUri(url).apply { if (!inferFormat) streamMimeType(context)?.let { setMimeType(it) } }.build()
+
+@Composable
+private fun TorrentSettings(prefs: android.content.SharedPreferences, onOpen: () -> Unit) {
+    var profile by remember { mutableStateOf(prefs.getString("torrentProfile", "Balanced") ?: "Balanced") }
+    var cache by remember { mutableIntStateOf(prefs.getInt("torrentCacheGiB", 0)) }
+    var peers by remember { mutableIntStateOf(prefs.getInt("torrentPeers", 60)) }
+    var buffer by remember { mutableIntStateOf(prefs.getInt("torrentStartupMiB", 8)) }
+    PremiumButton(compact = true, onClick = onOpen) { Text("Open torrent player") }
+    Text("Torrent profile", color = Color.White)
+    torrentProfiles.forEach { option ->
+        PremiumButton(compact = true, modifier = Modifier.fillMaxWidth(), onClick = {
+            profile = option
+            prefs.edit().putString("torrentProfile", option).apply()
+        }) { Text(if (profile == option) "✓ $option" else option) }
+    }
+    if (profile == "Custom") {
+        Text("Peer limit: $peers", color = Color.White)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PremiumButton(compact = true, enabled = peers > 20, onClick = {
+                peers = (peers - 10).coerceAtLeast(20)
+                prefs.edit().putInt("torrentPeers", peers).apply()
+            }) { Text("Fewer peers") }
+            PremiumButton(compact = true, enabled = peers < 200, onClick = {
+                peers = (peers + 10).coerceAtMost(200)
+                prefs.edit().putInt("torrentPeers", peers).apply()
+            }) { Text("More peers") }
+        }
+        Text("Startup buffer: $buffer MiB", color = Color.White)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PremiumButton(compact = true, enabled = buffer > 4, onClick = {
+                buffer = (buffer - 2).coerceAtLeast(4)
+                prefs.edit().putInt("torrentStartupMiB", buffer).apply()
+            }) { Text("Smaller buffer") }
+            PremiumButton(compact = true, enabled = buffer < 24, onClick = {
+                buffer = (buffer + 2).coerceAtMost(24)
+                prefs.edit().putInt("torrentStartupMiB", buffer).apply()
+            }) { Text("Larger buffer") }
+        }
+    }
+    Text("Torrent cache size", color = Color.White)
+    torrentCacheChoices.forEach { option ->
+        val label = if (option == 0) "Off" else "$option GB"
+        PremiumButton(compact = true, modifier = Modifier.fillMaxWidth(), onClick = {
+            cache = option
+            prefs.edit().putInt("torrentCacheGiB", option).apply()
+        }) { Text(if (cache == option) "✓ $label" else label) }
+    }
+}
