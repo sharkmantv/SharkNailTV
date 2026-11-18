@@ -101,8 +101,18 @@ jobs:
           if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
             export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
             umask 077
-            jq -er '.keystore' <<< "$SHARK_SIGNING_BUNDLE" | base64 --decode > "$SHARK_KEYSTORE_PATH"
-            SHARK_KEYSTORE_PASSWORD=$(jq -er '.password' <<< "$SHARK_SIGNING_BUNDLE")
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
             echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
             export SHARK_KEYSTORE_PASSWORD
             export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
