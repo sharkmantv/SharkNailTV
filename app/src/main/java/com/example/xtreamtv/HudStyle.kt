@@ -1,6 +1,10 @@
 package com.example.xtreamtv
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,7 +64,8 @@ internal fun Modifier.glassFrame(
     width: Dp,
     color: Color,
     shape: Shape = SharkFrameShape,
-    focused: Boolean = false
+    focused: Boolean = false,
+    repeatPulse: Boolean = false
 ): Modifier {
     val highlight = focused || (color != HudAccent && color.red > .65f && color.green > .55f)
     val edge = Brush.verticalGradient(
@@ -72,10 +77,18 @@ internal fun Modifier.glassFrame(
     val frame = Modifier.clip(shape).border(stroke, edge, shape)
     if (!focused) return then(frame)
 
-    val pulse = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        pulse.animateTo(1f, tween(180))
-        pulse.animateTo(0f, tween(420))
+    val pulse = if (repeatPulse) {
+        val transition = rememberInfiniteTransition(label = "Navigation focus border")
+        transition.animateFloat(0f, 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse),
+            label = "Gold outline opacity")
+
+    } else {
+        val opacity = remember { Animatable(0f) }
+        LaunchedEffect(Unit) {
+            opacity.animateTo(1f, tween(180))
+            opacity.animateTo(0f, tween(420))
+        }
+        opacity.asState()
     }
     return drawWithCache {
         val line = stroke.toPx()

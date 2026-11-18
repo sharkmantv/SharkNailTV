@@ -15,6 +15,6 @@ import androidx.compose.ui.text.font.FontWeight
     var focused by remember { mutableStateOf(false) }
     val shape=SharkFrameShape
     Row(modifier.heightIn(min=if(compact) 32.dp else 42.dp).onFocusChanged { focused=it.isFocused }.hudSurface().glassFrame(2.dp,if(focused && enabled) Color(0xFFFFD44D) else Color(0xFF48A8E8),shape, focused = focused && enabled).clickable(enabled=enabled,onClick=onClick).padding(horizontal=if(compact) 4.dp else 12.dp,vertical=if(compact) 3.dp else 8.dp),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
-        CompositionLocalProvider(LocalContentColor provides (if(enabled) Color.White else Color(0xFF8291A8)),LocalTextStyle provides TextStyle(fontFamily=SkyLikeFamily,fontSize=14.sp,fontWeight=FontWeight.Normal,letterSpacing=0.18.sp)) { content() }
+        CompositionLocalProvider(LocalContentColor provides (if(enabled) Color.White else Color.White.copy(alpha = .55f)),LocalTextStyle provides TextStyle(fontFamily=SkyLikeFamily,fontSize=14.sp,fontWeight=FontWeight.Normal,letterSpacing=0.18.sp)) { content() }
     }
 }
