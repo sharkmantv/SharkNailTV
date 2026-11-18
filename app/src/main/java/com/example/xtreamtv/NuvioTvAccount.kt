@@ -9,12 +9,23 @@ import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+private class NuvioHttpException(val status: Int) : Exception("Nuvio service HTTP $status")
+
+internal fun Exception.messageForNuvioSync(): String = when (this) {
+    is NuvioHttpException -> "Nuvio service HTTP $status"
+    is java.net.SocketTimeoutException -> "Nuvio timed out. Try again."
+    else -> javaClass.simpleName
+}
 
 /** Nuvio device-link protocol, adapted from the supplied NuvioMobile 1.1.0 beta source.
  * The backend URL and public anon key must be configured at build time.
  * No secret/service-role key should ever be packaged in an APK.
  */
 object NuvioTvAccount {
+    private val syncMutex = Mutex()
     private const val PREFS = "nuvio_tv_account_206"
     private fun prefs(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val base get() = BuildConfig.NUVIO_BACKEND_URL.trimEnd('/')
@@ -38,9 +49,8 @@ object NuvioTvAccount {
                 conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             }
             val status = conn.responseCode
-            val result = (if (status in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) error("Nuvio service HTTP $status: ${result.take(150)}")
-            return result
+            if (status !in 200..299) throw NuvioHttpException(status)
+            return conn.inputStream.bufferedReader().use { it.readText() }
         } finally { conn.disconnect() }
     }
     private fun first(s: String): JSONObject {
@@ -84,15 +94,24 @@ object NuvioTvAccount {
         return next
     }
     suspend fun sync(c: Context): List<SyncedNuvioAddon> = withContext(Dispatchers.IO) {
-        val query = "/rest/v1/addons?select=url,name,enabled,sort_order&profile_id=eq.1&order=sort_order.asc"
-        val rows = try { JSONArray(request(query, bearer = access(c))) }
-            catch (e: Exception) { JSONArray(request(query, bearer = refresh(c))) }
-        buildList {
-            for (i in 0 until rows.length()) {
-                val row = rows.getJSONObject(i)
-                val url = row.optString("url")
-                if (url.startsWith("https://")) add(SyncedNuvioAddon(
-                    url, row.optString("name"), row.optBoolean("enabled",true), row.optInt("sort_order",i)))
+        syncMutex.withLock {
+            val query = "/rest/v1/addons?select=url,name,enabled,sort_order&profile_id=eq.1&order=sort_order.asc"
+            val rows = try {
+                JSONArray(request(query, bearer = access(c)))
+            } catch (e: NuvioHttpException) {
+                if (e.status != 401) throw e
+                JSONArray(request(query, bearer = refresh(c)))
+            }
+            buildList {
+                for (i in 0 until rows.length()) {
+                    val row = rows.optJSONObject(i) ?: continue
+                    val url = row.optString("url")
+                    if (url.startsWith("https://")) {
+                        add(SyncedNuvioAddon(
+                            url, row.optString("name"), row.optBoolean("enabled", true), row.optInt("sort_order", i)
+                        ))
+                    }
+                }
             }
         }
     }

@@ -330,6 +330,7 @@ fun App() {
             finally {loading=false}
         }
     }
+    var nuvioBusy by remember { mutableStateOf(false) }
     val addonCache = remember { mutableMapOf<String, Pair<Long,List<String>>>() }
     var homeLookupStatus by remember { mutableStateOf("") }
     var homeSeason by remember { mutableIntStateOf(1) }
@@ -638,28 +639,6 @@ fun App() {
                                                 section = "$provider Catalogue"
                                             }
                                         }
-                                        item(key = "magis-tv") {
-                                            StreamingBrandCard("Magis TV", null, Modifier.size(tileWidth)) {
-                                                val packageName = "com.magis.tioNel"
-                                                val manager = context.packageManager
-                                                val launch = manager.getLeanbackLaunchIntentForPackage(packageName)
-                                                    ?: manager.getLaunchIntentForPackage(packageName)
-                                                if (launch == null) {
-                                                    cacheTitle = "Magis TV"
-                                                    cacheMessage = "Install Magis TV on this TV, then return to Shark Stream and open this tile."
-                                                } else {
-                                                    try {
-                                                        context.startActivity(launch)
-                                                    } catch (_: android.content.ActivityNotFoundException) {
-                                                        cacheTitle = "Magis TV"
-                                                        cacheMessage = "Magis TV could not be opened on this TV."
-                                                    } catch (_: SecurityException) {
-                                                        cacheTitle = "Magis TV"
-                                                        cacheMessage = "Android blocked Magis TV from opening."
-                                                    }
-                                                }
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -741,7 +720,9 @@ fun App() {
                             if (!NuvioTvAccount.configured) {
                                 Text("Nuvio server configuration is missing. A developer must provide the public backend URL and publishable key in nuvio.properties before building. Account linking is unavailable in this package.",color=Color(0xFFFFC66D))
                             } else {
-                                FocusAction("Connect Nuvio Account") {
+                                FocusAction("Connect Nuvio Account", enabled = !nuvioBusy) {
+                                    if (nuvioBusy) return@FocusAction
+                                    nuvioBusy = true
                                     scope.launch {
                                         try {
                                             nuvioStatus = "Requesting device link…"
@@ -757,23 +738,36 @@ fun App() {
                                             nuvioStatus = "Linked • ${usableSyncedAddons(addons).size} enabled HTTPS addons"
                                         } catch (e: Exception) {
                                             if (e is kotlinx.coroutines.CancellationException) throw e
-                                            nuvioStatus = "Nuvio link failed: ${e.message ?: "Unknown error"}"
+                                            nuvioStatus = "Nuvio link failed: ${e.javaClass.simpleName}"
+                                        } finally {
+                                            nuvioBusy = false
                                         }
                                     }
                                 }
-                                FocusAction("Sync My Addons") {
+                                FocusAction("Sync My Addons", enabled = !nuvioBusy) {
+                                    if (nuvioBusy) return@FocusAction
+                                    if (!NuvioTvAccount.linked(context)) {
+                                        nuvioStatus = "Connect your Nuvio account first."
+                                        return@FocusAction
+                                    }
+                                    nuvioBusy = true
+                                    nuvioStatus = "Syncing addons…"
                                     scope.launch {
                                         try {
-                                            addonCache.clear()
-                                            val addons = NuvioTvAccount.sync(context)
-                                            nuvioStatus = "Synced ${usableSyncedAddons(addons).size} enabled HTTPS addons"
+                                            val addons = usableSyncedAddons(NuvioTvAccount.sync(context))
+                                            addonCache["linked"] = android.os.SystemClock.elapsedRealtime() to addons.map { it.manifestUrl }
+                                            nuvioStatus = "Synced ${addons.size} enabled HTTPS addons"
                                         } catch (e: Exception) {
-                                            nuvioStatus = "Sync failed: ${e.message ?: "Unknown error"}"
+                                            if (e is kotlinx.coroutines.CancellationException) throw e
+                                            nuvioStatus = "Sync failed: ${e.messageForNuvioSync()}"
+                                        } finally {
+                                            nuvioBusy = false
                                         }
                                     }
                                 }
                             }
-                            FocusAction("Disconnect Nuvio") {
+                            FocusAction("Disconnect Nuvio", enabled = !nuvioBusy) {
+                                if (nuvioBusy) return@FocusAction
                                 NuvioTvAccount.clear(context); addonCache.clear()
                                 prefs.edit().remove("home_addon_urls").apply()
                                 nuvioCode = ""; nuvioUrl = ""; nuvioStatus = "Not connected"
@@ -1708,8 +1702,8 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
 }
 
 
-@Composable private fun FocusAction(label:String, primary:Boolean=false, modifier:Modifier=Modifier, onClick:()->Unit) {
-    PremiumButton(onClick=onClick,modifier=modifier) { Text(label,color=Color.White,fontSize=14.sp,maxLines=2,overflow=TextOverflow.Ellipsis) }
+@Composable private fun FocusAction(label:String, primary:Boolean=false, modifier:Modifier=Modifier, enabled:Boolean=true, onClick:()->Unit) {
+    PremiumButton(onClick=onClick,modifier=modifier,enabled=enabled) { Text(label,color=Color.White,fontSize=14.sp,maxLines=2,overflow=TextOverflow.Ellipsis) }
 }
 
 @Composable private fun PremiumNavTile(label:String,onClick:()->Unit) {
