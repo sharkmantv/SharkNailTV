@@ -181,7 +181,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
 @Composable internal fun SettingsPanel(title:String,modifier:Modifier=Modifier,content:@Composable ColumnScope.()->Unit) {
     Column(modifier.fillMaxHeight()
         .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF142544),Color(0xFF080F25))),RoundedCornerShape(0.dp))
-        .hudSurface().pulsingFrame(1.dp, HudAccent).padding(10.dp)) {
+        .hudSurface().glassFrame(1.dp, HudAccent).padding(10.dp)) {
         Text(title,modifier=Modifier.fillMaxWidth().background(Color(0xFF16425C),RoundedCornerShape(0.dp)).padding(8.dp),color=Color.White,fontSize=17.sp)
         Column(Modifier.weight(1f).padding(top=5.dp,bottom=5.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(3.dp),content=content)
     }
