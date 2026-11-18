@@ -701,7 +701,7 @@ fun App() {
                                 "HBO Max" to R.drawable.themed_marquee_max,
                                 "Hulu" to R.drawable.themed_marquee_hulu
                             )
-                            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 val tileWidth = minOf((maxWidth - 62.dp) / 6, maxHeight - 20.dp).coerceIn(1.dp, 280.dp)
                                 CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
                                     LazyRow(
