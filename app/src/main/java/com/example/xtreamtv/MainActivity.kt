@@ -983,22 +983,29 @@ fun App() {
                     val tileFill = if (active) listOf(Color(0xFF192D51), Color(0xFF101D38))
                         else listOf(Color(0xFF101C39), Color(0xFF0A132A))
                     val frameColor = if (emphasized) SharkFocusGold else HudAccent
+                    val accent = when (item) {
+                        "Home" -> Color(0xFFFFC34D)
+                        "Shark TV" -> Color(0xFFFF8A35)
+                        "Movies" -> Color(0xFFFF5260)
+                        "TV Series" -> Color(0xFFED49A6)
+                        "Sports Guide" -> Color(0xFFB66BFF)
+                        "Shark Stream" -> Color(0xFF00D9F4)
+                        else -> Color(0xFF5D9EFF)
+                    }
                     Column(Modifier.weight(1f).height(64.dp).onFocusChanged { state ->
                         if(state.isFocused) focusedNav=item else if(focusedNav==item) focusedNav=null
+                    }.drawWithCache {
+                        val strip = Brush.horizontalGradient(listOf(accent, accent.copy(alpha = .7f)))
+                        val inset = 3.dp.toPx()
+                        val stripHeight = 3.dp.toPx()
+                        val stripSize = Size((size.width - 2 * inset).coerceAtLeast(0f), stripHeight)
+                        onDrawWithContent {
+                            drawContent()
+                            drawRect(strip, Offset(inset, -stripHeight / 2f), stripSize, alpha = navStripPulse.value)
+                        }
                     }.background(Brush.verticalGradient(tileFill)).glassFrame(2.dp, frameColor, focused = focused, repeatPulse = true)
                     .clickable { if(item=="Exit") exitPrompt=true else {homeLookupJob?.cancel();homePlaying=null;selected=null;section=if(item=="Shark Stream") "Shark Streaming" else item} },horizontalAlignment=Alignment.CenterHorizontally) {
-                        val accent = when (item) {
-                            "Home" -> Color(0xFFFFC34D)
-                            "Shark TV" -> Color(0xFFFF8A35)
-                            "Movies" -> Color(0xFFFF5260)
-                            "TV Series" -> Color(0xFFED49A6)
-                            "Sports Guide" -> Color(0xFFB66BFF)
-                            "Shark Stream" -> Color(0xFF00D9F4)
-                            else -> Color(0xFF5D9EFF)
-                        }
-                        Box(Modifier.fillMaxWidth().padding(start = 3.dp, end = 3.dp, top = 3.dp).height(3.dp)
-                            .graphicsLayer { alpha = navStripPulse.value }
-                            .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha = .7f)))))
+                        Spacer(Modifier.height(6.dp))
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
                             Text(item,color=Color.White,fontSize=13.sp,fontWeight=FontWeight.Normal,maxLines=1,style=TextStyle(textAlign=TextAlign.Center),overflow=TextOverflow.Ellipsis)
                         }
