@@ -808,12 +808,16 @@ fun App() {
                                         },focused,shape=RoundedCornerShape(0.dp),steady=true) {
                                             Row(
                                                 Modifier.fillMaxSize()
-                                                    .background(Brush.verticalGradient(listOf(Color(0xFF142D50),Color(0xFF091A35))))
-                                                    .padding(horizontal=14.dp),
+                                                    .background(Brush.horizontalGradient(listOf(Color(0xFF151B38), Color(0xFF0B1023))))
+                                                    .padding(horizontal=10.dp),
                                                 verticalAlignment=Alignment.CenterVertically,
                                                 horizontalArrangement=Arrangement.spacedBy(12.dp)
                                             ) {
-                                                ChromeSettingsBadge(label)
+                                                Box(
+                                                    Modifier.width(56.dp).fillMaxHeight().padding(vertical = 7.dp)
+                                                        .background(Brush.linearGradient(listOf(Color(0xFF29244A), Color(0xFF123A51))), SharkFrameShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) { ChromeSettingsBadge(label) }
                                                 Text(label,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Light)
                                             }
                                         }
@@ -1045,25 +1049,63 @@ fun App() {
 }
 private val UniformPulseBorderWidth = 2.5.dp
 private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(1f) }
-@Composable internal fun Modifier.pulsingFrame(width:androidx.compose.ui.unit.Dp,color:Color,shape:androidx.compose.ui.graphics.Shape=RoundedCornerShape(0.dp)):Modifier {
-    val pulse=LocalFramePulse.current
-    return this.drawWithContent {
+internal val SharkFrameShape = object : androidx.compose.ui.graphics.Shape {
+    override fun createOutline(size: Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: androidx.compose.ui.unit.Density): androidx.compose.ui.graphics.Outline {
+        val w = size.width
+        val h = size.height
+        val cut = with(density) { 9.dp.toPx() }.coerceAtMost(minOf(w, h) / 4f)
+        return androidx.compose.ui.graphics.Outline.Generic(androidx.compose.ui.graphics.Path().apply {
+            moveTo(cut, cut * .45f)
+            lineTo(w * .32f, cut * .45f)
+            lineTo(w * .32f + cut * .45f, 0f)
+            lineTo(w * .65f, 0f)
+            lineTo(w * .65f + cut * .45f, cut * .45f)
+            lineTo(w - cut, cut * .45f)
+            lineTo(w, cut * 1.45f)
+            lineTo(w, h - cut)
+            lineTo(w - cut, h)
+            lineTo(cut, h)
+            lineTo(0f, h - cut)
+            lineTo(0f, cut * 1.45f)
+            close()
+        })
+    }
+}
+
+@Composable internal fun Modifier.pulsingFrame(
+    width: androidx.compose.ui.unit.Dp,
+    color: Color,
+    @Suppress("UNUSED_PARAMETER") shape: androidx.compose.ui.graphics.Shape = SharkFrameShape
+): Modifier {
+    val pulse = LocalFramePulse.current
+    val focused = color.red > .7f && color.green > .55f
+    val accent = if (focused) Color(0xFFF3E7FF) else Color(0xFF55D4EB)
+    val rim = remember(accent) {
+        Brush.linearGradient(listOf(accent, Color(0xFF645596), accent))
+    }
+    return clip(SharkFrameShape).drawWithContent {
         drawContent()
-        val w=UniformPulseBorderWidth.toPx()
-        inset(w / 2) {
-            drawOutline(shape.createOutline(size, layoutDirection, this), color, alpha = pulse.value, style = Stroke(w))
+        if (size.width <= 0f || size.height <= 0f) return@drawWithContent
+        val w = width.toPx().coerceAtMost(minOf(size.width, size.height) / 4f)
+        inset(w) {
+            drawOutline(SharkFrameShape.createOutline(size, layoutDirection, this), rim,
+                alpha = if (focused) .8f + .2f * pulse.value else .66f, style = Stroke(w))
         }
     }
 }
-@Composable private fun ElectricFocus(modifier:Modifier=Modifier,focused:Boolean,selected:Boolean=false,shape:RoundedCornerShape=RoundedCornerShape(0.dp),metal:Boolean=false,steady:Boolean=false,content:@Composable ()->Unit) {
-    val pulse = LocalFramePulse.current
-    val glow=if(focused)Color(0xFFFFD44D) else Color(0xFF20517C)
-    val brush=remember(focused,metal) { Brush.linearGradient(if(focused) listOf(Color(0xFFFFB900),Color(0xFFFFF4A8),Color(0xFFFFC400)) else if(metal) listOf(Color.White,Color(0xFF33383D),Color(0xFFFDFEFF),Color(0xFF525960),Color.White) else listOf(Color(0xFF168CE8),Color(0xFF70DFFF),Color(0xFF1462B5),Color(0xFF00BFFF))) }
-    Box(modifier.padding(2.dp).shadow(if(focused && !steady)5.dp else 0.dp,shape,ambientColor=glow,spotColor=glow)
-        .drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); inset(w / 2) { drawOutline(shape.createOutline(size,layoutDirection,this),brush,alpha=if(focused) 0.35f + 0.65f * pulse.value else pulse.value,style=Stroke(w)) } }
-        .padding(2.dp).clip(shape)) { content() }
 
+@Composable private fun ElectricFocus(
+    modifier: Modifier = Modifier, focused: Boolean, selected: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") shape: RoundedCornerShape = RoundedCornerShape(0.dp),
+    @Suppress("UNUSED_PARAMETER") metal: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") steady: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    Box(modifier.padding(2.dp).pulsingFrame(2.dp, if (focused || selected) Color.White else Color.Cyan)
+        .padding(2.dp).clip(SharkFrameShape)) { content() }
 }
+
 @Composable private fun StreamingBrandCard(
     name: String,
     artwork: Int?,
@@ -1071,7 +1113,7 @@ private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = androidx.compose.ui.graphics.RectangleShape
+    val shape = SharkFrameShape
     val rim = if (focused) Color(0xFFFFD44D) else Color(0xFF55A9DE)
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
@@ -1541,8 +1583,9 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.verticalGradient(listOf(Color(0xE6101D36), Color(0xFA050A16))))
+                    .clip(SharkFrameShape)
+                    .background(Brush.verticalGradient(listOf(Color(0xEB191730), Color(0xFA08091B))))
+                    .pulsingFrame(2.dp, Color.Cyan)
                     .padding(horizontal = 22.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
@@ -1589,7 +1632,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                 }
             }
         }
-        if(panel.isNotEmpty()) AlertDialog(onDismissRequest={panel="";interaction++},containerColor=Color(0xFF102953),title={Text(panel,color=Color.White)},text={Column(Modifier.verticalScroll(rememberScrollState())) {
+        if(panel.isNotEmpty()) AlertDialog(onDismissRequest={panel="";interaction++},shape=SharkFrameShape,containerColor=Color(0xFF17172E),title={Text(panel,color=Color.White)},text={Column(Modifier.verticalScroll(rememberScrollState())) {
             when(panel) {
                 "TV Guide" -> {
                     val remaining = schedule.filter { it.end > guideTime }
@@ -1628,12 +1671,12 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
 
 @Composable private fun PlayerTile(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = SharkFrameShape
     Column(
         modifier.height(54.dp).onFocusChanged { focused = it.isFocused }
             .clip(shape)
             .background(if (focused) Color(0xFF183FC2) else Color(0xFF14213A))
-            .then(if (focused) Modifier.border(2.dp, Color(0xFFC98AFF), shape) else Modifier)
+            .pulsingFrame(1.5.dp, if (focused) Color.White else Color.Cyan)
             .clickable(onClick = onClick)
             .padding(horizontal = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1710,7 +1753,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
                     }
                 }
             }
-            Column(Modifier.weight(1f).fillMaxHeight().border(1.dp,Color(0xFF2667B2),RoundedCornerShape(0.dp))
+            Column(Modifier.weight(1f).fillMaxHeight().pulsingFrame(1.dp, Color.Cyan)
                 .background(Color(0xFF071B38),RoundedCornerShape(0.dp)).padding(11.dp)) {
                 Text("UPCOMING EVENTS",color=Color.White,fontWeight=FontWeight.Medium,fontSize=14.sp)
                 Spacer(Modifier.height(8.dp))
@@ -1917,7 +1960,7 @@ private object PublicSports {
                             Text(name,color=Color.White,fontSize=23.sp,fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.BottomStart).padding(10.dp))
                         }
                     }
-                    Column(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(0.dp)).background(Brush.verticalGradient(listOf(Color(0xF0142D50),Color(0xF0091A35))),RoundedCornerShape(0.dp)).border(2.dp,Color(0xFF48CFFF),RoundedCornerShape(0.dp)).padding(10.dp).verticalScroll(rememberScrollState())) {
+                    Column(Modifier.fillMaxWidth().weight(1f).clip(SharkFrameShape).background(Brush.verticalGradient(listOf(Color(0xF01D1B37),Color(0xF0091026)))).pulsingFrame(2.dp, Color.Cyan).padding(10.dp).verticalScroll(rememberScrollState())) {
                         Text("Upcoming $name",color=Color.White,fontSize=15.sp,fontWeight=FontWeight.Medium)
                         if(events.isEmpty()) Text("No events returned · coverage may be incomplete",color=Color(0xFFB8D8F2),fontSize=12.sp)
                         events.take(if(expanded==name) 40 else 3).forEach { event ->
@@ -2053,9 +2096,9 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
 }
 @Composable private fun PremiumDialog(onDismissRequest:()->Unit,title:@Composable ()->Unit,text:(@Composable ()->Unit)?=null,confirmButton:@Composable ()->Unit,dismissButton:(@Composable ()->Unit)?=null) {
     val pulse = LocalFramePulse.current
-    val shape=RoundedCornerShape(0.dp)
+    val shape=SharkFrameShape
     Dialog(onDismissRequest=onDismissRequest,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF172D48),Color(0xFF080F29)))).drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(Color(0xFF36CFFF).copy(alpha=pulse.value),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius.Zero,style=Stroke(w)) }.padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF172D48),Color(0xFF080F29)))).pulsingFrame(2.dp, Color.Cyan).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFE0EFFF),fontSize=23.sp,fontWeight=FontWeight.Medium)) { title() }
             Box(Modifier.fillMaxWidth().height(2.dp).graphicsLayer { alpha=pulse.value }.background(Brush.horizontalGradient(listOf(Color.Transparent,Color(0xFF55DFFF),Color.Transparent))))
             if(text!=null) CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFDCEEFF),fontSize=15.sp)) { text() }
