@@ -1,22 +1,29 @@
 package com.example.xtreamtv
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 internal val HudBackground = Color(0xFF09132F)
 internal val HudSurface = Color(0xFF17264A)
 internal val HudAccent = Color(0xFFA8E8FF)
-internal val SharkFrameShape = RoundedCornerShape(10.dp)
+internal val SharkFrameShape = RoundedCornerShape(0.dp)
 
 private val hudFill = Brush.verticalGradient(
     listOf(Color(0xD93E5484), Color(0xDF1C2B52), Color(0xE9141E3D))
@@ -47,12 +54,34 @@ internal fun Modifier.hudBackdrop(): Modifier = drawWithCache {
     }
 }
 
-internal fun Modifier.glassFrame(width: Dp, color: Color, shape: Shape = SharkFrameShape): Modifier {
-    val highlight = color.red > .65f && color.green > .55f
+@Composable
+internal fun Modifier.glassFrame(
+    width: Dp,
+    color: Color,
+    shape: Shape = SharkFrameShape,
+    focused: Boolean = false
+): Modifier {
+    val highlight = focused || (color != HudAccent && color.red > .65f && color.green > .55f)
     val edge = Brush.verticalGradient(
         if (highlight) listOf(Color(0xFFECF8FF), HudAccent, Color(0xFF688BCD))
         else listOf(Color(0x8296BAEA), Color(0x3B809DDF), Color(0x566888C5))
     )
     val stroke = if (highlight) width.coerceIn(1.dp, 2.dp) else width.coerceAtMost(1.dp)
-    return clip(shape).border(stroke, edge, shape)
+    val frame = Modifier.clip(shape).border(stroke, edge, shape)
+    if (!focused) return then(frame)
+
+    val pulse = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        pulse.animateTo(1f, tween(180))
+        pulse.animateTo(0f, tween(420))
+    }
+    return drawWithCache {
+        val line = stroke.toPx()
+        val inset = line / 2
+        val outlineSize = Size((size.width - line).coerceAtLeast(0f), (size.height - line).coerceAtLeast(0f))
+        onDrawWithContent {
+            drawContent()
+            drawRect(Color.White, Offset(inset, inset), outlineSize, alpha = pulse.value, style = Stroke(line))
+        }
+    }.then(frame)
 }
