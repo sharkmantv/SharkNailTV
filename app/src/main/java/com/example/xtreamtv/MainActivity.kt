@@ -1088,6 +1088,10 @@ fun App() {
         val motion=rememberInfiniteTransition(label="mascot arm")
         val phase = motion.animateFloat(0f,0.35f,infiniteRepeatable(tween(1800),RepeatMode.Reverse),label="arm")
         val paint=remember { android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG) }
+        val dripProgress = motion.animateFloat(
+            0f, 1f, infiniteRepeatable(tween(1600, easing = androidx.compose.animation.core.LinearEasing)),
+            label = "Shark mouth drip"
+        )
         @Composable fun Mascot(modifier:Modifier, right:Boolean) {
         val vertices=remember { FloatArray(2*17*13) }
         val bitmap=remember(right) { android.graphics.BitmapFactory.decodeResource(context.resources,if(right) R.drawable.shark_brand_right else R.drawable.shark_brand,android.graphics.BitmapFactory.Options().apply { inSampleSize=2 }) }
@@ -1102,6 +1106,25 @@ fun App() {
                 vertices[k++]=(size.height-h)/2+y*h-arm*phase.value*h*0.10f
             }
             drawContext.canvas.nativeCanvas.drawBitmapMesh(bitmap,16,12,vertices,0,null,0,paint)
+            val mouthX = if (right) .416f else .584f
+            val mouthY = .371f
+            val mouth = Offset((size.width - w) / 2f + mouthX * w, (size.height - h) / 2f + mouthY * h)
+            val direction = if (right) -1f else 1f
+            for (drip in 0..1) {
+                val x = mouth.x + direction * drip * w * .014f
+                val y = mouth.y + drip * h * .008f
+                val radius = h * if (drip == 0) .013f else .009f
+                val life = (dripProgress.value + drip * .48f) % 1f
+                val bottom = y + h * (.035f + .036f * life)
+                val blood = Color(0xFFC71E36)
+                drawLine(blood, Offset(x, y), Offset(x, bottom), radius, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                drawCircle(blood, radius, Offset(x, bottom))
+                if (life > .48f) {
+                    val fall = (life - .48f) / .52f
+                    drawCircle(blood, radius * .72f, Offset(x, bottom + h * (.026f + .085f * fall * fall)), alpha = 1f - fall)
+                }
+            }
+
         }
         }
         Mascot(Modifier.weight(1.45f).height(136.dp),false)
