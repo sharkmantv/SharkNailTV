@@ -1393,6 +1393,14 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
     }
     val latestFailure by rememberUpdatedState(onFailure)
     var firstFrame by remember(url) { mutableStateOf(false) }
+    var showPlayerBrand by remember(url) { mutableStateOf(false) }
+    LaunchedEffect(url, firstFrame) {
+        if (firstFrame) {
+            showPlayerBrand = true
+            delay(2_000)
+            showPlayerBrand = false
+        }
+    }
     var failureSent by remember(url) { mutableStateOf(false) }
     fun reportFailure() {
         if(failureSent) return
@@ -1483,16 +1491,41 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         }
     }.focusRequester(rootFocus).focusable()) {
         AndroidView(factory={ctx->PlayerView(ctx).apply {this.player=player;useController=false;isFocusable=false;descendantFocusability=android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS}},update={it.player=player;it.resizeMode=resize},onRelease={it.player=null},modifier=Modifier.fillMaxSize())
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showPlayerBrand,
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 26.dp, top = 22.dp),
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut()
+        ) {
+            Row(
+                Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xD9081126))
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Canvas(Modifier.size(width = 24.dp, height = 20.dp)) {
+                    val fin = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(0f, size.height)
+                        cubicTo(size.width * .23f, size.height * .44f, size.width * .60f, 0f, size.width, 0f)
+                        cubicTo(size.width * .76f, size.height * .36f, size.width * .78f, size.height * .64f, size.width * .89f, size.height * .84f)
+                        quadraticBezierTo(size.width * .52f, size.height * .64f, size.width * .34f, size.height)
+                        close()
+                    }
+                    drawPath(fin, Color(0xFF327AFF))
+                }
+                Text("SharkNailTV", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+        }
         androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
-                    .clip(androidx.compose.ui.graphics.RectangleShape)
-                    .background(Brush.verticalGradient(listOf(Color(0xEF142441), Color(0xFA090F20))))
-                    .pulsingFrame(2.5.dp, Color(0xFF58CFFF))
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xE6101D36), Color(0xFA050A16))))
                     .padding(horizontal = 22.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(4.dp).height(25.dp).clip(RoundedCornerShape(2.dp)).background(Color(0xFF327AFF)))
                     Text(title.ifBlank { "SharkNailTV" }, modifier = Modifier.weight(1f), color = Color.White,
                         fontSize = 23.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val badge = if (liveStream) "● LIVE" else player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
@@ -1508,23 +1541,29 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                         val elapsed = (guideTime-currentProgramme.start).toFloat() / (currentProgramme.end-currentProgramme.start)
                         LinearProgressIndicator(progress = { elapsed.coerceIn(0f,1f) },
                             modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(4.dp)),
-                            color = Color(0xFF62DDED), trackColor = Color(0xFF334B70))
+                            color = Color(0xFF327AFF), trackColor = Color(0xFF2D3B59))
                     }
                 } else {
                     LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat()/duration).coerceIn(0f,1f) else 0f },
                         modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(4.dp)),
-                        color = Color(0xFF62DDED), trackColor = Color(0xFF334B70))
+                        color = Color(0xFF327AFF), trackColor = Color(0xFF2D3B59))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(playTime(position), color = Color(0xFFCFDAF4), fontSize = 12.sp)
                         Text(if (duration > 0) playTime(duration) else "", color = Color(0xFFCFDAF4), fontSize = 12.sp)
                     }
                 }
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    if(!liveStream) PlayerTile("−30s",Modifier.weight(1f)){if(player.isCurrentMediaItemSeekable)player.seekTo((player.currentPosition-30000L).coerceAtLeast(0))}
-                    PlayerTile(if(playing) "❚❚  Pause" else "▶  Play",Modifier.weight(1f).focusRequester(controlFocus)){if(player.isPlaying)player.pause() else player.play()}
-                    if(!liveStream) PlayerTile("+30s",Modifier.weight(1f)){if(player.isCurrentMediaItemSeekable)player.seekTo((player.currentPosition+30000L).coerceAtMost(if(duration>0)duration else Long.MAX_VALUE))}
-                    if(liveStream) PlayerTile("TV Guide",Modifier.weight(1f)){ panel="TV Guide" }
-                    listOf("Audio","Subtitles","Screen","Settings","Info").forEach { name -> PlayerTile(name,Modifier.weight(1f)){panel=name} }
+                    if(!liveStream) PlayerTile("−30s", Icons.Filled.Replay30, Modifier.weight(1f)){if(player.isCurrentMediaItemSeekable)player.seekTo((player.currentPosition-30000L).coerceAtLeast(0))}
+                    PlayerTile(if (playing) "Pause" else "Play", if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, Modifier.weight(1f).focusRequester(controlFocus)){if(player.isPlaying)player.pause() else player.play()}
+                    if(!liveStream) PlayerTile("+30s", Icons.Filled.Forward30, Modifier.weight(1f)){if(player.isCurrentMediaItemSeekable)player.seekTo((player.currentPosition+30000L).coerceAtMost(if(duration>0)duration else Long.MAX_VALUE))}
+                    if(liveStream) PlayerTile("TV Guide", Icons.Filled.List, Modifier.weight(1f)){ panel="TV Guide" }
+                    listOf(
+                        "Audio" to Icons.Filled.VolumeUp,
+                        "Subtitles" to Icons.Filled.Subtitles,
+                        "Screen" to Icons.Filled.Tv,
+                        "Settings" to Icons.Filled.Settings,
+                        "Info" to Icons.Filled.Info
+                    ).forEach { (name, icon) -> PlayerTile(name, icon, Modifier.weight(1f)) { panel = name } }
                 }
             }
         }
@@ -1565,16 +1604,22 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
     }
 }
 
-@Composable private fun PlayerTile(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+@Composable private fun PlayerTile(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val shape = androidx.compose.ui.graphics.RectangleShape
-    Box(modifier.height(42.dp).onFocusChanged { focused = it.isFocused }
-        .clip(shape).background(if (focused) Color(0xFFDFF7FF) else Color(0xFF243651))
-        .clickable(onClick = onClick)
-        .then(if (focused) Modifier.pulsingFrame(2.5.dp, Color(0xFFD5AD48), shape) else Modifier)
-        .padding(horizontal = 3.dp), contentAlignment = Alignment.Center) {
-        Text(label, color = if (focused) Color(0xFF102039) else Color.White, fontSize = 13.sp,
-            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier.height(54.dp).onFocusChanged { focused = it.isFocused }
+            .clip(shape)
+            .background(if (focused) Color(0xFF183FC2) else Color(0xFF14213A))
+            .then(if (focused) Modifier.border(2.dp, Color(0xFFC98AFF), shape) else Modifier)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
