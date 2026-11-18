@@ -960,6 +960,14 @@ fun App() {
             }
             }
             val homeNav = section == "Home" && selected == null
+            val homeNavPulse = if (homeNav) {
+                rememberInfiniteTransition(label = "Home navigation accents").animateFloat(
+                    initialValue = 0.48f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(1250), RepeatMode.Reverse),
+                    label = "Top strip opacity"
+                )
+            } else null
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
@@ -987,6 +995,7 @@ fun App() {
                                 else -> Color(0xFF5D9EFF)
                             }
                             Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp)
+                                .graphicsLayer { alpha = homeNavPulse?.value ?: 1f }
                                 .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha=.7f)))))
                         }
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
