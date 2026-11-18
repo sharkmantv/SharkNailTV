@@ -48,7 +48,7 @@ internal fun readSavedPassword(context:Context):String = runCatching {
 }.getOrDefault("")
 internal fun playbackPrefs(context:Context)=context.getSharedPreferences("playback_config",0)
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-internal fun configuredPlayer(context:Context):ExoPlayer {
+internal fun configuredPlayer(context:Context, preview:Boolean = false):ExoPlayer {
     val p=playbackPrefs(context)
     val factory=DefaultRenderersFactory(context.applicationContext).setEnableDecoderFallback(p.getBoolean("fallback",true))
     val decoder=p.getString("decoder","Hardware preferred")
@@ -61,10 +61,22 @@ internal fun configuredPlayer(context:Context):ExoPlayer {
     })
     val min=when(p.getString("buffer","Normal")){"Small"->10000;"Large"->50000;else->25000}
     val startup=when(p.getString("smartMode","Shark Smart")){"Shark Turbo"->750;"Shark Ultra 4K"->2000;else->1000}
-    val load=DefaultLoadControl.Builder().setBufferDurationsMs(min,min*2,startup,5000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(when(p.getString("buffer","Normal")){"Small"->24*1024*1024;"Large"->96*1024*1024;else->48*1024*1024}).build()
+    val load = if (preview) {
+        DefaultLoadControl.Builder()
+            .setBufferDurationsMs(4_000, 8_000, 1_000, 2_000)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .setTargetBufferBytes(8 * 1024 * 1024)
+            .build()
+    } else DefaultLoadControl.Builder().setBufferDurationsMs(min,min*2,startup,5000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(when(p.getString("buffer","Normal")){"Small"->24*1024*1024;"Large"->96*1024*1024;else->48*1024*1024}).build()
     return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
         setVideoChangeFrameRateStrategy(if(p.getString("refreshRate","Auto")=="Auto") androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
-        trackSelectionParameters=trackSelectionParameters.buildUpon().setPreferredAudioLanguage(p.getString("audioLanguage",null)).setPreferredTextLanguage(p.getString("textLanguage",null)).setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,!p.getBoolean("subtitles",true)).build()
+        trackSelectionParameters=trackSelectionParameters.buildUpon().apply {
+            if (preview) {
+                setMaxVideoSize(960, 540)
+                setMaxVideoBitrate(1_500_000)
+                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, true)
+            }
+        }.setPreferredAudioLanguage(p.getString("audioLanguage",null)).setPreferredTextLanguage(p.getString("textLanguage",null)).setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,!p.getBoolean("subtitles",true)).build()
 
     }
 }
@@ -100,8 +112,6 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
     var audioLanguage by remember { mutableStateOf(p.getString("audioLanguage",null)) }
     var textLanguage by remember { mutableStateOf(p.getString("textLanguage",null)) }
     val modes=remember { (context as? android.app.Activity)?.windowManager?.defaultDisplay?.supportedModes?.toList().orEmpty() }
-    // The integrated Media3 engine is the only offered player; migrate old external selections.
-    LaunchedEffect(Unit) { if (p.getString("engine", "Media3") != "Media3") p.edit().putString("engine", "Media3").apply() }
     var streamFormat by remember { mutableStateOf(p.getString("streamFormat","Auto").orEmpty()) }
     var clockFormat by remember { mutableStateOf(p.getString("clockFormat","24-hour").orEmpty()) }
     var decoder by remember { mutableStateOf(p.getString("decoder","Hardware preferred").orEmpty()) }
@@ -171,15 +181,12 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
 @Composable internal fun SettingsPanel(title:String,modifier:Modifier=Modifier,content:@Composable ColumnScope.()->Unit) {
     Column(modifier.fillMaxHeight()
         .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF142544),Color(0xFF080F25))),RoundedCornerShape(0.dp))
-        .pulsingFrame(1.dp, Color.Cyan).padding(10.dp)) {
+        .hudSurface().pulsingFrame(1.dp, HudAccent).padding(10.dp)) {
         Text(title,modifier=Modifier.fillMaxWidth().background(Color(0xFF16425C),RoundedCornerShape(0.dp)).padding(8.dp),color=Color.White,fontSize=17.sp)
         Column(Modifier.weight(1f).padding(top=5.dp,bottom=5.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(3.dp),content=content)
     }
 }
 
-internal fun externalPlayerInstalled(context:Context,packageName:String):Boolean = runCatching {
-    context.packageManager.getPackageInfo(packageName,0);true
-}.getOrDefault(false)
 internal fun streamMimeType(context:Context):String? = when(playbackPrefs(context).getString("streamFormat","Auto")) {
     "HLS (.m3u8)" -> androidx.media3.common.MimeTypes.APPLICATION_M3U8
     "MPEG-TS (.ts)" -> androidx.media3.common.MimeTypes.VIDEO_MP2T
@@ -189,5 +196,5 @@ internal fun streamMimeType(context:Context):String? = when(playbackPrefs(contex
     "MP4 / progressive" -> androidx.media3.common.MimeTypes.VIDEO_MP4
     else -> null
 }
-internal fun sharkMediaItem(context:Context,url:String):androidx.media3.common.MediaItem =
-    androidx.media3.common.MediaItem.Builder().setUri(url).apply { streamMimeType(context)?.let { setMimeType(it) } }.build()
+internal fun sharkMediaItem(context:Context,url:String,inferFormat:Boolean=false):androidx.media3.common.MediaItem =
+    androidx.media3.common.MediaItem.Builder().setUri(url).apply { if (!inferFormat) streamMimeType(context)?.let { setMimeType(it) } }.build()

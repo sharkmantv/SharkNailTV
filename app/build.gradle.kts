@@ -20,8 +20,8 @@ val sportsProperties = Properties().apply {
 
 android {
     namespace = "com.example.xtreamtv"
-    compileSdk = 36
-    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 23; targetSdk = 35; versionCode = providers.gradleProperty("SHARK_VERSION_CODE").orElse("30000").get().toInt(); versionName = providers.gradleProperty("SHARK_VERSION_NAME").orElse("3.0").get() }
+    compileSdkVersion("android-37.0")
+    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 24; targetSdk = 35; versionCode = providers.gradleProperty("SHARK_VERSION_CODE").orElse("30000").get().toInt(); versionName = providers.gradleProperty("SHARK_VERSION_NAME").orElse("3.0").get() }
     defaultConfig { buildConfigField("String", "UPDATE_MANIFEST_URL", "\"${updateManifest.replace("\\", "\\\\").replace("\"", "\\\"")}\"") }
     buildFeatures { compose = true; buildConfig = true }
     packaging { jniLibs { useLegacyPackaging = true } }
@@ -65,12 +65,13 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.media3:media3-exoplayer:1.11.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
-    implementation("androidx.media3:media3-exoplayer-smoothstreaming:1.11.1")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.11.1")
-    implementation("androidx.media3:media3-ui:1.11.1")
+    val media3Version = "1.12.0-beta01"
+    implementation("androidx.media3:media3-exoplayer:$media3Version")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
+    implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
+    implementation("androidx.media3:media3-exoplayer-smoothstreaming:$media3Version")
+    implementation("androidx.media3:media3-exoplayer-rtsp:$media3Version")
+    implementation("androidx.media3:media3-ui:$media3Version")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.google.zxing:core:3.5.3")
