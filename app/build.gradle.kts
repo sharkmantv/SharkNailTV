@@ -21,7 +21,7 @@ val sportsProperties = Properties().apply {
 android {
     namespace = "com.example.xtreamtv"
     compileSdkVersion("android-37.0")
-    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 23; targetSdk = 35; versionCode = providers.gradleProperty("SHARK_VERSION_CODE").orElse("30000").get().toInt(); versionName = providers.gradleProperty("SHARK_VERSION_NAME").orElse("3.0").get() }
+    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 24; targetSdk = 35; versionCode = providers.gradleProperty("SHARK_VERSION_CODE").orElse("30000").get().toInt(); versionName = providers.gradleProperty("SHARK_VERSION_NAME").orElse("3.0").get() }
     defaultConfig { buildConfigField("String", "UPDATE_MANIFEST_URL", "\"${updateManifest.replace("\\", "\\\\").replace("\"", "\\\"")}\"") }
     buildFeatures { compose = true; buildConfig = true }
     packaging { jniLibs { useLegacyPackaging = true } }
