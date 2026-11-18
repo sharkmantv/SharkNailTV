@@ -9,7 +9,6 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.foundation.*
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.RepeatMode
@@ -62,7 +61,6 @@ import androidx.compose.material3.*
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.TextUnit
@@ -71,11 +69,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -598,7 +592,8 @@ fun App() {
     }
     val sharedFramePulse=rememberInfiniteTransition(label="UI frames").animateFloat(0.55f,1f,infiniteRepeatable(tween(1600),RepeatMode.Reverse),label="frame alpha")
     CompositionLocalProvider(androidx.compose.foundation.LocalOverscrollConfiguration provides null, LocalFramePulse provides sharedFramePulse) {
-    MaterialTheme(typography = skyLikeTypography(), colorScheme = darkColorScheme(primary = Color(0xFFB8D8F5), background = Color(0xFF020916))) {
+    MaterialTheme(typography = skyLikeTypography(), colorScheme = darkColorScheme(primary = HudAccent, background = HudBackground, surface = HudSurface,
+        surfaceVariant = Color(0xFF151532), outline = Color(0xFF4A5791), onSurface = Color(0xFFE7EFFF))) {
         if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
             BackHandler { homePlaying=null }
@@ -609,7 +604,7 @@ fun App() {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
-        } else Box(Modifier.fillMaxSize().background(Color(0xFF020916))) {
+        } else Box(Modifier.fillMaxSize()) {
             BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
@@ -884,7 +879,7 @@ fun App() {
                                         },focused,shape=RoundedCornerShape(0.dp),steady=true) {
                                             Row(
                                                 Modifier.fillMaxSize()
-                                                    .background(Brush.horizontalGradient(listOf(Color(0xFF151B38), Color(0xFF0B1023))))
+                                                    .hudSurface(focused)
                                                     .padding(horizontal=10.dp),
                                                 verticalAlignment=Alignment.CenterVertically,
                                                 horizontalArrangement=Arrangement.spacedBy(12.dp)
@@ -965,24 +960,16 @@ fun App() {
                 }
             }
             }
-            // Keep navigation geometry stable while the accent strips pulse.
-            val navigationPulse=LocalFramePulse.current
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
                     val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Shark Stream" && section.endsWith(" Catalogue")) || (item=="Settings" && section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
                     val focused=focusedNav==item
                     val emphasized=focused || (focusedNav==null && active)
-                    val accent=when(item){"Home"->Color(0xFFFFC34D);"Shark TV"->Color(0xFFFF8A35);"Movies"->Color(0xFFFF5260);"TV Series"->Color(0xFFED49A6);"Sports Guide"->Color(0xFFB66BFF);"Shark Stream"->Color(0xFF00D9F4);"Xtream Codes"->Color(0xFF36D9ED);"Settings"->Color(0xFF5D9EFF);else->Color(0xFFFF5374)}
-                    val shape=RoundedCornerShape(0.dp)
-                    val steadyNav = section in listOf("Shark TV","Settings","Playback & Display","Sharks Toolkit","Connection Status","API Configuration","Xtream Codes","Home Playback Source")
-                    val navTop by animateColorAsState(if(emphasized) Color(0xFF192D51) else Color(0xFF101C39), tween(if(steadyNav) 0 else 110), label="nav top")
-                    val navBottom by animateColorAsState(if(emphasized) Color(0xFF101D38) else Color(0xFF0A132A), tween(if(steadyNav) 0 else 110), label="nav bottom")
                     Column(Modifier.weight(1f).height(64.dp).onFocusChanged { state ->
                         if(state.isFocused) focusedNav=item else if(focusedNav==item) focusedNav=null
-                    }.clip(shape).background(Brush.verticalGradient(listOf(navTop,navBottom))).then(if(emphasized) Modifier.drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(Color(0xFFFFD44D).copy(alpha=navigationPulse.value),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius(0f),style=Stroke(w)) } else Modifier)
+                    }.hudSurface(emphasized).pulsingFrame(2.dp, if (emphasized) Color.White else HudAccent)
                     .clickable { if(item=="Exit") exitPrompt=true else {homeLookupJob?.cancel();homePlaying=null;selected=null;section=if(item=="Shark Stream") "Shark Streaming" else item} },horizontalAlignment=Alignment.CenterHorizontally) {
-                        Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp).clip(RoundedCornerShape(0.dp)).graphicsLayer { alpha=navigationPulse.value }.background(Brush.horizontalGradient(listOf(accent,accent.copy(alpha=0.7f)))))
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
                             Text(item,color=if(emphasized) Color.White else Color(0xFFBACAE3),fontSize=13.sp,fontWeight=FontWeight.Normal,maxLines=1,style=TextStyle(textAlign=TextAlign.Center),overflow=TextOverflow.Ellipsis)
                         }
@@ -1042,12 +1029,9 @@ fun App() {
         "Settings"->Icons.Filled.Settings
         else->Icons.Filled.Star
     }
-    val pulse=if(focused) rememberInfiniteTransition(label="sidebar glow").animateFloat(0.55f,1f,infiniteRepeatable(tween(1250),RepeatMode.Reverse),label="sidebar pulse") else null
-    val glow=Color(0xFFFFD44D).copy(alpha=if(focused)1f else 0f)
-    Row(Modifier.fillMaxWidth().onFocusChanged{focused=it.isFocused}
-        .shadow(if(focused)5.dp else 0.dp,RoundedCornerShape(0.dp),ambientColor=glow,spotColor=glow)
-        .then(if(focused) Modifier.drawWithContent { drawContent(); val w=UniformPulseBorderWidth.toPx(); drawRoundRect(glow.copy(alpha=pulse?.value ?: 1f),topLeft=Offset(w/2,w/2),size=Size((size.width-w).coerceAtLeast(0f),(size.height-w).coerceAtLeast(0f)),cornerRadius=CornerRadius(0f),style=Stroke(w)) } else Modifier)
-        .background(if(focused||active)Brush.horizontalGradient(listOf(Color(0xAD087DEC),Color(0x80314DAD))) else Brush.horizontalGradient(listOf(Color.Transparent,Color.Transparent)),RoundedCornerShape(0.dp))
+    Row(Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }
+        .hudSurface(focused || active)
+        .pulsingFrame(1.5.dp, if (focused || active) Color.White else HudAccent)
         .clickable(onClick=onClick).padding(horizontal=7.dp,vertical=5.dp),verticalAlignment=Alignment.CenterVertically) {
         Icon(symbol,contentDescription=null,tint=Color.White,modifier=Modifier.size(15.dp))
         Spacer(Modifier.width(6.dp))
@@ -1123,57 +1107,6 @@ fun App() {
     // Space reserved for the floating header logo and unobstructed shark image.
     Spacer(Modifier.fillMaxWidth().height(80.dp))
 }
-private val UniformPulseBorderWidth = 2.5.dp
-private val LocalFramePulse = compositionLocalOf<State<Float>> { mutableStateOf(1f) }
-internal val SharkFrameShape = object : androidx.compose.ui.graphics.Shape {
-    override fun createOutline(size: Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        density: androidx.compose.ui.unit.Density): androidx.compose.ui.graphics.Outline {
-        val w = size.width
-        val h = size.height
-        val cut = with(density) { 9.dp.toPx() }.coerceAtMost(minOf(w, h) / 4f)
-        return androidx.compose.ui.graphics.Outline.Generic(androidx.compose.ui.graphics.Path().apply {
-            moveTo(cut, cut * .45f)
-            lineTo(w * .32f, cut * .45f)
-            lineTo(w * .32f + cut * .45f, 0f)
-            lineTo(w * .65f, 0f)
-            lineTo(w * .65f + cut * .45f, cut * .45f)
-            lineTo(w - cut, cut * .45f)
-            lineTo(w, cut * 1.45f)
-            lineTo(w, h - cut)
-            lineTo(w - cut, h)
-            lineTo(cut, h)
-            lineTo(0f, h - cut)
-            lineTo(0f, cut * 1.45f)
-            close()
-        })
-    }
-}
-
-@Composable internal fun Modifier.pulsingFrame(
-    width: androidx.compose.ui.unit.Dp,
-    color: Color,
-    @Suppress("UNUSED_PARAMETER") shape: androidx.compose.ui.graphics.Shape = SharkFrameShape
-): Modifier {
-    val pulse = LocalFramePulse.current
-    val focused = color.red > .7f && color.green > .55f
-    val accent = if (focused) Color(0xFFF3E7FF) else Color(0xFF55D4EB)
-    val rim = remember(accent) {
-        Brush.linearGradient(listOf(accent, Color(0xFF645596), accent))
-    }
-    return clip(SharkFrameShape).drawWithCache {
-        val strokeWidth = width.toPx().coerceAtMost(minOf(size.width, size.height) / 4f)
-        val outlineSize = Size(size.width - 2 * strokeWidth, size.height - 2 * strokeWidth)
-        val outline = SharkFrameShape.createOutline(outlineSize, layoutDirection, this)
-        val stroke = Stroke(strokeWidth)
-        onDrawWithContent {
-            drawContent()
-            if (strokeWidth > 0f) inset(strokeWidth) {
-                drawOutline(outline, rim, alpha = if (focused) .8f + .2f * pulse.value else .66f, style = stroke)
-            }
-        }
-    }
-}
-
 @Composable private fun ElectricFocus(
     modifier: Modifier = Modifier, focused: Boolean, selected: Boolean = false,
     @Suppress("UNUSED_PARAMETER") shape: RoundedCornerShape = RoundedCornerShape(0.dp),
@@ -1661,8 +1594,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
-                    .clip(SharkFrameShape)
-                    .background(Brush.verticalGradient(listOf(Color(0xEB191730), Color(0xFA08091B))))
+                    .hudSurface()
                     .pulsingFrame(2.dp, Color.Cyan)
                     .padding(horizontal = 22.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -1710,7 +1642,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                 }
             }
         }
-        if(panel.isNotEmpty()) AlertDialog(onDismissRequest={panel="";interaction++},shape=SharkFrameShape,containerColor=Color(0xFF17172E),title={Text(panel,color=Color.White)},text={Column(Modifier.verticalScroll(rememberScrollState())) {
+        if(panel.isNotEmpty()) PremiumDialog(onDismissRequest={panel="";interaction++},title={Text(panel,color=Color.White)},text={Column(Modifier.verticalScroll(rememberScrollState())) {
             when(panel) {
                 "TV Guide" -> {
                     val remaining = schedule.filter { it.end > guideTime }
@@ -1753,7 +1685,7 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
     Column(
         modifier.height(54.dp).onFocusChanged { focused = it.isFocused }
             .clip(shape)
-            .background(if (focused) Color(0xFF183FC2) else Color(0xFF14213A))
+            .hudSurface(focused)
             .pulsingFrame(1.5.dp, if (focused) Color.White else Color.Cyan)
             .clickable(onClick = onClick)
             .padding(horizontal = 3.dp),
@@ -1898,7 +1830,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
     var focused by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().height(45.dp).onFocusChanged { focused=it.isFocused }
         .pulsingFrame(if(focused) 3.dp else 2.dp,if(focused) Color(0xFFFFD44D) else Color(0xFF159BFF),RoundedCornerShape(0.dp))
-        .background(Brush.verticalGradient(listOf(Color(0xFF102C59),Color(0xFF071A3B),Color(0xFF020C22))),RoundedCornerShape(0.dp))
+        .hudSurface(focused)
         .clickable(onClick=onClick),contentAlignment=Alignment.Center) {
         Text(label,color=Color.White,fontWeight=FontWeight.Medium,fontSize=11.sp,maxLines=1)
     }
@@ -2119,7 +2051,7 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
                     listing.forEach { (p,a,b) ->
                         val left=w*((a.coerceAtLeast(start)-start).toFloat()/(end-start))
                         val width=w*((b.coerceAtMost(end)-a.coerceAtLeast(start)).toFloat()/(end-start))
-                        Box(Modifier.offset(x=left).width(width).fillMaxHeight().border(0.5.dp,Color(0xFF456A96)).background(if(now>=a && now<b)Color(0xFF22567F) else Color(0xFF142E50)).padding(3.dp)) {
+                        Box(Modifier.offset(x=left).width(width).fillMaxHeight().border(0.5.dp,Color(0xFF304873)).background(if(now>=a && now<b)Color(0xFF172345) else HudSurface).padding(3.dp)) {
                             Column { Text(p.title,color=Color.White,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis); if(now>=a && now<b) LinearProgressIndicator(progress={((now-a).toFloat()/(b-a)).coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth().height(2.dp),color=Color(0xFF67DCFF)) }
                         }
                     }
@@ -2137,9 +2069,9 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
     Text(value,color=Color(0xFF8EDCF0),fontSize=11.sp,fontWeight=FontWeight.Normal,maxLines=2,overflow=TextOverflow.Ellipsis)
 }
 @Composable private fun HomeHeroBackground(artwork:String, subdued:Boolean=false) {
-    val base = Color(0xFF07152E)
+    val base = HudBackground
     val context = LocalContext.current
-    Box(Modifier.fillMaxSize().background(base)) {
+    Box(Modifier.fillMaxSize().hudBackdrop()) {
         Crossfade(targetState=artwork, animationSpec=tween(120), label="homeHero") { url ->
             Box(Modifier.fillMaxSize()) {
                 if(url.isNotBlank()) {
@@ -2155,10 +2087,10 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
 }
 
 @Composable private fun CinemaBackground(artwork:String) {
-    Box(Modifier.fillMaxSize().background(Color(0xFF0A0D55))) {
+    Box(Modifier.fillMaxSize().hudBackdrop()) {
         if(artwork.isNotBlank()) {
             AsyncImage(model=artwork,contentDescription=null,modifier=Modifier.fillMaxWidth().fillMaxHeight(0.72f).graphicsLayer { alpha=0.48f },contentScale=ContentScale.Crop)
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0x330A0D55),Color(0x770A0D55),Color(0xFF0A0D55),Color(0xFF0A0D55)))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(HudBackground.copy(alpha=.2f),HudBackground.copy(alpha=.48f),HudBackground,HudBackground))))
         }
     }
 }
@@ -2176,7 +2108,7 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
     val pulse = LocalFramePulse.current
     val shape=SharkFrameShape
     Dialog(onDismissRequest=onDismissRequest,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).clip(shape).background(Brush.verticalGradient(listOf(Color(0xFF172D48),Color(0xFF080F29)))).pulsingFrame(2.dp, Color.Cyan).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).hudSurface().pulsingFrame(2.dp, Color.Cyan).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFE0EFFF),fontSize=23.sp,fontWeight=FontWeight.Medium)) { title() }
             Box(Modifier.fillMaxWidth().height(2.dp).graphicsLayer { alpha=pulse.value }.background(Brush.horizontalGradient(listOf(Color.Transparent,Color(0xFF55DFFF),Color.Transparent))))
             if(text!=null) CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFDCEEFF),fontSize=15.sp)) { text() }
@@ -2271,7 +2203,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 @Composable private fun BrowserRow(label:String,active:Boolean,image:String,onFocused:()->Unit,onClick:()->Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape=RoundedCornerShape(0.dp)
-    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.background(if(active || focused)Color(0xFF233653) else Color(0xFF121F38),shape).pulsingFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF304564),shape).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.hudSurface(active || focused).pulsingFrame(2.5.dp,if(focused)Color(0xFFFFD44D) else Color(0xFF304564),shape).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
         if(image=="sky") GlassChannelWord()
         Text(label,color=Color.White,fontWeight=FontWeight.Normal,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
@@ -2319,6 +2251,6 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
     }
     if(qr != null) androidx.compose.foundation.Image(
         bitmap=qr.asImageBitmap(),contentDescription="Scan to link Nuvio account",
-        modifier=Modifier.size(246.dp).padding(8.dp).border(3.dp,Color(0xFF00D7FF),RoundedCornerShape(0.dp)).padding(10.dp))
+        modifier=Modifier.size(246.dp).padding(8.dp).pulsingFrame(2.dp,HudAccent).padding(10.dp))
     else Text("Unable to generate login QR code",color=Color.White)
 }
