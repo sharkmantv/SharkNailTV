@@ -84,6 +84,7 @@ import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resumeWithException
@@ -371,6 +372,8 @@ fun App() {
     var serviceGenre by remember { mutableStateOf<ServiceGenre?>(null) }
     var serviceGenreMenu by remember { mutableStateOf(false) }
     var serviceEntries by remember { mutableStateOf<List<Entry>>(emptyList()) }
+    var servicePageRequest by remember { mutableIntStateOf(0) }
+    var serviceHasMore by remember { mutableStateOf(false) }
     var serviceLoading by remember { mutableStateOf(false) }
     var serviceError by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<Entry?>(null) }
@@ -562,6 +565,7 @@ fun App() {
         serviceLoading = true
         serviceError = ""
         serviceEntries = emptyList()
+        serviceHasMore = false
         if (tmdbKey.isBlank()) { serviceError = "Set a TMDB key in Settings"; serviceLoading = false; return@LaunchedEffect }
         val provider = when(section) {
             "Netflix Catalogue" -> 8
@@ -573,16 +577,35 @@ fun App() {
             else -> 0
         }
         if (provider == 0) { serviceLoading = false; return@LaunchedEffect }
-        try {
-            val series = serviceCategory == "Series"
-            val type = if (series) "tv" else "movie"
-            val sort = if (serviceCategory == "New Releases") "primary_release_date.desc" else "popularity.desc"
-            val genre = if (series) serviceGenre?.seriesId else serviceGenre?.movieId
-            serviceEntries = TmdbApi.providerCatalogue(tmdbKey, type, provider, sort, genre, serviceWatchRegion)
-        } catch(e: Exception) {
-            if(e is kotlinx.coroutines.CancellationException) throw e
-            serviceError = e.message ?: "Catalogue unavailable"
-        } finally { serviceLoading = false }
+        val series = serviceCategory == "Series"
+        val type = if (series) "tv" else "movie"
+        val sort = if (serviceCategory == "New Releases") "primary_release_date.desc" else "popularity.desc"
+        val genre = if (series) serviceGenre?.seriesId else serviceGenre?.movieId
+        val loadedIds = mutableSetOf<String>()
+        var page = 1
+        var request = servicePageRequest
+        while (true) {
+            serviceLoading = true
+            serviceError = ""
+            val results = try {
+                TmdbApi.providerCatalogue(tmdbKey, type, provider, sort, genre, serviceWatchRegion, page)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                serviceError = e.message ?: "Catalogue unavailable"
+                null
+            } finally {
+                serviceLoading = false
+            }
+            if (results != null) {
+                val newEntries = results.entries.filter { loadedIds.add(it.id) }
+                serviceEntries = serviceEntries + newEntries
+                serviceHasMore = page < results.totalPages
+                if (!serviceHasMore) break
+                page++
+                if (newEntries.isEmpty()) continue
+            }
+            request = snapshotFlow { servicePageRequest }.first { it != request }
+        }
     }
     LaunchedEffect(api, selected) {
         val channel = selected?.takeIf { it.kind == "live" } ?: return@LaunchedEffect
@@ -742,11 +765,24 @@ fun App() {
                             }
                             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                                 val posterWidth = ((maxHeight - 12.dp) / 1.5f).value.toInt().coerceIn(1, 200)
-                                if (!serviceLoading) {
-                                    if (serviceEntries.isEmpty() && serviceError.isBlank()) {
+                                if (serviceEntries.isNotEmpty()) {
+                                    key(section, serviceCategory, serviceGenre) {
+                                        HomeTmdbRow(
+                                            "", serviceEntries, posterWidth,
+                                            onNearEnd = {
+                                                if (serviceHasMore && !serviceLoading && serviceError.isBlank()) servicePageRequest++
+                                            },
+                                            endAction = if (serviceError.isNotBlank()) {
+                                                { servicePageRequest++ }
+                                            } else null,
+                                            onSelect = { openTitle(it) }
+                                        )
+                                    }
+                                } else if (!serviceLoading) {
+                                    if (serviceError.isBlank()) {
                                         Text("No titles found for this category.", color = Color.White, fontSize = 15.sp)
-                                    } else if (serviceEntries.isNotEmpty()) {
-                                        HomeTmdbRow( "", serviceEntries, posterWidth, onSelect = { openTitle(it) })
+                                    } else if (tmdbKey.isNotBlank()) {
+                                        FocusAction("Retry catalogue") { servicePageRequest++ }
                                     }
                                 }
                             }
@@ -1205,7 +1241,14 @@ fun App() {
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun HomeTmdbRow(title:String,entries:List<Entry>,cardWidth:Int=245,onSelect:(Entry)->Unit) {
+@Composable private fun HomeTmdbRow(
+    title: String,
+    entries: List<Entry>,
+    cardWidth: Int = 245,
+    onNearEnd: (() -> Unit)? = null,
+    endAction: (() -> Unit)? = null,
+    onSelect: (Entry) -> Unit
+) {
     Column {
         if(title.isNotBlank()) Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.padding(bottom=3.dp)) {
             Box(Modifier.width(5.dp).height(16.dp).background(Color(0xFF00BFFF),RoundedCornerShape(0.dp)))
@@ -1215,12 +1258,16 @@ fun App() {
         if(entries.isEmpty()) {
             Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
+            val distinctEntries = entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" }
             LazyRow(modifier=Modifier.height((cardWidth*1.5f+5f).dp).clipToBounds(),horizontalArrangement=Arrangement.spacedBy(7.dp),contentPadding=PaddingValues(start=2.dp,end=6.dp,top=2.dp,bottom=3.dp)) {
-                items(entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" },key={"${it.kind}:${it.genre}:${it.id}"}) { entry ->
+                itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
 
 
-                    Box(Modifier.width(cardWidth.dp).onFocusChanged{ focused = it.isFocused }
+                    Box(Modifier.width(cardWidth.dp).onFocusChanged {
+                        focused = it.isFocused
+                        if (focused && index >= distinctEntries.lastIndex - 2) onNearEnd?.invoke()
+                    }
                         .glassFrame(2.5.dp, if (focused) SharkFocusGold else Color(0xFF56BFFF), focused = focused).clickable {onSelect(entry)}.padding(3.dp)) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
                             val posterUrl=entry.image.ifBlank { entry.backdrop }
@@ -1230,6 +1277,7 @@ fun App() {
                         }
                     }
                 }
+                if (endAction != null) item { FocusAction("Retry loading more", onClick = endAction) }
             }
         }
     }
@@ -1397,17 +1445,20 @@ private object TmdbApi {
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "" } finally { artGate.release() }
     }
 
-    suspend fun providerCatalogue(key:String,type:String,provider:Int,sort:String,genre:Int?,region:String):List<Entry> = withContext(Dispatchers.IO) {
+    data class ProviderCataloguePage(val entries: List<Entry>, val totalPages: Int)
+
+    suspend fun providerCatalogue(key:String,type:String,provider:Int,sort:String,genre:Int?,region:String,page:Int):ProviderCataloguePage = withContext(Dispatchers.IO) {
         val token=key.trim().removePrefix("Bearer ").trim()
         val bearer=token.contains('.') || token.length>64
         val genreFilter = genre?.let { "&with_genres=$it" }.orEmpty()
-        val url="https://api.themoviedb.org/3/discover/$type?language=en-GB&watch_region=$region&with_watch_providers=$provider&sort_by=${URLEncoder.encode(sort,"UTF-8")}&page=1$genreFilter" + if(bearer) "" else "&api_key=${URLEncoder.encode(token,"UTF-8")}"
+        val url="https://api.themoviedb.org/3/discover/$type?language=en-GB&watch_region=$region&with_watch_providers=$provider&sort_by=${URLEncoder.encode(sort,"UTF-8")}&page=$page$genreFilter" + if(bearer) "" else "&api_key=${URLEncoder.encode(token,"UTF-8")}"
         val request=Request.Builder().url(url)
         if(bearer) request.header("Authorization","Bearer $token")
         client.newCall(request.build()).execute().use { response ->
             if(!response.isSuccessful) throw IllegalStateException("TMDB HTTP ${response.code}")
-            val array=JSONObject(response.body?.string().orEmpty()).optJSONArray("results") ?: return@withContext emptyList()
-            (0 until minOf(array.length(),20)).mapNotNull { i ->
+            val body = JSONObject(response.body?.string().orEmpty())
+            val array = body.getJSONArray("results")
+            val entries = (0 until array.length()).mapNotNull { i ->
                 val obj=array.optJSONObject(i) ?: return@mapNotNull null
                 val poster=obj.optString("poster_path"); val backdrop=obj.optString("backdrop_path")
                 Entry(obj.optString("id"),obj.optString(if(type=="tv") "name" else "title","Untitled"),
@@ -1417,6 +1468,7 @@ private object TmdbApi {
                     rating=if(obj.optDouble("vote_average",0.0)>0) String.format(Locale.US,"%.1f",obj.optDouble("vote_average")) else "",
                     genre=if(type=="tv") "TV Series" else "Movie",overview=obj.optString("overview"))
             }
+            ProviderCataloguePage(entries, body.optInt("total_pages", page).coerceAtMost(500))
         }
     }
 
