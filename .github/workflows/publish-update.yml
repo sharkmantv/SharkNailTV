@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
+      SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
       SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
       SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
       SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
@@ -31,6 +32,7 @@ jobs:
       - name: Require permanent signing credentials
         shell: bash
         run: |
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then exit 0; fi
           for name in SHARK_KEYSTORE_B64 SHARK_KEYSTORE_PASSWORD SHARK_KEY_ALIAS SHARK_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing repository secret $name. Set up a permanent signing key before publishing app updates."
@@ -55,12 +57,38 @@ jobs:
           gradle-version: '8.13'
       - name: Prepare signing key and version
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
-          echo "SHARK_KEYSTORE_PATH=$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=3.0.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$((30000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
-          echo "RELEASE_TAG=v3.0.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          set -euo pipefail
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([30307] + [a*10000+b*100+c for a,b,c in versions]) + 1)')
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          printf 'RELEASE_TAG=v%s\n' "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            printf 'SHARK_KEYSTORE_PASSWORD=%s\nSHARK_KEY_PASSWORD=%s\nSHARK_KEY_ALIAS=sharknailtv\n' "$SHARK_KEYSTORE_PASSWORD" "$SHARK_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          else
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/shark-updates.jks"
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$SHARK_KEYSTORE_PATH"
+          fi
+          printf 'SHARK_KEYSTORE_PATH=%s\n' "$SHARK_KEYSTORE_PATH" >> "$GITHUB_ENV"
       - name: Build signed update APK
         run: gradle --no-daemon --stacktrace :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
       - name: Prepare release asset
@@ -71,4 +99,4 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$RELEASE_TAG" SharkNailTV.apk --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV update $VERSION_NAME" --latest
+        run: gh release create "$RELEASE_TAG" SharkNailTV.apk --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV update $VERSION_NAME" --latest
