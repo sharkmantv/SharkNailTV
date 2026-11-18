@@ -36,6 +36,20 @@ android {
         buildConfigField("String", "NUVIO_BACKEND_URL", "\"${nuvioProperties.getProperty("NUVIO_BACKEND_URL", "https://api.nuvio.tv").replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         buildConfigField("String", "NUVIO_PUBLIC_KEY", "\"${nuvioProperties.getProperty("NUVIO_PUBLIC_KEY", "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN").replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
+    signingConfigs {
+        create("updates") {
+            storeFile = file(System.getenv("SHARK_KEYSTORE_PATH") ?: "missing-update-keystore")
+            storePassword = System.getenv("SHARK_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("SHARK_KEY_ALIAS")
+            keyPassword = System.getenv("SHARK_KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("updates")
+            isMinifyEnabled = false
+        }
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
 kotlin {
