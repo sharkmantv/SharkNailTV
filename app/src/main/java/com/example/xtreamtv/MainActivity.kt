@@ -295,7 +295,7 @@ fun App() {
     var trendingSeries by remember { mutableStateOf<List<Entry>>(emptyList()) }
     var popularMovies by remember { mutableStateOf<List<Entry>>(emptyList()) }
     var popularSeries by remember { mutableStateOf<List<Entry>>(emptyList()) }
-    var epg by remember { mutableStateOf<List<Program>>(emptyList()) }
+    var epg by remember(api, selected) { mutableStateOf<List<Program>?>(null) }
     var sportEvents by remember { mutableStateOf<List<SportEvent>>(emptyList()) }
     var sportsLoading by remember { mutableStateOf(false) }
     var sportsFilter by remember { mutableStateOf("All Sports") }
@@ -467,10 +467,18 @@ fun App() {
             serviceError = e.message ?: "Catalogue unavailable"
         } finally { serviceLoading = false }
     }
-    LaunchedEffect(selected) {
-        epg = emptyList()
-        val entry = selected
-        if (entry?.kind == "live") try { epg = api?.epg(entry.id) ?: emptyList() } catch (e: Exception) { if(e is kotlinx.coroutines.CancellationException) throw e }
+    LaunchedEffect(api, selected) {
+        val channel = selected?.takeIf { it.kind == "live" } ?: return@LaunchedEffect
+        val provider = api ?: return@LaunchedEffect
+        while (true) {
+            try {
+                epg = provider.epg(channel.id)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (epg == null) epg = emptyList()
+            }
+            delay(60_000)
+        }
     }
     val sharedFramePulse=rememberInfiniteTransition(label="UI frames").animateFloat(0.55f,1f,infiniteRepeatable(tween(1600),RepeatMode.Reverse),label="frame alpha")
     CompositionLocalProvider(androidx.compose.foundation.LocalOverscrollConfiguration provides null, LocalFramePulse provides sharedFramePulse) {
@@ -483,10 +491,10 @@ fun App() {
             val entry=selected!!
             BackHandler { selected=episodeParent; episodeParent=null }
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                SafePlayer(api!!.url(entry),playerChoice,title=entry.title, liveStream=entry.kind=="live", onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
+                SafePlayer(api!!.url(entry),playerChoice,title=entry.title, liveStream=entry.kind=="live", programmes=epg, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
         } else Box(Modifier.fillMaxSize().background(Color(0xFF020916))) {
-            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section in listOf("App Information","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
+            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("App Information","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val heroUrl = focusedHero.ifBlank { heroArtworks.getOrNull(heroIndex).orEmpty() }
             val heroEntry = remember(heroUrl,sectionEntries) { sectionEntries.firstOrNull { it.backdrop.ifBlank { it.image } == heroUrl } ?: sectionEntries.firstOrNull() }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
@@ -498,7 +506,7 @@ fun App() {
             Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 Column(Modifier.fillMaxSize().padding(horizontal=22.dp).padding(bottom=if(section=="Shark TV") 12.dp else if(section=="Home") 4.dp else 0.dp)) {
-                GlassHeader(compact=selected==null && section=="Home", liveCompact=false)
+                GlassHeader()
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
                 val serviceCatalogue = selected == null && section.endsWith(" Catalogue")
@@ -536,7 +544,7 @@ fun App() {
                             }
                         }
                         "series" -> { var episodes by remember(e.id){mutableStateOf<List<Entry>>(emptyList())}; var status by remember(e.id){mutableStateOf("Loading episodes…")}; LaunchedEffect(e.id){try { episodes=api?.episodes(e.id).orEmpty(); status=if(episodes.isEmpty()) "No episodes returned" else "" } catch(ex:Exception){if(ex is kotlinx.coroutines.CancellationException) throw ex; status="Episode request failed (${ex.javaClass.simpleName})"}}; Text(status,color=Color.White); episodes.forEach { episode -> FocusAction(episode.title){episodeParent=e;selected=episode} } }
-                        else -> {val a=api;if(a!=null)key(e.id){SafePlayer(a.url(e),playerChoice)} else ConnectPrompt{showLogin=true};if(e.kind=="live") { Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) { FocusAction("Previous channel"){val i=live.indexOf(e);if(i>0)selected=live[i-1]}; FocusAction("TV Guide"){selected=null;section="EPG / TV Guide"}; FocusAction("Next channel"){val i=live.indexOf(e);if(i>=0 && i+1<live.size)selected=live[i+1]} }; epg.forEach {Text("${it.start} — ${it.title}",color=Color.White)} }}
+                        else -> {val a=api;if(a!=null)key(e.id){SafePlayer(a.url(e),playerChoice)} else ConnectPrompt{showLogin=true};if(e.kind=="live") { Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) { FocusAction("Previous channel"){val i=live.indexOf(e);if(i>0)selected=live[i-1]}; FocusAction("TV Guide"){selected=null;section="EPG / TV Guide"}; FocusAction("Next channel"){val i=live.indexOf(e);if(i>=0 && i+1<live.size)selected=live[i+1]} }; epg.orEmpty().forEach {Text("${it.start} — ${it.title}",color=Color.White)} }}
                     }
                 } else {
                     if(connected && catalogueKind.isNotBlank() && section!="Shark TV") { Row { FocusAction(categories.firstOrNull { it.first==categoryId }?.second ?: "Categories") { categoryMenu=true }; FocusAction("Retry") { api?.clearCatalogueCache(); catalogueRetry++ } } }
@@ -567,7 +575,7 @@ fun App() {
                             if((if(section=="Home") trendingMovies.isEmpty() && trendingSeries.isEmpty() && popularMovies.isEmpty() && popularSeries.isEmpty() else sectionEntries.isEmpty())) { if(connected && section!="Home") Text(if(catalogueLoading) "Loading catalogue…" else if(error.isNotBlank()) "$error — press Retry" else "No titles returned",color=Color.White) else if(section=="Home") FocusAction("Retry posters"){posterRefresh++} else ConnectPrompt{showLogin=true} }
                         }
                         "Shark Streaming" -> {
-                            Text("SHARK STREAMING",color=Color(0xFF26E7FF),fontSize=20.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=6.dp))
+                            Text("Shark Stream", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
                             Text("Choose a service to browse films and series available in the UK",color=Color(0xFF9DD9F5),fontSize=15.sp)
                             Spacer(Modifier.height(8.dp))
                             val services = listOf(
@@ -587,14 +595,14 @@ fun App() {
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
                                 ) {
                                     items(services, key = { it.first }) { (provider, artwork) ->
-                                        StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).aspectRatio(16f / 9f)) {
+                                        StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).aspectRatio(4f / 5f)) {
                                             serviceCategory = "All"
                                             section = "$provider Catalogue"
                                         }
                                     }
                                 }
                             }
-                            Spacer(Modifier.height(18.dp))
+                            Spacer(Modifier.height(6.dp))
                             FocusAction("Back to Home") { section="Home" }
                         }
                         "Netflix Catalogue", "Apple TV Catalogue", "Prime Video Catalogue", "Disney+ Catalogue", "HBO Max Catalogue", "Hulu Catalogue" -> {
@@ -626,7 +634,7 @@ fun App() {
                             }
                         }
                         "Sports Guide" -> { PublicGuide(fixtures,fixtureStatus, onRefresh={sportsRefresh++}) }
-                        "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
+                        "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++},{section="EPG / TV Guide"}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
                         "EPG / TV Guide" -> { if(connected) BroadcastGuide(live,api){section="Shark TV";selected=it} else ConnectPrompt{showLogin=true} }
                         "Search" -> { var query by remember { mutableStateOf("") }; OutlinedTextField(query,{query=it},label={Text("Search titles")}); if(query.isNotBlank()) V4PosterRow(tmdbKey,"Results",(trendingMovies+trendingSeries+movies+series).filter{it.title.contains(query,true)}){selected=it} }
                         "My List" -> {Text("My List",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(vertical=18.dp));Text("Saved favourites will appear here when the feature is connected.",color=Color(0xFFB6D4EE))}
@@ -885,8 +893,8 @@ fun App() {
         Text(label,color=Color.White,fontSize=14.sp,fontWeight=if(active||focused)FontWeight.Bold else FontWeight.Medium,maxLines=1)
     }
 }
-@Composable private fun GlassHeader(compact:Boolean=false,liveCompact:Boolean=false) {
-    Row(Modifier.fillMaxWidth().height(if(liveCompact) 62.dp else if(compact) 110.dp else 132.dp).clipToBounds().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
+@Composable private fun GlassHeader() {
+    Row(Modifier.fillMaxWidth().height(132.dp).clipToBounds().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
         val context=LocalContext.current
         
         val motion=rememberInfiniteTransition(label="mascot arm")
@@ -908,11 +916,11 @@ fun App() {
             drawContext.canvas.nativeCanvas.drawBitmapMesh(bitmap,16,12,vertices,0,null,0,paint)
         }
         }
-        Mascot(Modifier.weight(1.45f).height(if(liveCompact) 60.dp else if(compact) 112.dp else 136.dp),false)
+        Mascot(Modifier.weight(1.45f).height(136.dp),false)
         val skyMotion=rememberInfiniteTransition(label="sky diamond")
         val skyPulse = skyMotion.animateFloat(0.35f,1f,infiniteRepeatable(tween(1200),RepeatMode.Reverse),label="sky glow")
         val skySweep = skyMotion.animateFloat(0f,359.99f,infiniteRepeatable(tween(4200,easing=androidx.compose.animation.core.LinearEasing)),label="sky rainbow")
-        Box(Modifier.weight(1.35f).height(if(liveCompact) 64.dp else if(compact) 106.dp else 134.dp),contentAlignment=Alignment.Center) {
+        Box(Modifier.weight(1.35f).height(134.dp),contentAlignment=Alignment.Center) {
             Image(painterResource(R.drawable.sky_stream_design),"Sky Stream",Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
             Canvas(Modifier.fillMaxSize()) {
                 val scale=minOf(size.width/480f,size.height/205f)
@@ -926,7 +934,7 @@ fun App() {
                 }
             }
         }
-        Mascot(Modifier.weight(1.45f).height(if(liveCompact) 60.dp else if(compact) 112.dp else 136.dp),true)
+        Mascot(Modifier.weight(1.45f).height(136.dp),true)
     }
 }
 @Composable private fun V4Hero() {
@@ -1245,8 +1253,24 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
 @Composable private fun MetallicText(value:String,size:Int) {
     Text(value,color=Color(0xFFF0F5FA),fontSize=size.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
 }
-@Composable private fun SafePlayer(url:String,choice:String="Media3",onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L) {
+@Composable private fun SafePlayer(url:String,choice:String="Media3",onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null) {
     val context=LocalContext.current
+    var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(url, liveStream) {
+        if (liveStream) while (true) {
+            guideTime = System.currentTimeMillis()
+            delay(15_000)
+        }
+    }
+    val schedule = remember(programmes) {
+        programmes.orEmpty().mapNotNull { programme ->
+            val start = parseEpgTime(programme.start) ?: return@mapNotNull null
+            val end = parseEpgTime(programme.end) ?: return@mapNotNull null
+            TimedProgramme(programme.title, start, end).takeIf { it.end > it.start && it.title.isNotBlank() }
+        }.sortedBy { it.start }
+    }
+    val currentProgramme = schedule.lastOrNull { guideTime >= it.start && guideTime < it.end }
+    val nextProgramme = schedule.firstOrNull { it.start > guideTime }
     // One embedded engine; legacy external-player preferences are ignored.
     var playerError by remember(url){mutableStateOf("")}
     var panel by remember { mutableStateOf("") }
@@ -1349,6 +1373,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if(player.isPlaying) player.pause() else player.play(); true }
                 android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); true }
                 android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); true }
+                android.view.KeyEvent.KEYCODE_GUIDE -> if (liveStream) { visible = true; panel = "TV Guide"; true } else false
                 android.view.KeyEvent.KEYCODE_MENU -> {visible=true;panel="Settings";true}
                 android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> if(!visible){visible=true;true}else false
                 else -> false
@@ -1358,40 +1383,58 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         AndroidView(factory={ctx->PlayerView(ctx).apply {this.player=player;useController=false;isFocusable=false;descendantFocusability=android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS}},update={it.player=player;it.resizeMode=resize},onRelease={it.player=null},modifier=Modifier.fillMaxSize())
         androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=14.dp)
-                    .clip(RoundedCornerShape(0.dp))
-                    .background(Brush.verticalGradient(listOf(Color(0xF0081128),Color(0xF20C1935))))
-                    .border(1.dp,Color(0xFF35BFFF),RoundedCornerShape(0.dp))
-                    .padding(horizontal=20.dp,vertical=16.dp),
-                verticalArrangement=Arrangement.spacedBy(12.dp)
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xEF142441), Color(0xFA090F20))))
+                    .border(1.dp, Color(0xFF354761), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 22.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-                    Column {
-                        Text(if(liveStream) "LIVE TV • SHARK" else "SHARK PLAYER",color=Color(0xFF61E8FF),fontSize=12.sp)
-                        Text(title.ifBlank { "SharkNailTV" },color=Color.White,fontSize=21.sp,fontWeight=FontWeight.Medium)
-                    }
-                    Text(if(liveStream) "● LIVE" else listOfNotNull(player.videoFormat?.height?.takeIf { it>0 }?.let { "${it}p" }).joinToString(""),
-                        color=Color(0xFF8CF5FF),fontSize=13.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title.ifBlank { "SharkNailTV" }, modifier = Modifier.weight(1f), color = Color.White,
+                        fontSize = 23.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val badge = if (liveStream) "● LIVE" else player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
+                    if (badge.isNotBlank()) Text(badge, color = Color(0xFF92E8F5), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.background(Color(0xFF233752), RoundedCornerShape(20.dp)).padding(horizontal = 11.dp, vertical = 5.dp))
                 }
-                LinearProgressIndicator(
-                    progress={if(duration>0) (position.toFloat()/duration).coerceIn(0f,1f) else 0f},
-                    modifier=Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(0.dp)),
-                    color=Color(0xFF36DDF5),trackColor=Color(0xFF334B70)
-                )
-                if(!liveStream) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                    Text(playTime(position),color=Color(0xFFCFDAF4),fontSize=12.sp)
-                    Text(if(duration>0) playTime(duration) else "",color=Color(0xFFCFDAF4),fontSize=12.sp)
+                if (liveStream) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        ProgrammeTile("Now", currentProgramme, if (programmes == null) "Loading guide…" else "No programme information", Modifier.weight(1f))
+                        ProgrammeTile("Next", nextProgramme, "No upcoming listing", Modifier.weight(1f))
+                    }
+                    if (currentProgramme != null) {
+                        val elapsed = (guideTime-currentProgramme.start).toFloat() / (currentProgramme.end-currentProgramme.start)
+                        LinearProgressIndicator(progress = { elapsed.coerceIn(0f,1f) },
+                            modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(4.dp)),
+                            color = Color(0xFF62DDED), trackColor = Color(0xFF334B70))
+                    }
+                } else {
+                    LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat()/duration).coerceIn(0f,1f) else 0f },
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(4.dp)),
+                        color = Color(0xFF62DDED), trackColor = Color(0xFF334B70))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(playTime(position), color = Color(0xFFCFDAF4), fontSize = 12.sp)
+                        Text(if (duration > 0) playTime(duration) else "", color = Color(0xFFCFDAF4), fontSize = 12.sp)
+                    }
                 }
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     if(!liveStream) PlayerTile("−30s",Modifier.weight(1f)){if(player.isCurrentMediaItemSeekable)player.seekTo((player.currentPosition-30000L).coerceAtLeast(0))}
                     PlayerTile(if(playing) "❚❚  Pause" else "▶  Play",Modifier.weight(1f).focusRequester(controlFocus)){if(player.isPlaying)player.pause() else player.play()}
                     if(!liveStream) PlayerTile("+30s",Modifier.weight(1f)){if(player.isCurrentMediaItemSeekable)player.seekTo((player.currentPosition+30000L).coerceAtMost(if(duration>0)duration else Long.MAX_VALUE))}
+                    if(liveStream) PlayerTile("TV Guide",Modifier.weight(1f)){ panel="TV Guide" }
                     listOf("Audio","Subtitles","Screen","Settings","Info").forEach { name -> PlayerTile(name,Modifier.weight(1f)){panel=name} }
                 }
             }
         }
         if(panel.isNotEmpty()) AlertDialog(onDismissRequest={panel="";interaction++},containerColor=Color(0xFF102953),title={Text(panel,color=Color.White)},text={Column(Modifier.verticalScroll(rememberScrollState())) {
             when(panel) {
+                "TV Guide" -> {
+                    val remaining = schedule.filter { it.end > guideTime }
+                    if (remaining.isEmpty()) Text(if (programmes == null) "Loading guide…" else "No listings from your TV provider.", color = Color.White)
+                    remaining.forEach { listing ->
+                        ProgrammeTile(if (listing == currentProgramme) "Now" else "Upcoming", listing, "", Modifier.fillMaxWidth().padding(bottom = 6.dp))
+                    }
+                }
                 "Audio","Subtitles" -> {
                     val type=if(panel=="Audio") androidx.media3.common.C.TRACK_TYPE_AUDIO else androidx.media3.common.C.TRACK_TYPE_TEXT
                     val groups=player.currentTracks.groups.filter { it.type==type }
@@ -1409,8 +1452,26 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
 }
 
 private fun playTime(ms:Long):String { val sec=ms/1000;return String.format(Locale.US,"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60) }
-@Composable private fun PlayerTile(label:String,modifier:Modifier=Modifier,onClick:()->Unit) {
-    PremiumButton(onClick=onClick,modifier=modifier) { Text(label,color=Color.White,fontSize=13.sp,maxLines=1) }
+private data class TimedProgramme(val title: String, val start: Long, val end: Long)
+
+@Composable private fun ProgrammeTile(label: String, programme: TimedProgramme?, fallback: String, modifier: Modifier) {
+    val context = LocalContext.current
+    Column(modifier.background(Color(0xFF182844), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp)) {
+        val time = programme?.let { "  ·  ${guideClock(context,it.start)}–${guideClock(context,it.end)}" }.orEmpty()
+        Text(label + time, color = Color(0xFF92E8F5), fontSize = 11.sp, maxLines = 1)
+        Text(programme?.title ?: fallback, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable private fun PlayerTile(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    Box(modifier.height(42.dp).onFocusChanged { focused = it.isFocused }
+        .clip(shape).background(if (focused) Color(0xFFDFF7FF) else Color(0xFF243651))
+        .clickable(onClick = onClick).padding(horizontal = 3.dp), contentAlignment = Alignment.Center) {
+        Text(label, color = if (focused) Color(0xFF102039) else Color.White, fontSize = 13.sp,
+            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 private fun parseEpgTime(raw:String):Long? {
@@ -1835,7 +1896,7 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
 
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun LiveBrowser(categories:List<Pair<String,String>>, categoryId:String?, channels:List<Entry>, api:XtreamApi?, lastId:String, loading:Boolean, onCategory:(String)->Unit, onRetry:()->Unit, onPlay:(Entry)->Unit) {
+@Composable private fun LiveBrowser(categories:List<Pair<String,String>>, categoryId:String?, channels:List<Entry>, api:XtreamApi?, lastId:String, loading:Boolean, onCategory:(String)->Unit, onRetry:()->Unit, onGuide:()->Unit, onPlay:(Entry)->Unit) {
     val context=LocalContext.current
     var query by remember { mutableStateOf("") }
     var search by remember { mutableStateOf(false) }
@@ -1859,6 +1920,7 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
     val minimalScroll = remember { object : androidx.compose.foundation.gestures.BringIntoViewSpec { override fun calculateScrollDistance(offset:Float,size:Float,containerSize:Float):Float = when { offset>=0f && offset+size<=containerSize -> 0f; offset<0f -> offset; else -> (offset+size-containerSize).coerceAtLeast(0f) } } }
     CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides minimalScroll) {
     Column(Modifier.fillMaxSize().clipToBounds().background(Color(0xF507152E),RoundedCornerShape(0.dp)).padding(horizontal=8.dp,vertical=3.dp)) {
+        CompactLiveAction("TV Guide", Modifier.align(Alignment.End), onGuide)
         if(search) OutlinedTextField(query,{query=it},singleLine=true,label={Text("Find channel")},modifier=Modifier.fillMaxWidth())
         Row(Modifier.weight(1f).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(0.27f).fillMaxHeight()) {

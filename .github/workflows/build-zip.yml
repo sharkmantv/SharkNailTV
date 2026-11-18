@@ -3,7 +3,11 @@ name: Build SharkNailTV ZIP and publish OTA
 on:
   push:
     branches: [main]
-    paths: ['incoming/SharkNailTV.zip', '.github/workflows/build-zip.yml']
+    paths:
+      - 'incoming/SharkNailTV.zip'
+      - '.github/workflows/build-zip.yml'
+      - 'app/src/main/java/com/example/xtreamtv/MainActivity.kt'
+      - 'app/src/main/res/drawable-nodpi/premium_*.webp'
   workflow_dispatch:
     inputs:
       source:
