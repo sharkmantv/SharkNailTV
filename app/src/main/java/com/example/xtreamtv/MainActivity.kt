@@ -998,7 +998,9 @@ fun App() {
                         val stripSize = Size((size.width - 2 * inset).coerceAtLeast(0f), stripHeight)
                         onDrawWithContent {
                             drawContent()
-                            drawRect(strip, Offset(inset, -stripHeight / 2f), stripSize, alpha = navStripPulse.value)
+                            if (!emphasized) {
+                                drawRect(strip, Offset(inset, -stripHeight / 2f), stripSize, alpha = navStripPulse.value)
+                            }
                         }
                     }.background(Brush.verticalGradient(tileFill)).glassFrame(2.dp, frameColor, focused = focused, repeatPulse = true)
                     .clickable { if(item=="Exit") exitPrompt=true else {homeLookupJob?.cancel();homePlaying=null;selected=null;section=if(item=="Shark Stream") "Shark Streaming" else item} },horizontalAlignment=Alignment.CenterHorizontally) {
