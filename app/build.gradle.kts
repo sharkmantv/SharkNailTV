@@ -53,6 +53,12 @@ kotlin {
     }
 }
 dependencies {
+    val torrentVersion = "2.1.0-39"
+    implementation("org.libtorrent4j:libtorrent4j:$torrentVersion")
+    runtimeOnly("org.libtorrent4j:libtorrent4j-android-arm:$torrentVersion")
+    runtimeOnly("org.libtorrent4j:libtorrent4j-android-arm64:$torrentVersion")
+    runtimeOnly("org.libtorrent4j:libtorrent4j-android-x86:$torrentVersion")
+    runtimeOnly("org.libtorrent4j:libtorrent4j-android-x86_64:$torrentVersion")
     implementation(fileTree("libs") { include("*.aar", "*.jar") })
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")

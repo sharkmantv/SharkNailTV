@@ -636,6 +636,10 @@ fun App() {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
+        } else if (section == "Torrent Playback") {
+            Box(Modifier.fillMaxSize().hudBackdrop()) {
+                TorrentPlayback { section = "Playback & Display" }
+            }
         } else Box(Modifier.fillMaxSize()) {
             BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
@@ -940,7 +944,7 @@ fun App() {
                             }
                         }
                         }
-                        "Playback & Display" -> { PlaybackSettings { section="Settings" } }
+                        "Playback & Display" -> { PlaybackSettings(onOpenTorrent = { section = "Torrent Playback" }) { section="Settings" } }
                         "System Health" -> {
                             val runtime=Runtime.getRuntime()
                             val used=runtime.totalMemory()-runtime.freeMemory()
@@ -1544,7 +1548,7 @@ private data class AudioTrackSwitch(
     val startedAt: Long
 )
 
-@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false) {
+@Composable internal fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false,sourceFactory:androidx.media3.datasource.DataSource.Factory?=null) {
     val context=LocalContext.current
     var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(url, liveStream) {
@@ -1573,7 +1577,7 @@ private data class AudioTrackSwitch(
     var playing by remember(url) { mutableStateOf(false) }
     val rootFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
-    val player=remember { configuredPlayer(context) }
+    val player=remember(sourceFactory) { configuredPlayer(context, sourceFactory = sourceFactory) }
     var audioSwitch by remember(player, url) { mutableStateOf<AudioTrackSwitch?>(null) }
     var trackNotice by remember(url) { mutableStateOf("") }
     var tracks by remember(player, url) { mutableStateOf(Tracks.EMPTY) }
