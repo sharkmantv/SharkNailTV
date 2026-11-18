@@ -1,0 +1,66 @@
+name: Build and publish SharkNailTV
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Build release APK
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+        run: |
+          set -euo pipefail
+          printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          gradle --no-daemon :app:assembleRelease
+      - name: Upload unsigned APK (diagnostics only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-apk-not-installable
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+      - name: Sign and verify release APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          EXPECTED_CERT: ${{ secrets.ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64" && test -n "$KS_PASS" && test -n "$KEY_PASS" && test -n "$KEY_ALIAS" && test -n "$EXPECTED_CERT"
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark.keystore"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$RUNNER_TEMP/shark.keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:KS_PASS --key-pass env:KEY_PASS --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
+          actual=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          expected=$(printf '%s' "$EXPECTED_CERT" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          test "$actual" = "$expected"
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-signed
+          path: SharkNailTV.apk
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --title "SharkNailTV $GITHUB_REF_NAME" --generate-notes --latest
