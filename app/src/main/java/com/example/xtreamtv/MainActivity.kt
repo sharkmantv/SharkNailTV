@@ -565,7 +565,6 @@ fun App() {
                             if(section=="Home" && trendingMovies.isEmpty() && trendingSeries.isEmpty() && popularMovies.isEmpty() && popularSeries.isEmpty() && tmdbStatus.isNotBlank()) Text(tmdbStatus,color=Color.White,fontSize=12.sp,maxLines=2)
                             if((if(section=="Home") trendingMovies.isEmpty() && trendingSeries.isEmpty() && popularMovies.isEmpty() && popularSeries.isEmpty() else sectionEntries.isEmpty())) { if(connected && section!="Home") Text(if(catalogueLoading) "Loading catalogue…" else if(error.isNotBlank()) "$error — press Retry" else "No titles returned",color=Color.White) else if(section=="Home") FocusAction("Retry posters"){posterRefresh++} else ConnectPrompt{showLogin=true} }
                         }
-                        "Shark Games" -> { SharkGameHub() }
                         "Shark Streaming" -> {
                             Text("SHARK STREAMING",color=Color(0xFF26E7FF),fontSize=20.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=6.dp))
                             Text("Choose a service to browse films and series available in the UK",color=Color(0xFF9DD9F5),fontSize=15.sp)
@@ -666,7 +665,7 @@ fun App() {
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
                             Text("Posters: ${tmdbStatus.ifBlank { "Updated" }}  ·  Sports: $fixtureStatus",color=Color(0xFF8EDCF0),fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.height(18.dp))
-                            val options=listOf("Xtream Codes","Check for App Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","App Information","Exit","System Health")
+                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","App Information","Exit","System Health")
                             Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             options.chunked(3).forEach { labels ->
                                 Row(Modifier.fillMaxWidth().height(76.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -674,7 +673,7 @@ fun App() {
                                         var focused by remember { mutableStateOf(false) }
                                         ElectricFocus(Modifier.weight(1f).fillMaxHeight().onFocusChanged { focused=it.isFocused }.clickable {
                                             when(label) {
-                                                "Check for App Update" -> SharkAppUpdater.check(context as android.app.Activity, manual = true)
+                                                "Software Update" -> SharkAppUpdater.check(context as android.app.Activity, manual = true)
                                                 "Exit" -> exitPrompt=true
                                                 "Change Playlist" -> showLogin=true
                                                 "Refresh IPTV Catalogue" -> if(!loading) { loading=true; scope.launch {
@@ -756,7 +755,7 @@ fun App() {
             val navigationPulse=rememberInfiniteTransition(label="navigation glow").animateFloat(0.45f,1f,infiniteRepeatable(tween(1200),RepeatMode.Reverse),label="navigation pulse")
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Shark Games","Settings").forEach { item ->
+                listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
                     val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Settings" && section in listOf("App Information","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
                     val focused=focusedNav==item
                     val emphasized=focused || (focusedNav==null && active)
