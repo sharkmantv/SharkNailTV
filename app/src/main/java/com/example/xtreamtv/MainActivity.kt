@@ -968,6 +968,12 @@ fun App() {
                 }
             }
             }
+            val navStripPulse = rememberInfiniteTransition(label = "Bottom navigation strips").animateFloat(
+                initialValue = 0.20f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
+                label = "Colour strip opacity"
+            )
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
@@ -990,8 +996,9 @@ fun App() {
                             "Shark Stream" -> Color(0xFF00D9F4)
                             else -> Color(0xFF5D9EFF)
                         }
-                        Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp)
-                            .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha=.7f)))))
+                        Box(Modifier.fillMaxWidth().padding(start = 3.dp, end = 3.dp, top = 3.dp).height(3.dp)
+                            .graphicsLayer { alpha = navStripPulse.value }
+                            .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha = .7f)))))
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
                             Text(item,color=Color.White,fontSize=13.sp,fontWeight=FontWeight.Normal,maxLines=1,style=TextStyle(textAlign=TextAlign.Center),overflow=TextOverflow.Ellipsis)
                         }
