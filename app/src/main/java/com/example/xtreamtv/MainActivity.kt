@@ -813,7 +813,7 @@ fun App() {
                                                 verticalAlignment=Alignment.CenterVertically,
                                                 horizontalArrangement=Arrangement.spacedBy(12.dp)
                                             ) {
-                                                GoldSettingsIcon(when(label){"Xtream Codes"->Icons.Outlined.List;"Refresh Posters","Refresh Sports"->Icons.Outlined.Refresh;"Connection Status"->Icons.Outlined.Wifi;"Clear Memory Cache"->Icons.Outlined.Delete;"Sharks Toolkit"->Icons.Outlined.Info;"Exit"->Icons.Outlined.ExitToApp;else->Icons.Outlined.Settings})
+                                                ChromeSettingsBadge(label)
                                                 Text(label,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Light)
                                             }
                                         }
@@ -1338,13 +1338,35 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
 @Composable private fun Text(text:String, modifier:Modifier=Modifier, color:Color=Color.Unspecified, fontSize:TextUnit=TextUnit.Unspecified, fontWeight:FontWeight?=null, maxLines:Int=Int.MAX_VALUE, minLines:Int=1, overflow:TextOverflow=TextOverflow.Clip, style:TextStyle=LocalTextStyle.current) {
     MaterialText(text=text, modifier=modifier, color=color, fontSize=fontSize, fontWeight=when(fontWeight){FontWeight.Light -> FontWeight.Light; FontWeight.Bold, FontWeight.SemiBold, FontWeight.Medium -> FontWeight.Medium; else -> FontWeight.Normal}, maxLines=maxLines, minLines=minLines, overflow=overflow, style=style.copy(fontFamily=SkyLikeFamily,fontStyle=androidx.compose.ui.text.font.FontStyle.Normal,letterSpacing=0.08.sp,shadow=style.shadow))
 }
-@Composable private fun GoldSettingsIcon(symbol:ImageVector) {
-    Box(Modifier.size(30.dp),contentAlignment=Alignment.Center) {
-        Icon(symbol,null,tint=Color(0xFF2074C8),modifier=Modifier.size(28.dp))
-        Icon(symbol,null,tint=Color(0xFF78E5FF),modifier=Modifier.size(25.dp))
+@Composable private fun ChromeSettingsBadge(label: String) {
+    val symbol = when (label) {
+        "Xtream Codes", "Change Playlist" -> Icons.Filled.VpnKey
+        "Software Update" -> Icons.Filled.FileDownload
+        "Refresh IPTV Catalogue" -> Icons.Filled.PlaylistPlay
+        "Refresh Posters" -> Icons.Filled.Photo
+        "Refresh Sports" -> Icons.Filled.SportsSoccer
+        "Connection Status" -> Icons.Filled.Wifi
+        "Home Playback Source" -> Icons.Filled.Home
+        "Clear Memory Cache" -> Icons.Filled.Delete
+        "Playback & Display" -> Icons.Filled.Tv
+        "Sharks Toolkit" -> Icons.Filled.Build
+        "Exit" -> Icons.Filled.ExitToApp
+        "System Health" -> Icons.Filled.Favorite
+        else -> Icons.Filled.Settings
+    }
+    val circle = androidx.compose.foundation.shape.CircleShape
+    Box(
+        Modifier.size(36.dp)
+            .background(chromeBrush(), circle)
+            .padding(2.dp)
+            .background(Brush.verticalGradient(listOf(Color(0xFF14515B), Color(0xFF06252E))), circle),
+        contentAlignment = Alignment.Center
+    ) {
+        ChromeIcon(symbol, iconSize = 21)
     }
 }
-@Composable private fun ChromeIcon(symbol:ImageVector, exit:Boolean, iconSize:Int=25) {
+
+@Composable private fun ChromeIcon(symbol: ImageVector, iconSize: Int) {
     val finish=chromeBrush()
     Box(Modifier.size((iconSize+2).dp),contentAlignment=Alignment.Center) {
         Icon(symbol,null,tint=Color(0xFF020916),modifier=Modifier.offset(x=1.dp,y=2.dp).size((iconSize+1).dp))
