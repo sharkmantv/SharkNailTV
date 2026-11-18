@@ -5,6 +5,12 @@ on:
     branches: [main]
     paths: ['incoming/SharkNailTV.zip']
   workflow_dispatch:
+    inputs:
+      source:
+        description: Android source to build
+        type: choice
+        options: [repository, zip]
+        default: repository
 
 permissions:
   contents: write
@@ -19,7 +25,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Use repository source
+        if: github.event_name == 'workflow_dispatch' && inputs.source == 'repository'
+        run: printf 'SOURCE_DIR=%s\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
       - name: Extract Android project
+        if: github.event_name != 'workflow_dispatch' || inputs.source == 'zip'
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -56,6 +66,7 @@ jobs:
       - name: Prepare version and optional signing
         env:
           SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -67,11 +78,12 @@ jobs:
             umask 077
             printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
             printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
-          else
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
             echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Build installable APK
         env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
           SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
           SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
           SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
@@ -82,6 +94,17 @@ jobs:
           cd "$SOURCE_DIR"
           if [[ -n "$TMDB_API_KEY" ]]; then printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties; fi
           if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            jq -er '.keystore' <<< "$SHARK_SIGNING_BUNDLE" | base64 --decode > "$SHARK_KEYSTORE_PATH"
+            SHARK_KEYSTORE_PASSWORD=$(jq -er '.password' <<< "$SHARK_SIGNING_BUNDLE")
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
           if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
             gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
             cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
