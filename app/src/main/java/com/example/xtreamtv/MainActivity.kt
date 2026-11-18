@@ -74,7 +74,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -595,11 +601,11 @@ fun App() {
         extraSmall = SharkFrameShape, small = SharkFrameShape, medium = SharkFrameShape,
         large = SharkFrameShape, extraLarge = SharkFrameShape
     ), colorScheme = darkColorScheme(primary = HudAccent, background = HudBackground, surface = HudSurface,
-        surfaceVariant = Color(0xFF17294B), outline = Color(0xFF6989BB), onSurface = Color(0xFFE7EFFF))) {
+        surfaceVariant = Color(0xFF17294B), outline = Color(0xFF6989BB), onSurface = Color.White, onSurfaceVariant = Color.White)) {
         if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
             BackHandler { homePlaying=null }
-            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=stream.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) } }
+            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) } }
         } else if(selected?.kind in listOf("live","movie","episode") && api!=null) {
             val entry=selected!!
             BackHandler { selected=episodeParent; episodeParent=null }
@@ -636,10 +642,10 @@ fun App() {
                             } else {
                                 Text(e.title,color=Color.White,fontSize=28.sp)
                                 Text(e.overview,color=Color.White,maxLines=5)
-                                Text(homeLookupStatus.ifBlank { "Home playback source" },color=Color(0xFFBCD8F5))
+                                Text(homeLookupStatus.ifBlank { "Home playback source" },color = Color.White)
                                 if (section == "Home" || section.endsWith(" Catalogue")) {
                                     if (e.genre == "TV Series") {
-                                        Text("Season $homeSeason • Episode $homeEpisode", color=Color(0xFF8CF5FF))
+                                        Text("Season $homeSeason • Episode $homeEpisode", color = Color.White)
                                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                             FocusAction("− Season") { if(homeSeason>1) {homeLookupJob?.cancel();homeSeason--; homeStreams=emptyList();homeLookupStatus="Press Search episode"} }
                                             FocusAction("+ Season") { homeLookupJob?.cancel();homeSeason++; homeEpisode=1;homeStreams=emptyList();homeLookupStatus="Press Search episode" }
@@ -648,7 +654,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home playback searches enabled account addons; Xtream Codes remains separate.",color=Color(0xFF8CF5FF))
+                                    Text("Home playback searches enabled account addons; Xtream Codes remains separate.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
@@ -687,7 +693,7 @@ fun App() {
                         }
                         "Shark Streaming" -> {
                             Text("Shark Stream", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp))
-                            Text("Select a service to browse or open an installed TV app",color=Color(0xFF9DD9F5),fontSize=15.sp)
+                            Text("Select a service to browse or open an installed TV app",color = Color.White,fontSize=15.sp)
                             Spacer(Modifier.height(8.dp))
                             val services = listOf(
                                 "Netflix" to R.drawable.premium_netflix,
@@ -720,7 +726,7 @@ fun App() {
                         }
                         "Netflix Catalogue", "Apple TV Catalogue", "Prime Video Catalogue", "Disney+ Catalogue", "HBO Max Catalogue", "Hulu Catalogue" -> {
                             Text(section.removeSuffix(" Catalogue"),color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold)
-                            Text("TMDB availability in United Kingdom • availability can change; subscription access not included",color=Color(0xFF8CF5FF),fontSize=12.sp)
+                            Text("TMDB availability in United Kingdom • availability can change; subscription access not included",color = Color.White,fontSize=12.sp)
                             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                 listOf("Movies","Series","New Releases").forEach { category ->
                                     FocusAction(if(serviceCategory==category) "● $category" else category) { serviceCategory=category }
@@ -738,7 +744,7 @@ fun App() {
                                 val posterWidth = ((maxHeight - 12.dp) / 1.5f).value.toInt().coerceIn(1, 200)
                                 if (!serviceLoading) {
                                     if (serviceEntries.isEmpty() && serviceError.isBlank()) {
-                                        Text("No titles found for this category.", color = Color(0xFFB8D8F2), fontSize = 15.sp)
+                                        Text("No titles found for this category.", color = Color.White, fontSize = 15.sp)
                                     } else if (serviceEntries.isNotEmpty()) {
                                         HomeTmdbRow( "", serviceEntries, posterWidth, onSelect = { openTitle(it) })
                                     }
@@ -775,19 +781,19 @@ fun App() {
                         "Sports Guide" -> { PublicGuide(fixtures,fixtureStatus, onRefresh={sportsRefresh++}) }
                         "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,livePreviewEnabled,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++},{section="EPG / TV Guide"}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
                         "EPG / TV Guide" -> { if(connected) BroadcastGuide(live,api){section="Shark TV";selected=it} else ConnectPrompt{showLogin=true} }
-                        "Search" -> { var query by remember { mutableStateOf("") }; OutlinedTextField(query,{query=it},label={Text("Search titles")}); if(query.isNotBlank()) V4PosterRow(tmdbKey,"Results",(trendingMovies+trendingSeries+movies+series).filter{it.title.contains(query,true)}){selected=it} }
-                        "My List" -> {Text("My List",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(vertical=18.dp));Text("Saved favourites will appear here when the feature is connected.",color=Color(0xFFB6D4EE))}
+                        "Search" -> { var query by remember { mutableStateOf("") }; OutlinedTextField(query,{query=it},label={Text("Search titles")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White)); if(query.isNotBlank()) V4PosterRow(tmdbKey,"Results",(trendingMovies+trendingSeries+movies+series).filter{it.title.contains(query,true)}){selected=it} }
+                        "My List" -> {Text("My List",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(vertical=18.dp));Text("Saved favourites will appear here when the feature is connected.",color = Color.White)}
                         "Xtream Codes" -> {Text("Xtream Codes",color=Color.White,fontSize=25.sp); FocusAction("Connect / Change IPTV Account"){if(password.isBlank()) password=readSavedPassword(context);showLogin=true}; FocusAction("Disconnect (keep login)"){api=null;connected=false}; Text(if(connected) "Connected" else "Not connected",color=Color.White); Text(credentialStatus,color=Color.White); FocusAction("Back to Settings"){section="Settings"}}
                         "Home Playback Source" -> {
-                            Text("Nuvio Account",color=Color(0xFF17E5FF),fontSize=27.sp,fontWeight=FontWeight.Bold)
+                            Text("Nuvio Account",color = Color.White,fontSize=27.sp,fontWeight=FontWeight.Bold)
                             Text("Scan with your phone to link your account",color=Color.White,fontSize=15.sp)
                             var nuvioStatus by remember { mutableStateOf(if (NuvioTvAccount.linked(context)) "Account linked" else "Not connected") }
                             var nuvioCode by remember { mutableStateOf("") }
                             var nuvioUrl by remember { mutableStateOf("") }
-                            Text(nuvioStatus,color=Color(0xFF8CF5FF))
+                            Text(nuvioStatus,color = Color.White)
                             if (nuvioCode.isNotBlank() && nuvioUrl.isNotBlank()) {
                                 NuvioLoginQr(nuvioUrl)
-                                Text("Scan with your phone to approve Nuvio login",color=Color(0xFF8CF5FF))
+                                Text("Scan with your phone to approve Nuvio login",color = Color.White)
                                 Text("Enter code: $nuvioCode",color=Color.White,fontSize=25.sp)
                             }
                             if (!NuvioTvAccount.configured) {
@@ -845,12 +851,12 @@ fun App() {
                                 prefs.edit().remove("home_addon_urls").apply()
                                 nuvioCode = ""; nuvioUrl = ""; nuvioStatus = "Not connected"
                             }
-                            Text("TMDB Home uses account addons; Xtream Codes stays separate.",color=Color(0xFF8CF5FF))
+                            Text("TMDB Home uses account addons; Xtream Codes stays separate.",color = Color.White)
                             FocusAction("Back to Settings") { section="Settings" }
                         }
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
-                            Text("Posters: ${tmdbStatus.ifBlank { "Updated" }}  ·  Sports: $fixtureStatus",color=Color(0xFF8EDCF0),fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.height(18.dp))
+                            Text("Posters: ${tmdbStatus.ifBlank { "Updated" }}  ·  Sports: $fixtureStatus",color = Color.White,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.height(18.dp))
                             val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
                             Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             options.chunked(3).forEach { labels ->
@@ -917,7 +923,7 @@ fun App() {
                         }
                         "Sharks Toolkit" -> {
                             Text("Sharks Toolkit", color = Color.White, fontSize = 26.sp)
-                            Text("SharkNailTV ${BuildConfig.VERSION_NAME}", color = Color(0xFF8EDCF0), fontSize = 13.sp)
+                            Text("SharkNailTV ${BuildConfig.VERSION_NAME}", color = Color.White, fontSize = 13.sp)
                             val storageSummary by produceState("Reading storage…", cacheBusy) {
                                 value = withContext(Dispatchers.IO) {
                                     val imageCache = coil.Coil.imageLoader(context).diskCache?.size ?: 0L
@@ -952,10 +958,10 @@ fun App() {
                             }
                         }
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
-                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", "").orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
+                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", "").orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
                     }
                     if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && (loading || catalogueLoading)) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    if(section in listOf("Home","Movies","TV Series") && tmdbStatus.isNotBlank()) Text(tmdbStatus,color=Color(0xFFB8D8F2),fontSize=12.sp)
+                    if(section in listOf("Home","Movies","TV Series") && tmdbStatus.isNotBlank()) Text(tmdbStatus,color = Color.White,fontSize=12.sp)
                     if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && error.isNotBlank())Text(error,color=Color(0xFFFFB8B8),fontSize=12.sp)
                     Spacer(Modifier.height(if(featuredPage || serviceCatalogue || section in listOf("Shark TV","Settings")) 6.dp else 30.dp))
                 }
@@ -973,7 +979,7 @@ fun App() {
                     val frameColor = if (emphasized) SharkFocusGold else HudAccent
                     Column(Modifier.weight(1f).height(64.dp).onFocusChanged { state ->
                         if(state.isFocused) focusedNav=item else if(focusedNav==item) focusedNav=null
-                    }.background(Brush.verticalGradient(tileFill)).glassFrame(2.dp, frameColor, focused = focused)
+                    }.background(Brush.verticalGradient(tileFill)).glassFrame(2.dp, frameColor, focused = focused, repeatPulse = true)
                     .clickable { if(item=="Exit") exitPrompt=true else {homeLookupJob?.cancel();homePlaying=null;selected=null;section=if(item=="Shark Stream") "Shark Streaming" else item} },horizontalAlignment=Alignment.CenterHorizontally) {
                         val accent = when (item) {
                             "Home" -> Color(0xFFFFC34D)
@@ -987,7 +993,7 @@ fun App() {
                         Box(Modifier.fillMaxWidth().padding(horizontal=3.dp).height(3.dp)
                             .background(Brush.horizontalGradient(listOf(accent, accent.copy(alpha=.7f)))))
                         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal=2.dp),contentAlignment=Alignment.Center) {
-                            Text(item,color=if(emphasized) Color.White else Color(0xFFBACAE3),fontSize=13.sp,fontWeight=FontWeight.Normal,maxLines=1,style=TextStyle(textAlign=TextAlign.Center),overflow=TextOverflow.Ellipsis)
+                            Text(item,color=Color.White,fontSize=13.sp,fontWeight=FontWeight.Normal,maxLines=1,style=TextStyle(textAlign=TextAlign.Center),overflow=TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -1006,9 +1012,9 @@ fun App() {
             val connectFocus=remember { FocusRequester() }
             PremiumDialog(onDismissRequest={if(!loading) showLogin=false},title={Text("Connect your IPTV provider")},text={
                 Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    OutlinedTextField(server,{server=it;error=""},modifier=Modifier.fillMaxWidth().focusRequester(serverFocus).focusProperties { down=userFocus },label={Text("Server URL")},singleLine=true)
-                    OutlinedTextField(username,{username=it;error=""},modifier=Modifier.fillMaxWidth().focusRequester(userFocus).focusProperties { up=serverFocus;down=passwordFocus },label={Text("Username")},singleLine=true)
-                    OutlinedTextField(password,{password=it;error=""},modifier=Modifier.fillMaxWidth().focusRequester(passwordFocus).focusProperties { up=userFocus;down=connectFocus },label={Text("Password")},visualTransformation=PasswordVisualTransformation(),singleLine=true)
+                    OutlinedTextField(server,{server=it;error=""},modifier=Modifier.fillMaxWidth().focusRequester(serverFocus).focusProperties { down=userFocus },label={Text("Server URL")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true)
+                    OutlinedTextField(username,{username=it;error=""},modifier=Modifier.fillMaxWidth().focusRequester(userFocus).focusProperties { up=serverFocus;down=passwordFocus },label={Text("Username")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true)
+                    OutlinedTextField(password,{password=it;error=""},modifier=Modifier.fillMaxWidth().focusRequester(passwordFocus).focusProperties { up=userFocus;down=connectFocus },label={Text("Password")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true)
                     Text("Use an authorized Xtream account.",fontSize=12.sp)
                     if(loading) { LinearProgressIndicator(Modifier.fillMaxWidth());Text("Connecting…") }
                     if(error.isNotBlank()) Text(error,color=Color(0xFFFFB8B8))
@@ -1172,7 +1178,7 @@ fun App() {
             Text(title,color=Color.White,fontSize=13.sp,fontWeight=FontWeight.Medium)
         }
         if(entries.isEmpty()) {
-            Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color=Color(0xFFB8D8F2),fontSize=13.sp,modifier=Modifier.padding(16.dp))}
+            Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
             LazyRow(modifier=Modifier.height((cardWidth*1.5f+5f).dp).clipToBounds(),horizontalArrangement=Arrangement.spacedBy(7.dp),contentPadding=PaddingValues(start=2.dp,end=6.dp,top=2.dp,bottom=3.dp)) {
                 items(entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" },key={"${it.kind}:${it.genre}:${it.id}"}) { entry ->
@@ -1202,7 +1208,7 @@ fun App() {
             Text(title,color=Color.White,fontSize=19.sp,fontWeight=FontWeight.Medium)
         }
         if(entries.isEmpty()) {
-            Box(Modifier.fillMaxWidth().height(110.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color=Color(0xFFB8D8F2),fontSize=13.sp,modifier=Modifier.padding(16.dp))}
+            Box(Modifier.fillMaxWidth().height(110.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else LazyRow(horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=3.dp,end=8.dp,top=2.dp,bottom=3.dp)) {
             items(entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" },key={"${it.kind}:${it.genre}:${it.id}"}) { entry ->
                 var focused by remember {mutableStateOf(false)}
@@ -1236,26 +1242,26 @@ fun App() {
         Spacer(Modifier.height(7.dp))
         if(events.isEmpty()) {
             Box(Modifier.fillMaxWidth().height(75.dp).background(Color(0xFF0B1D36),RoundedCornerShape(0.dp)).clickable {if(connected)onGuide() else onConnect()},contentAlignment=Alignment.Center) {
-                Text(if(connected)"No upcoming sports events found in your provider's EPG — open the guide" else "Connect IPTV to see live and upcoming matches, times and channels",color=Color(0xFFC4DDF4),fontSize=13.sp)
+                Text(if(connected)"No upcoming sports events found in your provider's EPG — open the guide" else "Connect IPTV to see live and upcoming matches, times and channels",color = Color.White,fontSize=13.sp)
             }
         } else LazyRow(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
             items(events.take(12)) { event ->
                 var focused by remember {mutableStateOf(false)}
                 Column(Modifier.width(260.dp).onFocusChanged{focused=it.isFocused}.glassFrame(2.dp,if(focused)SharkFocusGold else Color(0xFF1A588B),RoundedCornerShape(0.dp), focused = focused).background(Color(0xFF0B203B),RoundedCornerShape(0.dp)).clickable(onClick=onGuide).padding(10.dp)) {
-                    Text(if(event.startMillis<=System.currentTimeMillis())"● LIVE" else displayTime(event.startMillis),color=Color(0xFF49C8FF),fontSize=11.sp,fontWeight=FontWeight.Medium)
+                    Text(if(event.startMillis<=System.currentTimeMillis())"● LIVE" else displayTime(event.startMillis),color = Color.White,fontSize=11.sp,fontWeight=FontWeight.Medium)
                     Text(event.program.title,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text(event.channel.title,color=Color(0xFFAAC8E8),fontSize=11.sp,maxLines=1)
+                    Text(event.channel.title,color = Color.White,fontSize=11.sp,maxLines=1)
                 }
             }
         }
     }
 }
-@Composable private fun ConnectPrompt(onClick:()->Unit) { Column(Modifier.fillMaxWidth().padding(22.dp),horizontalAlignment=Alignment.CenterHorizontally){Text("Connect your IPTV provider to load channels and your library",color=Color(0xFFC6D9F4));Spacer(Modifier.height(12.dp));PremiumButton(onClick=onClick){Text("Connect IPTV")}} }
+@Composable private fun ConnectPrompt(onClick:()->Unit) { Column(Modifier.fillMaxWidth().padding(22.dp),horizontalAlignment=Alignment.CenterHorizontally){Text("Connect your IPTV provider to load channels and your library",color = Color.White);Spacer(Modifier.height(12.dp));PremiumButton(onClick=onClick){Text("Connect IPTV")}} }
 
 @Composable private fun PremiumRow(title:String,entries:List<Entry>,onSelect:(Entry)->Unit) {
     Column(Modifier.padding(bottom=17.dp)) {
         Text(title,color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(bottom=9.dp))
-        if(entries.isEmpty()) { Box(Modifier.fillMaxWidth().height(68.dp).background(Color(0x330B1B34),RoundedCornerShape(0.dp)).padding(18.dp)){Text("No titles available yet",color=Color(0xFF8CA8C8),fontSize=13.sp)} }
+        if(entries.isEmpty()) { Box(Modifier.fillMaxWidth().height(68.dp).background(Color(0x330B1B34),RoundedCornerShape(0.dp)).padding(18.dp)){Text("No titles available yet",color = Color.White,fontSize=13.sp)} }
         else LazyRow(horizontalArrangement=Arrangement.spacedBy(12.dp)) { items(entries,key={"${it.kind}-${it.id}"}) { e ->
             var cardFocused by remember { mutableStateOf(false) }
             Column(Modifier.width(148.dp)
@@ -1265,7 +1271,7 @@ fun App() {
                 .clip(RoundedCornerShape(0.dp)).background(Color(0xFF0A1D39))
                 .clickable {onSelect(e)}) {
                 if(e.image.isNotBlank()) AsyncImage(model=e.image,contentDescription=e.title,modifier=Modifier.fillMaxWidth().height(182.dp),contentScale=ContentScale.Crop)
-                else Box(Modifier.fillMaxWidth().height(182.dp).background(Brush.verticalGradient(listOf(Color(0xFF123E79),Color(0xFF071429)))),contentAlignment=Alignment.Center){Text("SHARK NAIL TV",color=Color(0xFF8FB8E8),fontWeight=FontWeight.Medium,fontSize=12.sp)}
+                else Box(Modifier.fillMaxWidth().height(182.dp).background(Brush.verticalGradient(listOf(Color(0xFF123E79),Color(0xFF071429)))),contentAlignment=Alignment.Center){Text("SHARK NAIL TV",color = Color.White,fontWeight=FontWeight.Medium,fontSize=12.sp)}
                 Text(e.title,color=Color.White,fontSize=12.sp,maxLines=2,minLines=2,modifier=Modifier.padding(8.dp))
             }
         } }
@@ -1445,8 +1451,13 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
     }
 }
 @Composable private fun MetallicText(value:String,size:Int) {
-    Text(value,color=Color(0xFFF0F5FA),fontSize=size.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
+    Text(value,color = Color.White,fontSize=size.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
 }
+private data class AudioTrackSwitch(
+    val previous: TrackSelectionParameters,
+    val startedAt: Long
+)
+
 @Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false) {
     val context=LocalContext.current
     var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
@@ -1477,6 +1488,36 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
     val rootFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val player=remember { configuredPlayer(context) }
+    var audioSwitch by remember(player, url) { mutableStateOf<AudioTrackSwitch?>(null) }
+    var trackNotice by remember(url) { mutableStateOf("") }
+    var tracks by remember(player, url) { mutableStateOf(Tracks.EMPTY) }
+    LaunchedEffect(trackNotice) {
+        if (trackNotice.isNotEmpty()) {
+            delay(5_000)
+            trackNotice = ""
+        }
+    }
+    fun selectTrack(type: Int, override: TrackSelectionOverride? = null) {
+        val previous = player.trackSelectionParameters
+        val next = previous.buildUpon().clearOverridesOfType(type)
+            .setTrackTypeDisabled(type, type == C.TRACK_TYPE_TEXT && override == null)
+        if (override != null) next.setOverrideForType(override)
+        val selection = next.build()
+        if (selection != previous) {
+            if (type == C.TRACK_TYPE_AUDIO) {
+                audioSwitch = AudioTrackSwitch(previous, android.os.SystemClock.elapsedRealtime())
+            }
+            try {
+                player.trackSelectionParameters = selection
+            } catch (error: RuntimeException) {
+                if (type == C.TRACK_TYPE_AUDIO) audioSwitch = null
+                trackNotice = "Could not switch tracks. Playback settings were kept."
+                android.util.Log.w("SharkPlayback", "Track selection failed", error)
+            }
+        }
+        panel = ""
+        interaction++
+    }
     LaunchedEffect(player,url) {
         playerError=""
         android.util.Log.d("SharkPlayback","Preparing stream")
@@ -1532,20 +1573,39 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         val started=android.os.SystemClock.elapsedRealtime()
         var recoveryCount=0
         var lastRecovery=0L
+        val handler = android.os.Handler(player.applicationLooper)
         val listener=object:androidx.media3.common.Player.Listener {
             override fun onPlayerError(error:androidx.media3.common.PlaybackException){
                 val now=android.os.SystemClock.elapsedRealtime()
+                val pending = audioSwitch
+                val renderer = error as? ExoPlaybackException
+                val audioError = renderer?.rendererFormat?.sampleMimeType?.startsWith("audio/") == true ||
+                    error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
+                if (pending != null && now - pending.startedAt <= 10_000L && audioError) {
+                    audioSwitch = null
+                    handler.post {
+                        player.trackSelectionParameters = pending.previous
+                        player.prepare()
+                        trackNotice = "This audio track couldn’t play. Restored the previous audio."
+                    }
+                    return
+                }
                 if(now-lastRecovery>60000L) recoveryCount=0
                 if(liveStream && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && recoveryCount<3){
                     recoveryCount++;lastRecovery=now;playerError=""
                     player.seekToDefaultPosition();player.prepare();player.playWhenReady=true
                 }else {playerError="Playback failed (${error.errorCodeName})";reportFailure()}
             }
+            override fun onTracksChanged(current: Tracks) { tracks = current }
             override fun onPlaybackStateChanged(state:Int){android.util.Log.d("SharkPlayback","State $state after ${android.os.SystemClock.elapsedRealtime()-started} ms")}
             override fun onRenderedFirstFrame(){firstFrame=true;android.util.Log.d("SharkPlayback","First frame after ${android.os.SystemClock.elapsedRealtime()-started} ms")}
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener) }
+        onDispose {
+            player.removeListener(listener)
+            handler.removeCallbacksAndMessages(null)
+        }
     }
     PlayerLifecycle(player)
     DisposableEffect(player) { onDispose {player.release()} }
@@ -1620,7 +1680,7 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                     Text(title.ifBlank { "SharkNailTV" }, modifier = Modifier.weight(1f), color = Color.White,
                         fontSize = 23.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val badge = if (liveStream) "● LIVE" else player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
-                    if (badge.isNotBlank()) Text(badge, color = Color(0xFF92E8F5), fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    if (badge.isNotBlank()) Text(badge, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.background(Color(0xFF233752), androidx.compose.ui.graphics.RectangleShape).padding(horizontal = 11.dp, vertical = 5.dp))
                 }
                 if (liveStream) {
@@ -1639,8 +1699,8 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                         modifier = Modifier.fillMaxWidth().height(4.dp).clip(SharkFrameShape),
                         color = Color(0xFF327AFF), trackColor = Color(0xFF2D3B59))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(playTime(position), color = Color(0xFFCFDAF4), fontSize = 12.sp)
-                        Text(if (duration > 0) playTime(duration) else "", color = Color(0xFFCFDAF4), fontSize = 12.sp)
+                        Text(playTime(position), color = Color.White, fontSize = 12.sp)
+                        Text(if (duration > 0) playTime(duration) else "", color = Color.White, fontSize = 12.sp)
                     }
                 }
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -1668,18 +1728,49 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
                     }
                 }
                 "Audio","Subtitles" -> {
-                    val type=if(panel=="Audio") androidx.media3.common.C.TRACK_TYPE_AUDIO else androidx.media3.common.C.TRACK_TYPE_TEXT
-                    val groups=player.currentTracks.groups.filter { it.type==type }
-                    FocusAction(if(type==androidx.media3.common.C.TRACK_TYPE_TEXT) "Off" else "Automatic") {player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type,type==androidx.media3.common.C.TRACK_TYPE_TEXT).build();panel="";interaction++}
-                    groups.forEach { group -> for(i in 0 until group.length) { if(group.isTrackSupported(i)) { val format=group.getTrackFormat(i); FocusAction(listOfNotNull(format.label,format.language,format.sampleMimeType).joinToString(" • ").ifBlank { "Track ${i+1}" } + if(group.isTrackSelected(i)) " ✓" else "") {player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type,false).setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup,listOf(i))).build();panel="";interaction++} } } }
-                    if(groups.isEmpty())Text("No tracks available",color=Color.White)
+                    val type = if (panel == "Audio") C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
+                    val options = tracks.groups.filter { it.type == type }.flatMap { group ->
+                        (0 until group.length).filter { group.isTrackSupported(it) }.map { group to it }
+                    }
+                    FocusAction(if (type == C.TRACK_TYPE_TEXT) "Off" else "Automatic") {
+                        selectTrack(type)
+                    }
+                    options.forEach { (group, index) ->
+                        val format = group.getTrackFormat(index)
+                        val language = format.language?.let {
+                            Locale.forLanguageTag(it).getDisplayLanguage(Locale.ENGLISH).ifBlank { it }
+                        }
+                        val label = listOfNotNull(format.label, language, format.sampleMimeType)
+                            .distinct().joinToString(" • ").ifBlank { "Track ${index + 1}" }
+                        val selectedTrack = group.isTrackSelected(index)
+                        FocusAction(label + if (selectedTrack) " ✓" else "") {
+                            val current = player.currentTracks.groups.firstOrNull {
+                                it.mediaTrackGroup == group.mediaTrackGroup
+                            }
+                            if (current == null || index >= current.length || !current.isTrackSupported(index)) {
+                                trackNotice = "That track is no longer available."
+                                panel = ""
+                                interaction++
+                            } else if (current.isTrackSelected(index)) {
+                                panel = ""
+                                interaction++
+                            } else {
+                                selectTrack(type, TrackSelectionOverride(current.mediaTrackGroup, index))
+                            }
+                        }
+                    }
+                    if (options.isEmpty()) Text("No supported tracks available", color = Color.White)
                 }
                 "Screen" -> listOf("Fit" to 0,"Fill" to 3,"Zoom" to 4).forEach { (name,mode) -> FocusAction(if(resize==mode) "$name (selected)" else name){resize=mode;panel="";interaction++} }
                 "Settings" -> { listOf(0.75f,1f,1.25f,1.5f,2f).forEach { speed -> FocusAction("Speed ${speed}x"){player.setPlaybackSpeed(speed);panel="";interaction++} };FocusAction("Retry playback"){playerError="";player.prepare();player.playWhenReady=true;panel="";interaction++} }
                 "Info" -> {Text("Video: ${player.videoFormat?.width ?: 0} × ${player.videoFormat?.height ?: 0}\nCodec: ${player.videoFormat?.sampleMimeType ?: "Unknown"}\nAudio: ${player.audioFormat?.sampleMimeType ?: "Unknown"}\nFPS: ${player.videoFormat?.frameRate ?: 0}",color=Color.White)}
             }
         }},confirmButton={PremiumButton(onClick={panel="";interaction++}){Text("Close",color=Color.White)}})
-        if(playerError.isNotBlank()) Text(playerError,color=Color.White,modifier=Modifier.align(Alignment.TopCenter).padding(16.dp))
+        val playbackMessage = playerError.ifBlank { trackNotice }
+        if (playbackMessage.isNotBlank()) {
+            Text(playbackMessage, color = Color.White,
+                modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).hudSurface().padding(10.dp))
+        }
     }
 }
 
@@ -1690,7 +1781,7 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
     val context = LocalContext.current
     Column(modifier.background(Color(0xFF182844), SharkFrameShape).padding(horizontal = 12.dp, vertical = 7.dp)) {
         val time = programme?.let { "  ·  ${guideClock(context,it.start)}–${guideClock(context,it.end)}" }.orEmpty()
-        Text(label + time, color = Color(0xFF92E8F5), fontSize = 11.sp, maxLines = 1)
+        Text(label + time, color = Color.White, fontSize = 11.sp, maxLines = 1)
         Text(programme?.title ?: fallback, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -1754,11 +1845,11 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
         Row(verticalAlignment=Alignment.CenterVertically) {
             Text("⚽  SPORTS",color=Color.White,fontWeight=FontWeight.Medium,fontSize=20.sp)
             Spacer(Modifier.width(20.dp))
-            Text("LIVE NOW",color=Color(0xFF54C6FF),fontSize=12.sp,fontWeight=FontWeight.Medium)
+            Text("LIVE NOW",color = Color.White,fontSize=12.sp,fontWeight=FontWeight.Medium)
             Spacer(Modifier.width(18.dp))
-            Text("UPCOMING",color=Color(0xFFB7C9E4),fontSize=12.sp)
+            Text("UPCOMING",color = Color.White,fontSize=12.sp)
             Spacer(Modifier.weight(1f))
-            PremiumButton(onClick=onOpen){Text("VIEW FULL GUIDE  ›",color=Color(0xFF69CCFF),fontSize=12.sp)}
+            PremiumButton(onClick=onOpen){Text("VIEW FULL GUIDE  ›",color = Color.White,fontSize=12.sp)}
         }
         Row(Modifier.fillMaxWidth().height(195.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
             Row(Modifier.weight(1.75f),horizontalArrangement=Arrangement.spacedBy(9.dp)) {
@@ -1772,7 +1863,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
                         Text(if(event!=null) "● LIVE" else "SPORTS",color=if(event!=null)Color(0xFFFF7777) else gold,fontSize=11.sp,fontWeight=FontWeight.Medium)
                         Text(event?.program?.title ?: if(connected) "No live event listed" else "Connect IPTV to see live matches",
                             color=Color.White,fontWeight=FontWeight.Medium,fontSize=14.sp,maxLines=3,overflow=TextOverflow.Ellipsis)
-                        Text(event?.channel?.title ?: "Provider EPG",color=Color(0xFFB8D0EA),fontSize=11.sp,maxLines=2)
+                        Text(event?.channel?.title ?: "Provider EPG",color = Color.White,fontSize=11.sp,maxLines=2)
                         Box(Modifier.fillMaxWidth().background(Color(0xFF086BC6),RoundedCornerShape(0.dp)).padding(8.dp),contentAlignment=Alignment.Center) {
                             Text(if(event!=null) "▶ WATCH LIVE" else "SPORTS GUIDE",color=Color.White,fontSize=10.sp,fontWeight=FontWeight.Medium)
                         }
@@ -1784,10 +1875,10 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
                 Text("UPCOMING EVENTS",color=Color.White,fontWeight=FontWeight.Medium,fontSize=14.sp)
                 Spacer(Modifier.height(8.dp))
                 if(upcoming.isEmpty()) Text(if(connected) "No upcoming fixtures in your provider's EPG."
-                    else "Connect Xtream Codes to see kick-off times and channels.",color=Color(0xFFB6CAE4),fontSize=11.sp)
+                    else "Connect Xtream Codes to see kick-off times and channels.",color = Color.White,fontSize=11.sp)
                 upcoming.forEach { event ->
                     Text(event.program.title,color=Color.White,fontWeight=FontWeight.SemiBold,fontSize=11.sp,maxLines=1)
-                    Text("${displayTime(event.startMillis)}  •  ${event.channel.title}",color=Color(0xFF7DBCEB),fontSize=10.sp,maxLines=1)
+                    Text("${displayTime(event.startMillis)}  •  ${event.channel.title}",color = Color.White,fontSize=10.sp,maxLines=1)
                     Spacer(Modifier.height(7.dp))
                 }
             }
@@ -1813,14 +1904,14 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
             val upcoming=visible.filter{it.startMillis>now}
             Text("● LIVE NOW  (${liveNow.size})",color=Color(0xFFFF7575),fontWeight=FontWeight.Medium,fontSize=18.sp)
             Spacer(Modifier.height(8.dp))
-            if(liveNow.isEmpty()) Text("No live events found in the available EPG.",color=Color(0xFF94AECF),fontSize=13.sp)
+            if(liveNow.isEmpty()) Text("No live events found in the available EPG.",color = Color.White,fontSize=13.sp)
             liveNow.take(12).forEach{ SportsEventCard(it,true,onSelect) }
             Spacer(Modifier.height(18.dp))
             Text("UP NEXT  (${upcoming.size})",color=Color.White,fontWeight=FontWeight.Medium,fontSize=20.sp)
             Spacer(Modifier.height(8.dp))
-            if(upcoming.isEmpty() && !loading) Text("No upcoming programmes found. Your provider may not supply sports EPG data for these channels.",color=Color(0xFF94AECF),fontSize=13.sp)
+            if(upcoming.isEmpty() && !loading) Text("No upcoming programmes found. Your provider may not supply sports EPG data for these channels.",color = Color.White,fontSize=13.sp)
             upcoming.take(40).forEach{ SportsEventCard(it,false,onSelect) }
-            Text("Schedules and channel assignments come from your IPTV provider. Check listings before relying on them.",color=Color(0xFF829DBF),fontSize=11.sp,modifier=Modifier.padding(top=14.dp))
+            Text("Schedules and channel assignments come from your IPTV provider. Check listings before relying on them.",color = Color.White,fontSize=11.sp,modifier=Modifier.padding(top=14.dp))
         }
     }
 }
@@ -1830,7 +1921,7 @@ private fun displayTime(time:Long):String = SimpleDateFormat("EEE d MMM  •  HH
         Column(Modifier.weight(1f)) {
             Text(if(isLive)"● LIVE NOW" else sportCategory(event).uppercase(Locale.US),color=if(isLive)Color(0xFFFF7777) else gold,fontSize=11.sp,fontWeight=FontWeight.Medium)
             Text(event.program.title,color=Color.White,fontWeight=FontWeight.Medium,fontSize=17.sp,maxLines=2)
-            Text("${displayTime(event.startMillis)}   •   ${event.channel.title}",color=Color(0xFFB7D4F5),fontSize=12.sp,maxLines=2)
+            Text("${displayTime(event.startMillis)}   •   ${event.channel.title}",color = Color.White,fontSize=12.sp,maxLines=2)
         }
         Spacer(Modifier.width(6.dp))
         Text(if(isLive)"▶ WATCH LIVE" else "VIEW CHANNEL  ›",color=Color.White,fontWeight=FontWeight.Medium,fontSize=12.sp,modifier=Modifier.background(Color(0xFF086BC8),RoundedCornerShape(0.dp)).padding(12.dp))
@@ -1988,12 +2079,12 @@ private object PublicSports {
                     }
                     Column(Modifier.fillMaxWidth().weight(1f).clip(SharkFrameShape).background(Brush.verticalGradient(listOf(Color(0xF01D1B37),Color(0xF0091026)))).glassFrame(2.dp, Color.Cyan).padding(10.dp).verticalScroll(rememberScrollState())) {
                         Text("Upcoming $name",color=Color.White,fontSize=15.sp,fontWeight=FontWeight.Medium)
-                        if(events.isEmpty()) Text("No events returned · coverage may be incomplete",color=Color(0xFFB8D8F2),fontSize=12.sp)
+                        if(events.isEmpty()) Text("No events returned · coverage may be incomplete",color = Color.White,fontSize=12.sp)
                         events.take(if(expanded==name) 40 else 3).forEach { event ->
                             HorizontalDivider(color=Color(0xFF24476A))
                             Text(event.name,color=Color.White,fontSize=13.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
-                            Text(fixtureDisplayTime(event),color=Color(0xFFB8D8F2),fontSize=11.sp)
-                            Text(event.channel.substringAfter(" · "),color=Color(0xFFB8D8F2),fontSize=10.sp,maxLines=2)
+                            Text(fixtureDisplayTime(event),color = Color.White,fontSize=11.sp)
+                            Text(event.channel.substringAfter(" · "),color = Color.White,fontSize=10.sp,maxLines=2)
                         }
                     }
                 }
@@ -2043,12 +2134,12 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
     Column(Modifier.fillMaxSize().hudSurface().padding(8.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment=Alignment.CenterVertically) {
             Text("TV Guide  •  UK time",color=Color.White,fontSize=20.sp,fontWeight=FontWeight.Medium,modifier=Modifier.weight(1f))
-            Text(if(loading) "Loading…" else "${(first+1).coerceAtMost(uniqueChannels.size)} / ${uniqueChannels.size}",color=Color(0xFFBBD9F5),fontSize=12.sp)
+            Text(if(loading) "Loading…" else "${(first+1).coerceAtMost(uniqueChannels.size)} / ${uniqueChannels.size}",color = Color.White,fontSize=12.sp)
         }
         Text(focusedEntry?.title.orEmpty(),color=Color.White,fontSize=15.sp,maxLines=1)
         Row(Modifier.fillMaxWidth().hudSurface(highlighted=true).padding(4.dp)) {
             Text("Channels",color=Color.White,modifier=Modifier.width(150.dp),fontSize=12.sp)
-            repeat(4) { i -> Text(guideClock(context,start+i*slot),color=Color(0xFFBBD9F5),fontSize=12.sp,modifier=Modifier.weight(1f)) }
+            repeat(4) { i -> Text(guideClock(context,start+i*slot),color = Color.White,fontSize=12.sp,modifier=Modifier.weight(1f)) }
         }
         LazyColumn(state=listState,modifier=Modifier.weight(1f).clipToBounds(),verticalArrangement=Arrangement.spacedBy(3.dp),contentPadding=PaddingValues(bottom=3.dp)) { items(uniqueChannels,key={it.id}) { channel ->
             var focused by remember(channel.id){mutableStateOf(false)}
@@ -2063,7 +2154,7 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
                 }.sortedBy { it.second }
                 BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                     val w=maxWidth
-                    if(listing.isEmpty()) Text(if(loading && channel.id !in programmes) "Loading…" else "No listings in this window",color=Color(0xFFBBD9F5),fontSize=11.sp,modifier=Modifier.padding(5.dp))
+                    if(listing.isEmpty()) Text(if(loading && channel.id !in programmes) "Loading…" else "No listings in this window",color = Color.White,fontSize=11.sp,modifier=Modifier.padding(5.dp))
                     listing.forEach { (p,a,b) ->
                         val left=w*((a.coerceAtLeast(start)-start).toFloat()/(end-start))
                         val width=w*((b.coerceAtMost(end)-a.coerceAtLeast(start)).toFloat()/(end-start))
@@ -2082,7 +2173,7 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
 }
 
 @Composable private fun ElectricCaption(value:String) {
-    Text(value,color=Color(0xFF8EDCF0),fontSize=11.sp,fontWeight=FontWeight.Normal,maxLines=2,overflow=TextOverflow.Ellipsis)
+    Text(value,color = Color.White,fontSize=11.sp,fontWeight=FontWeight.Normal,maxLines=2,overflow=TextOverflow.Ellipsis)
 }
 @Composable private fun HomeHeroBackground(artwork:String, subdued:Boolean=false) {
     val base = HudBackground
@@ -2124,9 +2215,9 @@ private suspend fun connectionReport(context:android.content.Context, api:Xtream
     val shape=SharkFrameShape
     Dialog(onDismissRequest=onDismissRequest,properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Column(Modifier.widthIn(max=600.dp).fillMaxWidth(0.85f).shadow(16.dp,shape).hudSurface().glassFrame(2.dp, Color.Cyan).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-            CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFE0EFFF),fontSize=23.sp,fontWeight=FontWeight.Medium)) { title() }
+            CompositionLocalProvider(LocalTextStyle provides TextStyle(color = Color.White,fontSize=23.sp,fontWeight=FontWeight.Medium)) { title() }
             Box(Modifier.fillMaxWidth().height(2.dp).background(Brush.horizontalGradient(listOf(Color.Transparent,Color(0xFF55DFFF),Color.Transparent))))
-            if(text!=null) CompositionLocalProvider(LocalTextStyle provides TextStyle(color=Color(0xFFDCEEFF),fontSize=15.sp)) { text() }
+            if(text!=null) CompositionLocalProvider(LocalTextStyle provides TextStyle(color = Color.White,fontSize=15.sp)) { text() }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) { dismissButton?.invoke(); Spacer(Modifier.width(8.dp)); confirmButton() }
         }
     }
@@ -2168,10 +2259,10 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
     CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
     Column(Modifier.fillMaxSize().clipToBounds().background(Color(0xF507152E),RoundedCornerShape(0.dp)).padding(horizontal=8.dp,vertical=3.dp)) {
         CompactLiveAction("TV Guide", Modifier.align(Alignment.End), onGuide)
-        if(search) OutlinedTextField(query,{query=it},singleLine=true,label={Text("Find channel")},modifier=Modifier.fillMaxWidth())
+        if(search) OutlinedTextField(query,{query=it},singleLine=true,label={Text("Find channel")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),modifier=Modifier.fillMaxWidth())
         Row(Modifier.weight(1f).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(0.27f).fillMaxHeight()) {
-                Text("Categories",color=Color(0xFF8EDCF0),fontSize=13.sp,modifier=Modifier.height(22.dp))
+                Text("Categories",color = Color.White,fontSize=13.sp,modifier=Modifier.height(22.dp))
                 LazyColumn(state=categoryState,modifier=Modifier.weight(1f).clipToBounds(),verticalArrangement=Arrangement.spacedBy(3.dp),contentPadding=PaddingValues(bottom=3.dp)) {
                     items(categories.distinctBy { it.first },key={it.first}) { cat ->
                         BrowserRow(cat.second,cat.first==categoryId,"",{}, { query="";onCategory(cat.first) })
@@ -2179,7 +2270,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
                 }
             }
             Column(Modifier.weight(0.33f).fillMaxHeight()) {
-                Text(if(loading) "Channels · Loading…" else "Channels · ${filtered.size}",color=Color(0xFF8EDCF0),fontSize=13.sp,modifier=Modifier.height(22.dp))
+                Text(if(loading) "Channels · Loading…" else "Channels · ${filtered.size}",color = Color.White,fontSize=13.sp,modifier=Modifier.height(22.dp))
                 LazyColumn(state=channelState,modifier=Modifier.weight(1f).clipToBounds(),verticalArrangement=Arrangement.spacedBy(3.dp),contentPadding=PaddingValues(bottom=3.dp)) {
                     items(filtered,key={it.id}) { channel ->
                         BrowserRow((if(channel.id in favouriteIds) "★ " else "")+channel.title,current?.id==channel.id,"sky",{current=channel},{onPlay(channel)})
@@ -2200,7 +2291,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
                 }
                 val now=System.currentTimeMillis()
                 val upcoming=listings.filter { (parseEpgTime(it.end) ?: Long.MAX_VALUE)>now }.sortedBy { parseEpgTime(it.start) ?: Long.MAX_VALUE }.take(8)
-                Text(if(upcoming.isEmpty()) "No programme information" else "Now / next · UK time",color=Color(0xFF8EDCF0),fontSize=12.sp)
+                Text(if(upcoming.isEmpty()) "No programme information" else "Now / next · UK time",color = Color.White,fontSize=12.sp)
                 upcoming.forEach { programme -> Text("${parseEpgTime(programme.start)?.let { guideClock(context,it) }.orEmpty()}  ${programme.title}",color=Color.White,fontSize=12.sp,maxLines=2) }
             }
         }
@@ -2231,6 +2322,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
     DisposableEffect(player,url) {
         var recoveryCount=0
         var lastRecovery=0L
+        val handler = android.os.Handler(player.applicationLooper)
         val listener=object:androidx.media3.common.Player.Listener {
             override fun onPlayerError(error:androidx.media3.common.PlaybackException){
                 val now=android.os.SystemClock.elapsedRealtime()

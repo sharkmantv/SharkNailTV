@@ -147,7 +147,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                 PremiumButton(compact=true,onClick={smartAuto=!smartAuto;p.edit().putBoolean("smartAuto",smartAuto).apply()}) { Text("AutoPlay: ${if(smartAuto) "On" else "Off"}") }
                 SmartPlayback.modes.forEach { mode -> PremiumButton(compact=true,onClick={smartMode=mode;p.edit().putString("smartMode",mode).apply()},modifier=Modifier.fillMaxWidth()) { Text(if(smartMode==mode) "✓ $mode" else mode) } }
                 Text("Shark Player",color=Color.White)
-                Text("Built-in Media3 playback engine",color=Color(0xFF78E5FF),fontSize=14.sp)
+                Text("Built-in Media3 playback engine",color = Color.White,fontSize=14.sp)
                 Text("HLS, DASH, RTSP and progressive playback. Audio and subtitle controls are available during playback.",color=Color.LightGray,fontSize=12.sp)
                 Text("Stream format",color=Color.White)
                 listOf("Auto","HLS (.m3u8)","MPEG-TS (.ts)","DASH (.mpd)","SmoothStreaming","RTSP","MP4 / progressive").forEach { v ->
