@@ -1,0 +1,68 @@
+name: Publish SharkNailTV Update
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sharknailtv-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+      SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+      SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+      SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require permanent signing credentials
+        shell: bash
+        run: |
+          for name in SHARK_KEYSTORE_B64 SHARK_KEYSTORE_PASSWORD SHARK_KEY_ALIAS SHARK_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret $name. Set up a permanent signing key before publishing app updates."
+              exit 1
+            fi
+          done
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Prepare signing key and version
+        shell: bash
+        run: |
+          echo "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+          echo "SHARK_KEYSTORE_PATH=$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=3.0.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((30000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v3.0.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+      - name: Build signed update APK
+        run: gradle --no-daemon --stacktrace :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+      - name: Prepare release asset
+        shell: bash
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk SharkNailTV.apk
+          test -s SharkNailTV.apk
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$RELEASE_TAG" SharkNailTV.apk --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV update $VERSION_NAME" --latest
