@@ -6,28 +6,11 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <queries>
-        <package android:name="com.flycast.emulator"/>
-        <package android:name="org.azahar.azahar"/>
-        <package android:name="org.vita3k.emulator"/>
-        <package android:name="org.supertuxkart.stk"/>
-        <package android:name="org.lethargik.supertux2"/>
-        <package android:name="com.agateau.tinywheels.android"/>
-        <package android:name="io.anuke.mindustry"/>
-        <package android:name="org.openbor.engine"/>
-
-        <package android:name="com.retroarch"/>
-        <package android:name="com.retroarch.aarch64"/>
-        <package android:name="com.retroarch.ra32"/>
-        <package android:name="org.ppsspp.ppsspp"/>
-        <package android:name="org.dolphinemu.dolphinemu"/>
-        <package android:name="com.limelight"/>
-
         <package android:name="org.videolan.vlc"/>
         <package android:name="is.xyz.mpv"/>
     </queries>
     <application android:roundIcon="@mipmap/shark_launcher" android:label="@string/app_name" android:icon="@mipmap/shark_launcher" android:banner="@drawable/launcher_banner_clean" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="true">
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/install_paths"/></provider>
-        <activity android:name=".SharkGameActivity" android:exported="false" android:screenOrientation="landscape"/>
         <activity android:name=".MainActivity" android:banner="@drawable/launcher_banner_clean" android:icon="@mipmap/shark_launcher" android:exported="true" android:screenOrientation="landscape" android:windowSoftInputMode="adjustResize">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LEANBACK_LAUNCHER"/></intent-filter>
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>

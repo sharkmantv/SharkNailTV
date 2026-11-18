@@ -9,7 +9,7 @@ on:
       source:
         description: Android source to build
         type: choice
-        options: [repository, zip]
+        options: [repository, zip, repository-zip]
         default: repository
 
 permissions:
@@ -25,18 +25,40 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Use repository source
-        if: (github.event_name == 'workflow_dispatch' && inputs.source == 'repository') || (github.event_name == 'push' && hashFiles('incoming/SharkNailTV.zip') == '')
-        run: printf 'SOURCE_DIR=%s\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+      - name: Select build source
+        env:
+          REQUESTED_SOURCE: ${{ inputs.source }}
+        run: |
+          set -euo pipefail
+          source="$REQUESTED_SOURCE"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            source=repository-zip
+            if [[ -f incoming/SharkNailTV.zip ]]; then source=zip; fi
+          fi
+          case "$source" in
+            repository)
+              printf 'SOURCE_DIR=%s\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+              ;;
+            repository-zip)
+              git archive --format=zip --output="$RUNNER_TEMP/SharkNailTV.zip" HEAD app gradle build.gradle.kts settings.gradle.kts gradle.properties
+              printf 'SOURCE_ZIP=%s\n' "$RUNNER_TEMP/SharkNailTV.zip" >> "$GITHUB_ENV"
+              ;;
+            zip)
+              test -f incoming/SharkNailTV.zip
+              printf 'SOURCE_ZIP=%s\n' "$GITHUB_WORKSPACE/incoming/SharkNailTV.zip" >> "$GITHUB_ENV"
+              ;;
+            *) echo "Unknown build source: $source"; exit 1 ;;
+          esac
       - name: Extract Android project
-        if: (github.event_name == 'workflow_dispatch' && inputs.source == 'zip') || (github.event_name == 'push' && hashFiles('incoming/SharkNailTV.zip') != '')
+        if: env.SOURCE_ZIP != ''
         run: |
           set -euo pipefail
           python - <<'PY'
+          import os
           from pathlib import Path, PurePosixPath
           from zipfile import ZipFile
 
-          with ZipFile('incoming/SharkNailTV.zip') as archive:
+          with ZipFile(os.environ['SOURCE_ZIP']) as archive:
               files = archive.infolist()
               if sum(item.file_size for item in files) > 2 * 1024**3:
                   raise SystemExit('Expanded ZIP exceeds 2 GiB')
@@ -51,7 +73,7 @@ jobs:
           if len(candidates) != 1:
               raise SystemExit('Expected one Android project with settings.gradle.kts and app/build.gradle.kts')
           project = candidates[0].resolve()
-          with Path(__import__('os').environ['GITHUB_ENV']).open('a') as env:
+          with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
       - uses: actions/setup-java@v4
@@ -149,4 +171,4 @@ jobs:
         run: |
           set -euo pipefail
           tag="v$VERSION_NAME"
-          gh release create "$tag" SharkNailTV.apk --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes 'Built from the uploaded Android source ZIP.' --latest
+          gh release create "$tag" SharkNailTV.apk --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes 'Built by the SharkNailTV ZIP and OTA workflow.' --latest
