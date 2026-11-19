@@ -31,8 +31,9 @@ object SharkAppUpdater {
                 val release = JSONObject(readText(API))
                 if (release.optBoolean("draft") || release.optBoolean("prerelease")) return@thread
                 val tag = release.optString("tag_name").removePrefix("v")
-                val latestCode = versionCode(tag) ?: error("Unsupported release tag: $tag")
-                if (latestCode <= BuildConfig.VERSION_CODE) {
+                val latestCode = versionCode(tag) ?: error("Unsupported release tag: $tag. Use a numeric version such as v3.1.0")
+                val installedCode = versionCode(BuildConfig.VERSION_NAME.removePrefix("v")) ?: BuildConfig.VERSION_CODE
+                if (latestCode <= installedCode) {
                     if (manual) activity.runOnUiThread { AlertDialog.Builder(activity).setTitle("SharkNailTV is up to date").setMessage("Installed version: ${BuildConfig.VERSION_NAME}").setPositiveButton("OK", null).show() }
                     return@thread
                 }
@@ -40,7 +41,7 @@ object SharkAppUpdater {
                 var url: String? = null
                 for (i in 0 until assets.length()) {
                     val a = assets.getJSONObject(i)
-                    if (a.optString("name").endsWith(".apk", ignoreCase = true)) {
+                    if (a.optString("name").endsWith(".apk", ignoreCase = true) && a.optString("browser_download_url").isNotBlank()) {
                         url = a.optString("browser_download_url"); break
                     }
                 }
@@ -61,7 +62,7 @@ object SharkAppUpdater {
     }
     private fun versionCode(version: String): Int? {
         val parts = version.split('.')
-        if (parts.size !in 2..3) return null
+        if (parts.size !in 1..3) return null
         val nums = parts.map { it.toIntOrNull() ?: return null }
         if (nums.any { it !in 0..99 }) return null
         return nums[0] * 10000 + nums[1] * 100 + (nums.getOrNull(2) ?: 0)
@@ -71,7 +72,11 @@ object SharkAppUpdater {
         connection.connectTimeout = 12000; connection.readTimeout = 12000
         connection.setRequestProperty("Accept", "application/vnd.github+json")
         connection.setRequestProperty("User-Agent", "SharkNailTV-Android")
-        try { if (connection.responseCode != 200) error("GitHub release check returned HTTP ${connection.responseCode}")
+        try { if (connection.responseCode != 200) {
+                val status = connection.responseCode
+                if (status == 404) error("No public stable GitHub release found (HTTP 404). Publish a non-draft, non-prerelease release with an APK.")
+                error("GitHub release check returned HTTP $status")
+            }
             return connection.inputStream.bufferedReader().use { it.readText() }
         } finally { connection.disconnect() }
     }
