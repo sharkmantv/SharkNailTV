@@ -810,6 +810,18 @@ fun App() {
             } else HomeHeroBackground("", subdued=true)
             selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(1280,720).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(HudBackground.copy(alpha = .78f))) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color(0x10091A30),Color(0x55061538)))))
+            // Existing paired SharkNail artwork, behind controls and the poster carousel.
+            if(selected==null && section in listOf("Home","Movies","TV Series")) {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val sharkWidth=(maxWidth*0.32f).coerceAtMost(400.dp)
+                    Image(painterResource(R.drawable.shark_brand),null,
+                        Modifier.align(Alignment.CenterStart).padding(bottom=80.dp)
+                            .width(sharkWidth).height(240.dp),contentScale=ContentScale.Fit)
+                    Image(painterResource(R.drawable.shark_brand_right),null,
+                        Modifier.align(Alignment.CenterEnd).padding(bottom=80.dp)
+                            .width(sharkWidth).height(240.dp),contentScale=ContentScale.Fit)
+                }
+            }
             Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 Column(Modifier.fillMaxSize().padding(horizontal=22.dp).padding(bottom=if(section=="Shark TV") 12.dp else if(section=="Home") 4.dp else 0.dp)) {
@@ -859,25 +871,17 @@ fun App() {
                     if(connected && catalogueKind.isNotBlank() && section!="Shark TV") { Row { FocusAction(categories.firstOrNull { it.first==categoryId }?.second ?: "Categories") { categoryMenu=true }; FocusAction("Retry") { api?.clearCatalogueCache(); catalogueRetry++ } } }
                     when(section) {
                         "Home", "Movies", "TV Series" -> {
-                            if(section=="Home") {
-                                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                    // Fit both TMDB rows within the TV viewport; preserve 2:3 artwork.
-                                    // Use the available height for larger portrait posters.
-                                    val horizontalWidth = ((maxWidth.value - 42f) / 5f).toInt()
-                                    val verticalWidth = ((maxHeight.value - 68f) / 3.0f).toInt()
-                                    val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,220)
-                                    Column(Modifier.fillMaxSize().padding(top=2.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                                        HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth){openTitle(it)}
-                                        HomeTmdbRow("TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth){openTitle(it)}
-                                    }
-                                }
-                            } else {
-                                if(sectionEntries.isNotEmpty()) BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                    val width=minOf(((maxHeight.value/2f-24f)/1.5f+14f).toInt(),((maxWidth.value-80f)/8f).toInt()).coerceIn(60,124)
-                                    Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                                        V4PosterRow(tmdbKey,"",sectionEntries.filterIndexed { i,_ -> i%2==0 },cardWidth=width){openTitle(it)}
-                                        if(sectionEntries.size>1) V4PosterRow(tmdbKey,"",sectionEntries.filterIndexed { i,_ -> i%2==1 },cardWidth=width){openTitle(it)}
-                                    }
+                            // One large horizontal landscape artwork row instead of two tiny portrait rows.
+                            val rowEntries = if(section=="Home") trendingMovies.ifEmpty { popularMovies } else sectionEntries
+                            if(rowEntries.isNotEmpty()) BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                                val cardWidth = minOf(
+                                    ((maxWidth.value - 36f) / 5f).toInt(),
+                                    ((maxHeight.value - 55f) * 16f / 9f).toInt()
+                                ).coerceIn(170,310)
+                                Column(Modifier.fillMaxSize(), verticalArrangement=Arrangement.Bottom) {
+                                    V4PosterRow(tmdbKey, if(section=="Home") "Movies" else section,
+                                        rowEntries, cardWidth=cardWidth, landscape=true) { openTitle(it) }
+                                    Spacer(Modifier.height(12.dp))
                                 }
                             }
                             if(section=="Home" && trendingMovies.isEmpty() && trendingSeries.isEmpty() && popularMovies.isEmpty() && popularSeries.isEmpty() && tmdbStatus.isNotBlank()) Text(tmdbStatus,color=Color.White,fontSize=12.sp,maxLines=2)
