@@ -100,3 +100,37 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$RELEASE_TAG" SharkNailTV.apk --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV update $VERSION_NAME" --latest
+
+      - name: Verify public release and APK asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest"
+          for attempt in {1..12}; do
+            status=$(curl -sSL -o "$RUNNER_TEMP/latest-release.json" -w '%{http_code}' \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'User-Agent: SharkNailTV-release-check' "$url")
+            if [[ "$status" == "200" ]] && python - "$RUNNER_TEMP/latest-release.json" "$RELEASE_TAG" <<'PY'
+          import json, sys
+          release = json.load(open(sys.argv[1]))
+          expected_tag = sys.argv[2]
+          assets = release.get('assets', [])
+          valid = (release.get('tag_name') == expected_tag
+                   and not release.get('draft')
+                   and not release.get('prerelease')
+                   and any(a.get('name') == 'SharkNailTV.apk' and a.get('size', 0) > 0
+                           and a.get('browser_download_url', '').startswith('https://github.com/')
+                           for a in assets))
+          if not valid:
+              print('Latest public release does not match the new tag or lacks SharkNailTV.apk')
+          sys.exit(0 if valid else 1)
+          PY
+            then
+              echo "Public GitHub release and SharkNailTV.apk verified"
+              exit 0
+            fi
+            echo "Release not publicly available yet (attempt $attempt, HTTP $status)"
+            sleep 10
+          done
+          echo "::error::Public release verification failed. Check Releases visibility and APK assets."
+          exit 1
