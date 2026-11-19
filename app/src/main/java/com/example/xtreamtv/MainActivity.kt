@@ -525,8 +525,7 @@ fun App() {
                 } else matches
                 val cm=context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                 val kbps=cm.getNetworkCapabilities(cm.activeNetwork)?.linkDownstreamBandwidthKbps ?: 0
-                val rankingMode = if (sharkMega) "Shark Turbo"
-                    else playbackPrefs(context).getString("smartMode", "Shark Smart").orEmpty()
+                val rankingMode = playbackPrefs(context).getString("smartMode", "Shark Smart").orEmpty()
                 // Direct HTTP(S) streams start in Media3 without torrent buffering.
                 // Keep SmartPlayback's ordering within each group, but never select
                 // a magnet ahead of an available direct stream for automatic play.
@@ -739,7 +738,7 @@ fun App() {
                         Text(homeLookupStatus.ifBlank { "Preparing torrent playback…" }, color=Color.White)
                     }
                 } else {
-                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 30000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onFirstFrame={
                         if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
                     }) }
                 }
@@ -776,7 +775,7 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null && !torrentPreparing && homePlaying?.url?.startsWith("magnet:?") != true) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 30000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onFirstFrame={
                                     if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
                                 }) }
                             } else {
