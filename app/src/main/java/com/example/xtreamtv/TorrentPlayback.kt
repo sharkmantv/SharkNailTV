@@ -62,13 +62,14 @@ internal object TorrentPlayback {
                 delay(250)
             }
             val torrent = handle ?: error("Torrent handle unavailable")
-            // Sequential mode prioritizes early video pieces instead of waiting for a full download.
-            torrent.setSequentialDownload(true)
+            // This libtorrent4j TorrentHandle version does not expose setSequentialDownload.
+            // Rely on verified-piece checks for safe progressive playback.
             val offset = files.fileOffset(chosen)
             val pieceSize = info.pieceLength().toLong()
             require(pieceSize > 0L) { "Invalid torrent piece size" }
             val firstPiece = (offset / pieceSize).toInt()
             val lastPiece = ((offset + expectedSize - 1) / pieceSize).toInt()
+            prioritizeWindow(torrent, firstPiece, lastPiece)
             onProgress("Buffering video from torrent peers…")
             val startupDeadline = System.currentTimeMillis() + 120_000L
             // The range server waits for verified pieces as Media3 requests them.
@@ -87,6 +88,13 @@ internal object TorrentPlayback {
             activeServer = server
             server.url
         }
+
+    private fun prioritizeWindow(torrent: TorrentHandle, first: Int, last: Int) {
+        if (!torrent.isValid) return
+        for (piece in first..minOf(last, first + 15)) {
+            if (!torrent.havePiece(piece)) torrent.setPieceDeadline(piece, (piece - first + 1) * 1000)
+        }
+    }
 
     private class ProgressiveServer(
         private val file: File,
@@ -158,11 +166,16 @@ internal object TorrentPlayback {
                         val buffer = ByteArray(64 * 1024)
                         var position = start
                         var lastReceived = System.currentTimeMillis()
+                        var lastPriorityUpdate = 0L
                         while (running.get() && position <= end) {
                             val absolute = fileOffset + position
                             val piece = (absolute / pieceSize).toInt()
                             if (!torrent.isValid || !torrent.havePiece(piece)) {
                                 if (System.currentTimeMillis() - lastReceived > 120_000L) return
+                                if (System.currentTimeMillis() - lastPriorityUpdate > 5_000L) {
+                                    prioritizeWindow(torrent, piece, ((fileOffset + size - 1) / pieceSize).toInt())
+                                    lastPriorityUpdate = System.currentTimeMillis()
+                                }
                                 Thread.sleep(150)
                                 continue
                             }
