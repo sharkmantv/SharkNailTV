@@ -29,7 +29,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
@@ -919,52 +921,79 @@ fun App() {
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
                             val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
+                            var focusedSetting by remember { mutableStateOf<String?>(null) }
                             Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                            options.chunked(3).forEach { labels ->
-                                Row(Modifier.fillMaxWidth().height(76.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                    labels.forEach { label ->
-                                        var focused by remember { mutableStateOf(false) }
-                                        ElectricFocus(Modifier.weight(1f).fillMaxHeight().onFocusChanged { focused=it.isFocused }.clickable {
-                                            when(label) {
-                                                "Software Update" -> SharkAppUpdater.check(context as android.app.Activity, manual = true)
-                                                "Exit" -> exitPrompt=true
-                                                "Change Playlist" -> showLogin=true
-                                                "Refresh IPTV Catalogue" -> if(!loading) { loading=true; scope.launch {
-                                                    cacheTitle="Refresh IPTV Catalogue"
-                                                    try {
-                                                        val a=api ?: XtreamApi(server,username,password)
-                                                        if(api==null && !a.authenticate()) error("Login rejected")
-                                                        a.refreshProviderCategories()
-                                                        api=a; connected=true; catalogueRetry++
-                                                        cacheMessage="IPTV catalogue only — app software unchanged. Provider categories refreshed. Channels, movies, series and guide reload when opened."
-                                                    } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; cacheMessage="Provider refresh failed (${if(e is java.io.IOException) "network error" else e.javaClass.simpleName}); saved login unchanged." } finally { loading=false }
-                                                } }
-                                                "Refresh Posters" -> { tmdbStatus="Refreshing posters…"; posterRefresh++ }
-                                                "Refresh Sports" -> { fixtureStatus="Refreshing sports…"; sportsRefresh++ }
-                                                "Clear Memory Cache" -> cleanAppCache()
-                                                "Connection Status" -> { diagnostics=true; testRun++ }
-                                                else -> section=label
-                                            }
-                                        },focused,shape=RoundedCornerShape(0.dp),steady=true) {
-                                            Row(
-                                                Modifier.fillMaxSize()
-                                                    .hudSurface()
-                                                    .padding(horizontal=10.dp),
-                                                verticalAlignment=Alignment.CenterVertically,
-                                                horizontalArrangement=Arrangement.spacedBy(12.dp)
+                                options.chunked(3).forEachIndexed { rowIndex, labels ->
+                                    Row(
+                                        Modifier.fillMaxWidth().height(76.dp)
+                                            .zIndex(if (labels.any { it == focusedSetting }) 1f else 0f),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        labels.forEachIndexed { columnIndex, label ->
+                                            val focused = focusedSetting == label
+                                            val focusScale by animateFloatAsState(
+                                                if (focused) 1.10f else 1f,
+                                                tween(150),
+                                                label = "Settings tile focus scale"
+                                            )
+                                            val horizontalPivot = columnIndex / labels.lastIndex.coerceAtLeast(1).toFloat()
+                                            val verticalPivot = if (rowIndex == 0) 0f else 0.5f
+                                            ElectricFocus(
+                                                Modifier.weight(1f).fillMaxHeight()
+                                                    .onFocusChanged {
+                                                        if (it.isFocused) focusedSetting = label
+                                                        else if (focusedSetting == label) focusedSetting = null
+                                                    }
+                                                    .zIndex(if (focused) 1f else 0f)
+                                                    .graphicsLayer {
+                                                        transformOrigin = TransformOrigin(horizontalPivot, verticalPivot)
+                                                        scaleX = focusScale
+                                                        scaleY = focusScale
+                                                    }
+                                                    .clickable {
+                                                        when(label) {
+                                                            "Software Update" -> SharkAppUpdater.check(context as android.app.Activity, manual = true)
+                                                            "Exit" -> exitPrompt=true
+                                                            "Change Playlist" -> showLogin=true
+                                                            "Refresh IPTV Catalogue" -> if(!loading) { loading=true; scope.launch {
+                                                                cacheTitle="Refresh IPTV Catalogue"
+                                                                try {
+                                                                    val a=api ?: XtreamApi(server,username,password)
+                                                                    if(api==null && !a.authenticate()) error("Login rejected")
+                                                                    a.refreshProviderCategories()
+                                                                    api=a; connected=true; catalogueRetry++
+                                                                    cacheMessage="IPTV catalogue only — app software unchanged. Provider categories refreshed. Channels, movies, series and guide reload when opened."
+                                                                } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; cacheMessage="Provider refresh failed (${if(e is java.io.IOException) "network error" else e.javaClass.simpleName}); saved login unchanged." } finally { loading=false }
+                                                            } }
+                                                            "Refresh Posters" -> { tmdbStatus="Refreshing posters…"; posterRefresh++ }
+                                                            "Refresh Sports" -> { fixtureStatus="Refreshing sports…"; sportsRefresh++ }
+                                                            "Clear Memory Cache" -> cleanAppCache()
+                                                            "Connection Status" -> { diagnostics=true; testRun++ }
+                                                            else -> section=label
+                                                        }
+                                                    },
+                                                focused = focused,
+                                                repeatPulse = true
                                             ) {
-                                                Box(
-                                                    Modifier.width(56.dp).fillMaxHeight().padding(vertical = 7.dp)
-                                                        .background(Brush.linearGradient(listOf(Color(0xFF29244A), Color(0xFF123A51))), SharkFrameShape),
-                                                    contentAlignment = Alignment.Center
-                                                ) { ChromeSettingsBadge(label) }
-                                                Text(label,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Light)
+                                                Row(
+                                                    Modifier.fillMaxSize()
+                                                        .hudSurface()
+                                                        .padding(horizontal=10.dp),
+                                                    verticalAlignment=Alignment.CenterVertically,
+                                                    horizontalArrangement=Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    Box(
+                                                        Modifier.width(56.dp).fillMaxHeight().padding(vertical = 7.dp)
+                                                            .background(Brush.linearGradient(listOf(Color(0xFF29244A), Color(0xFF123A51))), SharkFrameShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) { ChromeSettingsBadge(label) }
+                                                    Text(label,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Light)
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
                         }
                         "Playback & Display" -> { PlaybackSettings { section="Settings" } }
                         "System Health" -> {
@@ -1220,9 +1249,10 @@ fun App() {
     @Suppress("UNUSED_PARAMETER") shape: RoundedCornerShape = RoundedCornerShape(0.dp),
     @Suppress("UNUSED_PARAMETER") metal: Boolean = false,
     @Suppress("UNUSED_PARAMETER") steady: Boolean = false,
+    repeatPulse: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    Box(modifier.padding(2.dp).glassFrame(2.dp, if (focused || selected) Color.White else Color.Cyan, focused = focused)
+    Box(modifier.padding(2.dp).glassFrame(2.dp, if (focused || selected) Color.White else Color.Cyan, focused = focused, repeatPulse = repeatPulse)
         .padding(2.dp).clip(SharkFrameShape)) { content() }
 }
 
