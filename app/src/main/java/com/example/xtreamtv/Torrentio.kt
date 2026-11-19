@@ -12,7 +12,7 @@ internal object Torrentio {
     suspend fun lookup(manifest: String, entry: Entry, tmdbKey: String, season: Int, episode: Int): List<HomeStream> = withContext(Dispatchers.IO) {
         val base = URL(manifest)
         require(base.protocol == "https" && base.host.equals("torrentio.strem.fun", true) && base.path.endsWith("/manifest.json")) { "Invalid Torrentio manifest" }
-        val series = entry.genre == "TV Series"
+        val series = entry.genre.equals("TV Series", ignoreCase = true) || entry.kind.equals("series", ignoreCase = true)
         val imdb = entry.id.takeIf { it.matches(Regex("tt[0-9]+")) } ?: run {
             if (!entry.id.all(Char::isDigit) || tmdbKey.isBlank()) return@withContext emptyList()
             val token = tmdbKey.trim().removePrefix("Bearer ").trim()
@@ -20,7 +20,7 @@ internal object Torrentio {
             val conn = URL("https://api.themoviedb.org/3/${if(series) "tv" else "movie"}/${entry.id}/external_ids$query").openConnection() as HttpURLConnection
             conn.connectTimeout=10000;conn.readTimeout=10000
             if(token.length>=80) conn.setRequestProperty("Authorization","Bearer $token")
-            try { if(conn.responseCode!=200) return@withContext emptyList();JSONObject(conn.inputStream.bufferedReader().use{it.readText()}).optString("imdb_id") }
+            try { if(conn.responseCode!=200) throw java.io.IOException("TMDB external ID lookup HTTP ${conn.responseCode}");JSONObject(conn.inputStream.bufferedReader().use{it.readText()}).optString("imdb_id") }
             finally { conn.disconnect() }
         }
         if(!imdb.matches(Regex("tt[0-9]+"))) return@withContext emptyList()
@@ -29,7 +29,7 @@ internal object Torrentio {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout=10000;conn.readTimeout=20000
         try {
-            if(conn.responseCode!=200) return@withContext emptyList()
+            if(conn.responseCode!=200) throw java.io.IOException("Torrentio stream lookup HTTP ${conn.responseCode}")
             val streams = JSONObject(conn.inputStream.bufferedReader().use{it.readText().take(1_000_000)}).optJSONArray("streams") ?: return@withContext emptyList()
             (0 until minOf(streams.length(),100)).mapNotNull { i ->
                 val item=streams.optJSONObject(i) ?: return@mapNotNull null
