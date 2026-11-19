@@ -19,6 +19,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PENGUPLAY_MANIFEST_URL: ${{ secrets.PENGUPLAY_MANIFEST_URL }}
     timeout-minutes: 90
     steps:
       - name: Checkout source
