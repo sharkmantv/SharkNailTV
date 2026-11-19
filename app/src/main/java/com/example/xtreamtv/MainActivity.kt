@@ -939,14 +939,18 @@ fun App() {
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
                             val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
+                            val interfacePrefs = playbackPrefs(context)
+                            val uniformBarHeight = interfacePrefs.getInt("uniformBarHeight",76).coerceIn(64,88).dp
                             var focusedSetting by remember { mutableStateOf<String?>(null) }
                             Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                                 options.chunked(3).forEachIndexed { rowIndex, labels ->
                                     Row(
-                                        Modifier.fillMaxWidth().height(76.dp)
+                                        Modifier.fillMaxWidth().height(uniformBarHeight)
                                             .zIndex(if (labels.any { it == focusedSetting }) 1f else 0f),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
+                                        // Keep all three grid columns equally sized, even on the final partial row.
+                                        repeat(3 - labels.size) { Spacer(Modifier.weight(1f)) }
                                         labels.forEachIndexed { columnIndex, label ->
                                             val focused = focusedSetting == label
                                             val focusScale by animateFloatAsState(
