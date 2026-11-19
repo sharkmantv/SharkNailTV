@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-/** Stremio-compatible addon resolver; deliberately accepts direct HTTP(S) media only. */
+/** Stremio-compatible Torrentio source resolver (HTTP and magnet sources). */
 internal object Torrentio {
     suspend fun lookup(manifest: String, entry: Entry, tmdbKey: String, season: Int, episode: Int): List<HomeStream> = withContext(Dispatchers.IO) {
         val base = URL(manifest)
@@ -34,8 +34,21 @@ internal object Torrentio {
             (0 until minOf(streams.length(),100)).mapNotNull { i ->
                 val item=streams.optJSONObject(i) ?: return@mapNotNull null
                 val direct=item.optString("url")
-                if(!direct.startsWith("https://") && !direct.startsWith("http://")) return@mapNotNull null
-                HomeStream("Torrentio · "+listOf(item.optString("name"),item.optString("title")).filter{it.isNotBlank()}.joinToString(" · ").take(190),direct)
+                val hash = item.optString("infoHash").trim()
+                val trackers = item.optJSONArray("sources")
+                val magnet = if (hash.matches(Regex("[a-fA-F0-9]{40}"))) buildString {
+                    append("magnet:?xt=urn:btih:").append(hash)
+                    if (trackers != null) for (j in 0 until minOf(trackers.length(), 30)) {
+                        val tracker = trackers.optString(j)
+                        if (tracker.startsWith("tracker:")) append("&tr=").append(URLEncoder.encode(tracker.removePrefix("tracker:"), "UTF-8"))
+                    }
+                } else ""
+                val playback = when {
+                    direct.startsWith("https://") || direct.startsWith("http://") -> direct
+                    magnet.isNotEmpty() -> magnet
+                    else -> return@mapNotNull null
+                }
+                HomeStream("Torrentio · "+listOf(item.optString("name"),item.optString("title")).filter{it.isNotBlank()}.joinToString(" · ").take(190),playback)
             }
         } finally { conn.disconnect() }
     }
