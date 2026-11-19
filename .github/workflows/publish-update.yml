@@ -92,6 +92,26 @@ jobs:
           printf 'SHARK_KEYSTORE_PATH=%s\n' "$SHARK_KEYSTORE_PATH" >> "$GITHUB_ENV"
       - name: Build signed update APK
         run: gradle --no-daemon --stacktrace :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+      - name: Report APK size and bundled libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -s "$apk"
+          echo "### SharkNailTV APK size" >> "$GITHUB_STEP_SUMMARY"
+          du -h "$apk" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Largest packaged files (uncompressed bytes)" >> "$GITHUB_STEP_SUMMARY"
+          echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import zipfile
+          with zipfile.ZipFile("app/build/outputs/apk/release/app-release.apk") as apk:
+              files = sorted((f for f in apk.infolist() if not f.is_dir()), key=lambda f: f.file_size, reverse=True)
+              for f in files[:20]:
+                  print(f"{f.file_size / 1048576:7.2f} MiB  {f.filename}")
+              print(f"Total uncompressed: {sum(f.file_size for f in files) / 1048576:.2f} MiB")
+          PY
+          echo '~~~' >> "$GITHUB_STEP_SUMMARY"
       - name: Prepare and verify signed release asset
         shell: bash
         run: |
