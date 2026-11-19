@@ -1014,11 +1014,7 @@ fun App() {
                                                     verticalAlignment=Alignment.CenterVertically,
                                                     horizontalArrangement=Arrangement.spacedBy(12.dp)
                                                 ) {
-                                                    Box(
-                                                        Modifier.width(56.dp).fillMaxHeight().padding(vertical = 7.dp)
-                                                            .background(Brush.linearGradient(listOf(Color(0xFF29244A), Color(0xFF123A51))), SharkFrameShape),
-                                                        contentAlignment = Alignment.Center
-                                                    ) { ChromeSettingsBadge(label) }
+                                                    Box(Modifier.width(44.dp).fillMaxHeight(),contentAlignment=Alignment.Center) { ChromeSettingsBadge(label) }
                                                     Text(label,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Light)
                                                 }
                                             }
@@ -1649,29 +1645,22 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
     MaterialText(text=text, modifier=modifier, color=color, fontSize=fontSize, fontWeight=when(fontWeight){FontWeight.Light -> FontWeight.Light; FontWeight.Bold, FontWeight.SemiBold, FontWeight.Medium -> FontWeight.Medium; else -> FontWeight.Normal}, maxLines=maxLines, minLines=minLines, overflow=overflow, style=style.copy(fontFamily=SkyLikeFamily,fontStyle=androidx.compose.ui.text.font.FontStyle.Normal,letterSpacing=0.08.sp,shadow=style.shadow))
 }
 @Composable private fun ChromeSettingsBadge(label: String) {
-    val symbol = when (label) {
-        "Xtream Codes", "Change Playlist" -> Icons.Filled.VpnKey
-        "Software Update" -> Icons.Filled.FileDownload
-        "Refresh IPTV Catalogue" -> Icons.Filled.PlaylistPlay
-        "Refresh Posters" -> Icons.Filled.Photo
-        "Refresh Sports" -> Icons.Filled.SportsSoccer
-        "Connection Status" -> Icons.Filled.Wifi
-        "Clear Memory Cache" -> Icons.Filled.Delete
-        "Playback & Display" -> Icons.Filled.Tv
-        "Sharks Toolkit" -> Icons.Filled.Build
-        "Exit" -> Icons.Filled.ExitToApp
-        "System Health" -> Icons.Filled.Favorite
-        else -> Icons.Filled.Settings
-    }
-    val shape = SharkFrameShape
-    Box(
-        Modifier.size(36.dp)
-            .background(chromeBrush(), shape)
-            .padding(2.dp)
-            .background(Brush.verticalGradient(listOf(Color(0xFF14515B), Color(0xFF06252E))), shape),
-        contentAlignment = Alignment.Center
-    ) {
-        ChromeIcon(symbol, iconSize = 21)
+    // Transparent metallic fin, with a subtle blue pulse instead of a square badge.
+    val motion = rememberInfiniteTransition(label = "Settings fin glow")
+    val glow = motion.animateFloat(0.4f, 0.9f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "Fin halo")
+    Canvas(Modifier.size(38.dp)) {
+        val fin = androidx.compose.ui.graphics.Path().apply {
+            moveTo(size.width * .14f, size.height * .77f)
+            cubicTo(size.width * .31f, size.height * .34f, size.width * .63f, size.height * .09f, size.width * .85f, size.height * .08f)
+            cubicTo(size.width * .65f, size.height * .40f, size.width * .66f, size.height * .58f, size.width * .86f, size.height * .76f)
+            quadraticBezierTo(size.width * .47f, size.height * .92f, size.width * .14f, size.height * .77f)
+            close()
+        }
+        drawOval(Color(0xFF00BFFF), topLeft=Offset(size.width*.08f,size.height*.73f),
+            size=androidx.compose.ui.geometry.Size(size.width*.84f,size.height*.19f),
+            alpha=glow.value, style=androidx.compose.ui.graphics.drawscope.Stroke(width=2.dp.toPx()))
+        drawPath(fin, Brush.linearGradient(listOf(Color.White, Color(0xFF9EACBD), Color(0xFF243449), Color(0xFFECF5FF))))
+        drawPath(fin, Color(0xFF71DBFF), style=androidx.compose.ui.graphics.drawscope.Stroke(width=0.8.dp.toPx()))
     }
 }
 
