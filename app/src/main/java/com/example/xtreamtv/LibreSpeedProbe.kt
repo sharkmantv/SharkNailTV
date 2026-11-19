@@ -16,6 +16,30 @@ internal object LibreSpeedProbe {
         .followRedirects(false)
         .build()
 
+    /** One-button public download test; no custom LibreSpeed server required. */
+    fun publicDownloadReport(): String {
+        val url = "https://speed.cloudflare.com/__down?bytes=4000000".toHttpUrlOrNull()
+            ?: throw IOException("Speed test endpoint unavailable")
+        val request = Request.Builder().url(url).header("Accept-Encoding", "identity")
+            .header("Cache-Control", "no-cache").build()
+        val started = SystemClock.elapsedRealtime()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("Speed test server returned ${response.code}")
+            val body = response.body ?: throw IOException("Empty speed test response")
+            val input = body.byteStream()
+            val buffer = ByteArray(32 * 1024)
+            var bytes = 0L
+            while (bytes < 4_000_000L) {
+                val count = input.read(buffer, 0, minOf(buffer.size.toLong(), 4_000_000L - bytes).toInt())
+                if (count < 0) break
+                bytes += count
+            }
+            if (bytes < 1_000_000L) throw IOException("Incomplete speed test sample")
+            val elapsed = (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L)
+            return String.format(Locale.UK, "%.1f Mbps download · Cloudflare", bytes * 8.0 / (elapsed * 1000.0))
+        }
+    }
+
     fun endpoint(text: String): HttpUrl? {
         val server = text.trim().toHttpUrlOrNull() ?: return null
         if (!server.isHttps || server.username.isNotEmpty() || server.password.isNotEmpty() ||
