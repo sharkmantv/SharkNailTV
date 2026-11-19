@@ -1275,6 +1275,61 @@ fun App() {
             tear(false)
             tear(true)
         }
+        // Distinct shark heads and gripping claws, separate from both brand logos.
+        // Drawn once on the header canvas: no bitmap loading or particle animation.
+        Canvas(Modifier.fillMaxSize()) {
+            fun shark(right: Boolean) {
+                val w = size.width
+                val h = size.height
+                val x0 = if (right) w else 0f
+                val d = if (right) -1f else 1f
+                fun p(x: Float, y: Float) = Offset(x0 + d*w*x, h*y)
+                val head = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(p(0f,.08f).x,p(0f,.08f).y)
+                    cubicTo(p(.05f,-.04f).x,p(.05f,-.04f).y,p(.19f,.04f).x,p(.19f,.04f).y,p(.21f,.30f).x,p(.21f,.30f).y)
+                    cubicTo(p(.23f,.43f).x,p(.23f,.43f).y,p(.19f,.54f).x,p(.19f,.54f).y,p(.14f,.60f).x,p(.14f,.60f).y)
+                    lineTo(p(.22f,.76f).x,p(.22f,.76f).y)
+                    cubicTo(p(.15f,.91f).x,p(.15f,.91f).y,p(.04f,.80f).x,p(.04f,.80f).y,p(0f,.90f).x,p(0f,.90f).y)
+                    close()
+                }
+                drawPath(head, Brush.linearGradient(listOf(Color(0xFF05162C),Color(0xFF3289C5),Color(0xFFBCEBFF)),start=p(0f,.15f),end=p(.22f,.70f)))
+                drawPath(head,Color(0xFF72E8FF),style=androidx.compose.ui.graphics.drawscope.Stroke(width=2.dp.toPx()))
+                // Open dark mouth with white triangular teeth.
+                val mouth=androidx.compose.ui.graphics.Path().apply {
+                    moveTo(p(.09f,.58f).x,p(.09f,.58f).y)
+                    quadraticBezierTo(p(.19f,.57f).x,p(.19f,.57f).y,p(.22f,.76f).x,p(.22f,.76f).y)
+                    quadraticBezierTo(p(.13f,.87f).x,p(.13f,.87f).y,p(.09f,.58f).x,p(.09f,.58f).y)
+                    close()
+                }
+                drawPath(mouth,Color(0xFF06101C))
+                for (i in 0..4) {
+                    val t=i/5f
+                    val tooth=androidx.compose.ui.graphics.Path().apply {
+                        moveTo(p(.10f+.10f*t,.61f+.14f*t).x,p(.10f+.10f*t,.61f+.14f*t).y)
+                        lineTo(p(.12f+.10f*t,.69f+.10f*t).x,p(.12f+.10f*t,.69f+.10f*t).y)
+                        lineTo(p(.12f+.10f*t,.59f+.14f*t).x,p(.12f+.10f*t,.59f+.14f*t).y)
+                        close()
+                    }
+                    drawPath(tooth,Color.White)
+                }
+                drawCircle(Color(0xFF07131E),h*.043f,p(.15f,.38f))
+                drawCircle(Color(0xFF7DF4FF),h*.012f,p(.16f,.37f))
+                // Three curved steel claws gripping the ripped screen edge.
+                for (i in 0..2) {
+                    val y=.17f+i*.22f
+                    val claw=androidx.compose.ui.graphics.Path().apply {
+                        moveTo(p(.18f,y).x,p(.18f,y).y)
+                        quadraticBezierTo(p(.27f,y-.08f).x,p(.27f,y-.08f).y,p(.25f,y+.11f).x,p(.25f,y+.11f).y)
+                        quadraticBezierTo(p(.23f,y+.04f).x,p(.23f,y+.04f).y,p(.18f,y).x,p(.18f,y).y)
+                        close()
+                    }
+                    drawPath(claw,Brush.linearGradient(listOf(Color.White,Color(0xFF66798C),Color(0xFF0D2035))))
+                    drawPath(claw,Color(0xFF48D8FF),style=androidx.compose.ui.graphics.drawscope.Stroke(width=1.dp.toPx()))
+                }
+            }
+            shark(false)
+            shark(true)
+        }
         Row(Modifier.fillMaxSize().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
         val context=LocalContext.current
         
