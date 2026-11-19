@@ -48,12 +48,21 @@ internal object TorrentPlayback {
             // File length alone is not sufficient: wait for libtorrent to report all
             // selected bytes downloaded and verified.
             val deadline = System.currentTimeMillis() + 4L * 60 * 60 * 1000
+            var lastProgress = -1
+            var lastProgressAt = System.currentTimeMillis()
             while (System.currentTimeMillis() < deadline) {
                 val handle = session.find(info.infoHash())
                 if (handle != null && handle.isValid) {
                     val status = handle.status()
                     val percentage = (status.progress() * 100).toInt().coerceIn(0, 100)
+                    if (percentage > lastProgress) {
+                        lastProgress = percentage
+                        lastProgressAt = System.currentTimeMillis()
+                    }
                     onProgress("Downloading video from peers: $percentage%")
+                    if (System.currentTimeMillis() - lastProgressAt > 120_000L) {
+                        error("Torrent stalled at $percentage% for over 2 minutes. Check available peers and TV network connectivity.")
+                    }
                     if (status.isFinished && target.isFile && target.length() == expectedSize) {
                         return@withContext Uri.fromFile(target).toString()
                     }
