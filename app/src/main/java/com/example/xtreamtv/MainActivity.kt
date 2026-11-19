@@ -146,22 +146,64 @@ data class Program(val title:String,val start:String,val end:String)
 data class SportEvent(val channel:Entry,val program:Program,val startMillis:Long,val endMillis:Long)
 class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); SharkAppUpdater.check(this); setContent { App() } } }
 
-/** Cinematic intro background; original SharkNailTV logo remains an independent foreground asset. */
+/** One-time cinematic shark breakthrough. The home screen remains unchanged afterwards. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
-    val reveal=remember { androidx.compose.animation.core.Animatable(0f) }
+    val impact = remember { androidx.compose.animation.core.Animatable(0f) }
+    val curtain = remember { androidx.compose.animation.core.Animatable(1f) }
+    val fade = remember { androidx.compose.animation.core.Animatable(1f) }
     LaunchedEffect(Unit) {
-        reveal.animateTo(1f,tween(850))
-        delay(1800)
-        reveal.animateTo(0f,tween(350))
+        impact.animateTo(1f, androidx.compose.animation.core.spring(
+            dampingRatio = 0.55f,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium))
+        delay(350)
+        curtain.animateTo(0f, tween(560))
+        delay(1350)
+        fade.animateTo(0f, tween(400))
         onFinished()
     }
-    Box(Modifier.fillMaxSize().background(Color(0xFF020914)),contentAlignment=Alignment.Center) {
-        AsyncImage(R.drawable.shark_intro_claws_background,"Claws-out shark intro background",
-            Modifier.fillMaxSize().graphicsLayer { alpha=reveal.value },contentScale=ContentScale.Crop)
-        // Keep the existing original brand artwork rather than replacing its lettering.
-        Image(painterResource(R.drawable.shark_brand),"Original SharkNailTV intro logo",
+    Box(Modifier.fillMaxSize().background(Color(0xFF061125)), contentAlignment = Alignment.Center) {
+        // The existing two-shark illustration lunges forward through a torn navy curtain.
+        Image(painterResource(R.drawable.shark_intro_claws_background),
+            "Two sharks tearing through the screen",
+            Modifier.fillMaxSize().graphicsLayer {
+                val p = impact.value
+                scaleX = 0.78f + 0.22f * p
+                scaleY = 0.78f + 0.22f * p
+                alpha = fade.value
+            }, contentScale = ContentScale.Crop)
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
+            val w = size.width
+            val h = size.height
+            val opening = (impact.value * 0.42f + (1f - curtain.value) * 0.13f).coerceIn(0f, 0.55f)
+            val left = w * (0.5f - opening)
+            val right = w * (0.5f + opening)
+            val jag = floatArrayOf(-.022f,.016f,-.031f,.028f,-.012f,.035f,-.025f,.014f,-.018f,.024f,-.012f)
+            val leftPath = androidx.compose.ui.graphics.Path().apply {
+                moveTo(0f,0f); lineTo(left,0f)
+                for (i in 0..10) lineTo(left + jag[i]*w, h*i/10f)
+                lineTo(0f,h); close()
+            }
+            val rightPath = androidx.compose.ui.graphics.Path().apply {
+                moveTo(w,0f); lineTo(right,0f)
+                for (i in 0..10) lineTo(right - jag[i]*w, h*i/10f)
+                lineTo(w,h); close()
+            }
+            val cover = Color(0xFF061125).copy(alpha = curtain.value)
+            drawPath(leftPath, cover)
+            drawPath(rightPath, cover)
+            if (impact.value > 0.12f) {
+                val edge = Color(0xFFE42A43).copy(alpha = (1f-curtain.value)*.9f)
+                for (i in 0..9) {
+                    val a = h*i/10f
+                    val b = h*(i+1)/10f
+                    drawLine(edge, Offset(left+jag[i]*w,a), Offset(left+jag[i+1]*w,b), strokeWidth=4f)
+                    drawLine(edge, Offset(right-jag[i]*w,a), Offset(right-jag[i+1]*w,b), strokeWidth=4f)
+                }
+            }
+        }
+        Image(painterResource(R.drawable.shark_brand), "Original SharkNailTV logo",
             Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.48f).fillMaxHeight(0.30f)
-                .graphicsLayer { alpha=reveal.value },contentScale=ContentScale.Fit)
+                .graphicsLayer { alpha = fade.value }, contentScale = ContentScale.Fit)
     }
 }
 
