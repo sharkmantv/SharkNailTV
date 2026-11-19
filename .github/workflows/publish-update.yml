@@ -27,6 +27,7 @@ jobs:
       SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
       SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
       SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+      PENGUPLAY_MANIFEST_URL: ${{ secrets.PENGUPLAY_MANIFEST_URL }}
     steps:
       - uses: actions/checkout@v4
       - name: Require permanent signing credentials
