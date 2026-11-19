@@ -1238,6 +1238,56 @@ fun App() {
 }
 @Composable private fun GlassHeader(height: androidx.compose.ui.unit.Dp) {
     Box(Modifier.fillMaxWidth().height(height).clipToBounds()) {
+        // Real image artwork (not procedural blue shapes). Two oversized sharks
+        // enter from the outer screen edges once when the home header appears.
+        val contextForRip = LocalContext.current
+        val ripBitmap = remember {
+            android.graphics.BitmapFactory.decodeResource(
+                contextForRip.resources, R.drawable.shark_intro_claws_background,
+                android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }
+            )
+        }
+        var ripStarted by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { ripStarted = true }
+        val ripProgress by animateFloatAsState(
+            targetValue = if (ripStarted) 1f else 0f,
+            animationSpec = tween(durationMillis = 1150),
+            label = "Great white sharks tearing through screen edges"
+        )
+        // Keep the original logos and Sky Stream above the animated artwork.
+        Canvas(Modifier.fillMaxSize()) {
+            val fullW = size.width
+            val fullH = size.height
+            val panelW = fullW * 0.29f
+            val native = drawContext.canvas.nativeCanvas
+            val checkpoint = native.save()
+            val imgW = ripBitmap.width
+            val imgH = ripBitmap.height
+            // Crop into the shark's face, shoulders and claws, excluding most of
+            // the original storm wallpaper and leaving the central logo clear.
+            val crop = android.graphics.Rect(
+                (imgW * 0.19f).toInt(), (imgH * 0.05f).toInt(),
+                (imgW * 0.81f).toInt(), (imgH * 0.79f).toInt()
+            )
+            val paintRip = android.graphics.Paint(
+                android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG
+            ).apply { alpha = (255f * ripProgress).toInt().coerceIn(0,255) }
+            for (rightSide in listOf(false, true)) {
+                val move = (1f - ripProgress) * panelW
+                val left = if (rightSide) fullW - panelW + move else -move
+                val dst = android.graphics.RectF(left, 0f, left + panelW, fullH)
+                native.save()
+                if (rightSide) {
+                    native.scale(-1f, 1f, fullW / 2f, fullH / 2f)
+                    val mirroredLeft = fullW - left - panelW
+                    native.drawBitmap(ripBitmap, crop, android.graphics.RectF(mirroredLeft, 0f, mirroredLeft + panelW, fullH), paintRip)
+                } else {
+                    native.drawBitmap(ripBitmap, crop, dst, paintRip)
+                }
+                native.restore()
+            }
+            native.restoreToCount(checkpoint)
+        }
         Row(Modifier.fillMaxSize().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
         val context=LocalContext.current
         
