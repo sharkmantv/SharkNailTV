@@ -19,6 +19,45 @@ import java.net.URLEncoder
  * Only connect sources you are authorised to use.
  */
 object NuvioCompatibleAddon {
+    private val bitTorrentV1Hash = Regex("[0-9a-fA-F]{40}")
+
+    internal data class TorrentSource(
+        val title: String,
+        val infoHash: String,
+        val fileIndex: Int?,
+        val trackers: List<String>
+    )
+
+    internal fun torrentSource(item: JSONObject, title: String): TorrentSource? {
+        val rawHash = item.opt("infoHash") as? String ?: return null
+        if (!bitTorrentV1Hash.matches(rawHash)) return null
+
+        val rawIndex = item.opt("fileIdx")
+        val fileIndex = if (rawIndex == null || rawIndex == JSONObject.NULL) {
+            null
+        } else {
+            rawIndex.toString().toIntOrNull()?.takeIf { it >= 0 } ?: return null
+        }
+
+        val sources = item.optJSONArray("sources")
+        val trackers = buildList {
+            if (sources != null) {
+                for (i in 0 until minOf(sources.length(), 24)) {
+                    val source = sources.opt(i) as? String ?: continue
+                    if (!source.startsWith("tracker:")) continue
+                    val tracker = source.removePrefix("tracker:")
+                    if (tracker.length !in 1..2048) continue
+                    val uri = runCatching { java.net.URI(tracker) }.getOrNull() ?: continue
+                    if (uri.host.isNullOrBlank() || uri.scheme?.lowercase(java.util.Locale.ROOT) !in
+                        setOf("udp", "http", "https")
+                    ) continue
+                    add(tracker)
+                }
+            }
+        }.distinct()
+        return TorrentSource(title, rawHash.lowercase(java.util.Locale.ROOT), fileIndex, trackers)
+    }
+
     suspend fun streamsFromAddons(
         addonUrls: List<String>,
         id: String,
@@ -46,6 +85,33 @@ object NuvioCompatibleAddon {
     }
 
     suspend fun streams(baseUrl: String, id: String, isSeries: Boolean, season: Int, episode: Int): List<HomeStream> =
+        streamItems(baseUrl, id, isSeries, season, episode) { item, title ->
+            val url = item.optString("url")
+            val parsed = android.net.Uri.parse(url)
+            if (parsed.scheme?.lowercase() in listOf("https", "http", "rtsp") && !parsed.host.isNullOrBlank()) {
+                HomeStream(title, url)
+            } else {
+                null
+            }
+        }
+
+    internal suspend fun torrentStreams(
+        baseUrl: String,
+        id: String,
+        isSeries: Boolean,
+        season: Int,
+        episode: Int
+    ): List<TorrentSource> =
+        streamItems(baseUrl, id, isSeries, season, episode, ::torrentSource)
+
+    private suspend fun <T : Any> streamItems(
+        baseUrl: String,
+        id: String,
+        isSeries: Boolean,
+        season: Int,
+        episode: Int,
+        parse: (JSONObject, String) -> T?
+    ): List<T> =
         withContext(Dispatchers.IO) {
             val root = baseUrl.trim().removeSuffix("/manifest.json").trimEnd('/')
             require(root.startsWith("https://")) { "Addon URL must use HTTPS" }
@@ -64,10 +130,10 @@ object NuvioCompatibleAddon {
                 buildList {
                     for (i in 0 until minOf(items.length(), 40)) {
                         val item = items.optJSONObject(i) ?: continue
-                        val url = item.optString("url")
-                        val parsed = android.net.Uri.parse(url)
-                        if (parsed.scheme?.lowercase() !in listOf("https", "http", "rtsp") || parsed.host.isNullOrBlank()) continue
-                        add(HomeStream(item.optString("title").ifBlank { item.optString("name").ifBlank { "Stream ${i+1}" } }, url))
+                        val title = item.optString("title").ifBlank {
+                            item.optString("name").ifBlank { "Stream ${i + 1}" }
+                        }
+                        parse(item, title)?.let { add(it) }
                     }
                 }
             } finally { conn.disconnect() }
