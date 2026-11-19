@@ -419,6 +419,9 @@ fun App() {
     var homeLookupStatus by remember { mutableStateOf("") }
     var homeSeason by remember { mutableIntStateOf(1) }
     var homeEpisode by remember { mutableIntStateOf(1) }
+    var sharkMega by remember {
+        mutableStateOf(playbackPrefs(context).getBoolean("nuvioSharkMega", true))
+    }
     fun homeLinkKey(entry: Entry): String =
         if (entry.genre.equals("TV Series", true)) "${entry.id}:$homeSeason:$homeEpisode"
         else "${entry.id}:movie"
@@ -476,7 +479,9 @@ fun App() {
                 val results = NuvioCompatibleAddon.streamsFromAddons(addonUrls, "tmdb:${entry.id}", series, homeSeason, homeEpisode)
                 val cm=context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                 val kbps=cm.getNetworkCapabilities(cm.activeNetwork)?.linkDownstreamBandwidthKbps ?: 0
-                homeStreams=SmartPlayback.rank(results,playbackPrefs(context).getString("smartMode","Shark Smart").orEmpty(),kbps,context.resources.displayMetrics.heightPixels)
+                val rankingMode = if (sharkMega) "Shark Turbo"
+                    else playbackPrefs(context).getString("smartMode", "Shark Smart").orEmpty()
+                homeStreams = SmartPlayback.rank(results, rankingMode, kbps, context.resources.displayMetrics.heightPixels)
                 val cachedLink = if (reuseLastLink) lastWorkingLinks.get(linkKey) else null
                 val preferred = homeStreams.firstOrNull { it.url == cachedLink }
                 if (preferred != null) {
@@ -645,7 +650,7 @@ fun App() {
             val stream=homePlaying!!
             val linkKey = homeLinkKey(checkNotNull(selected))
             BackHandler { homePlaying=null }
-            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,onFirstFrame={
+            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
                 if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
             }) } }
         } else if(selected?.kind in listOf("live","movie","episode") && api!=null) {
@@ -680,7 +685,7 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,onFirstFrame={
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
                                     if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
                                 }) }
                             } else {
@@ -979,6 +984,14 @@ fun App() {
                         }
                         "Sharks Toolkit" -> {
                             Text("Sharks Toolkit", color = Color.White, fontSize = 26.sp)
+                            FocusAction("Playback profile · ${if (sharkMega) "Shark Mega" else "Standard"}") {
+                                sharkMega = !sharkMega
+                                playbackPrefs(context).edit().putBoolean("nuvioSharkMega", sharkMega).apply()
+                            }
+                            Text(
+                                "Shark Mega starts playback with a short buffer and builds a larger buffer as you watch.",
+                                color = Color.LightGray
+                            )
                             Text("Stream selection", color = Color.White, fontSize = 18.sp)
                             FocusAction("Reuse Last Link · ${if (reuseLastLink) "On" else "Off"}") {
                                 reuseLastLink = !reuseLastLink
@@ -1543,7 +1556,7 @@ private data class AudioTrackSwitch(
     val startedAt: Long
 )
 
-@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false,onFirstFrame:()->Unit={}) {
+@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false,sharkMega:Boolean=false,onFirstFrame:()->Unit={}) {
     val context=LocalContext.current
     var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(url, liveStream) {
@@ -1572,7 +1585,7 @@ private data class AudioTrackSwitch(
     var playing by remember(url) { mutableStateOf(false) }
     val rootFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
-    val player=remember { configuredPlayer(context) }
+    val player=remember { configuredPlayer(context, sharkMega = sharkMega) }
     var audioSwitch by remember(player, url) { mutableStateOf<AudioTrackSwitch?>(null) }
     var trackNotice by remember(url) { mutableStateOf("") }
     var tracks by remember(player, url) { mutableStateOf(Tracks.EMPTY) }
