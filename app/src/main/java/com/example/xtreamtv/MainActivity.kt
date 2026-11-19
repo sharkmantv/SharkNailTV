@@ -556,21 +556,15 @@ fun App() {
     var speedRunning by remember { mutableStateOf(false) }
     var speedJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun testDownload() {
-        val endpoint = LibreSpeedProbe.endpoint(speedServer)
-        if (endpoint == null) {
-            speedReport = "Enter an HTTPS LibreSpeed server URL."
-            return
-        }
-        prefs.edit().putString("libreSpeedServer", speedServer.trim()).apply()
         speedRunning = true
         speedReport = "Measuring download speed…"
         speedJob = scope.launch {
             try {
-                speedReport = withContext(Dispatchers.IO) { LibreSpeedProbe.downloadReport(endpoint) }
+                speedReport = withContext(Dispatchers.IO) { LibreSpeedProbe.publicDownloadReport() }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: java.io.IOException) {
-                speedReport = "Speed test failed. Check the server URL and try again."
+                speedReport = "Speed test failed. Check internet access and retry."
             } finally {
                 speedRunning = false
             }
@@ -1086,14 +1080,6 @@ fun App() {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(networkReport)
-                    OutlinedTextField(
-                        value = speedServer,
-                        onValueChange = { speedServer = it; speedReport = "" },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !speedRunning,
-                        singleLine = true,
-                        label = { Text("LibreSpeed server URL") }
-                    )
                     if (speedReport.isNotBlank()) Text(speedReport)
                     FocusAction("Test download speed", enabled = !speedRunning, onClick = ::testDownload)
                 }
