@@ -8,11 +8,6 @@ plugins {
 
 val updateManifest = providers.gradleProperty("SHARK_UPDATE_MANIFEST").orElse("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest").get()
 
-val nuvioProperties = Properties().apply {
-    val file = rootProject.file("nuvio.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
-}
-
 val sportsProperties = Properties().apply {
     val file = rootProject.file("sports.properties")
     if (file.exists()) file.inputStream().use { load(it) }
@@ -27,10 +22,6 @@ android {
     packaging { jniLibs { useLegacyPackaging = true } }
     defaultConfig { buildConfigField("String", "TMDB_API_KEY", "\"2c67bb8f745b1db06a58acfffff805f4\"") }
     defaultConfig { buildConfigField("String", "SPORTS_API_KEY", "\"${sportsProperties.getProperty("SPORTS_API_KEY", "")}\"") }
-    defaultConfig {
-        buildConfigField("String", "NUVIO_BACKEND_URL", "\"${nuvioProperties.getProperty("NUVIO_BACKEND_URL", "https://api.nuvio.tv").replace("\\", "\\\\").replace("\"", "\\\"")}\"")
-        buildConfigField("String", "NUVIO_PUBLIC_KEY", "\"${nuvioProperties.getProperty("NUVIO_PUBLIC_KEY", "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN").replace("\\", "\\\\").replace("\"", "\\\"")}\"")
-    }
     signingConfigs {
         create("updates") {
             storeFile = file(System.getenv("SHARK_KEYSTORE_PATH") ?: "missing-update-keystore")
@@ -74,6 +65,5 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3Version")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation("com.google.zxing:core:3.5.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

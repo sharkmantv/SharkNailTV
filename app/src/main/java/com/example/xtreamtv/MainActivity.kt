@@ -1,7 +1,6 @@
 package com.example.xtreamtv
 
 import android.os.Bundle
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
@@ -405,6 +404,15 @@ fun App() {
     }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
+        context.deleteSharedPreferences("nuvio_tv_account_206")
+        prefs.edit().remove("home_addon_urls").apply()
+        val playback = playbackPrefs(context)
+        if (playback.contains("nuvioSharkMega")) {
+            val oldProfile = playback.getBoolean("nuvioSharkMega", true)
+            val edit = playback.edit().remove("nuvioSharkMega")
+            if (!playback.contains("sharkMega")) edit.putBoolean("sharkMega", oldProfile)
+            edit.apply()
+        }
         if(server.isNotBlank() && username.isNotBlank() && password.isNotBlank()) {
             loading=true
             try { val a=XtreamApi(server,username,password); if(a.authenticate()){api=a;connected=true}else error="Saved login rejected" }
@@ -412,8 +420,6 @@ fun App() {
             finally {loading=false}
         }
     }
-    var nuvioBusy by remember { mutableStateOf(false) }
-    val addonCache = remember { mutableMapOf<String, Pair<Long,List<String>>>() }
     val lastWorkingLinks = remember { android.util.LruCache<String, String>(100) }
     var reuseLastLink by remember {
         mutableStateOf(playbackPrefs(context).getBoolean("reuseLastLink", false))
@@ -422,7 +428,8 @@ fun App() {
     var homeSeason by remember { mutableIntStateOf(1) }
     var homeEpisode by remember { mutableIntStateOf(1) }
     var sharkMega by remember {
-        mutableStateOf(playbackPrefs(context).getBoolean("nuvioSharkMega", true))
+        val playback = playbackPrefs(context)
+        mutableStateOf(playback.getBoolean("sharkMega", playback.getBoolean("nuvioSharkMega", true)))
     }
     fun homeLinkKey(entry: Entry): String =
         if (entry.genre.equals("TV Series", true)) "${entry.id}:$homeSeason:$homeEpisode"
@@ -457,7 +464,7 @@ fun App() {
         homeLookupStatus = ""
         selected = entry
         // Episode searches are explicit so the correct season/episode is always used.
-        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "TMDB title information • direct playback source not yet connected"
+        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Search your connected IPTV catalogue for this title."
     }
     fun searchHomeStreams(entry: Entry) {
         homeLookupJob?.cancel()
@@ -465,20 +472,21 @@ fun App() {
         homeStreams = emptyList()
         failedUrls=emptySet(); autoResumeMs=0L; showHomeSources=false
         autoSession=playbackPrefs(context).getBoolean("smartAuto",true)
-        if (!NuvioTvAccount.linked(context)) {
-            homeLookupStatus = "Connect your Nuvio account in Settings → Home Playback Source."
+        val provider = api
+        if (provider == null) {
+            homeLookupStatus = "Connect your IPTV provider in Settings → Xtream Codes."
             return
         }
         val linkKey = homeLinkKey(entry)
-        homeLookupStatus = "Syncing Nuvio addons and finding streams…"
+        val season = homeSeason
+        val episode = homeEpisode
+        homeLookupStatus = "Searching your IPTV catalogue…"
         homeLookupJob = scope.launch {
             try {
-                val now=android.os.SystemClock.elapsedRealtime()
-                val cached=addonCache["linked"]
-                val addonUrls=if(cached!=null && now-cached.first<60000) cached.second else usableSyncedAddons(NuvioTvAccount.sync(context)).map { it.manifestUrl }.also { addonCache["linked"]=now to it }
-                prefs.edit().putString("home_addon_urls", addonUrls.joinToString("\n")).apply()
-                val series = entry.genre.equals("TV Series", true)
-                val results = NuvioCompatibleAddon.streamsFromAddons(addonUrls, "tmdb:${entry.id}", series, homeSeason, homeEpisode)
+                val matches = HomePlayback.lookupXtream(provider, entry, season, episode)
+                val results = if (sharkMega) withContext(Dispatchers.Default) {
+                    SmartPlayback.preferHardwareDecoders(matches)
+                } else matches
                 val cm=context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                 val kbps=cm.getNetworkCapabilities(cm.activeNetwork)?.linkDownstreamBandwidthKbps ?: 0
                 val rankingMode = if (sharkMega) "Shark Turbo"
@@ -494,19 +502,22 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (results.isEmpty()) "No playable URLs returned. This addon may require an IMDb ID or may not support TMDB IDs." else "${results.size} playable URL(s) returned"
+                homeLookupStatus = if (results.isEmpty()) "No matching stream in your IPTV catalogue." else "${results.size} playable URL(s) returned"
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                homeLookupStatus = "Addon lookup failed: ${e.javaClass.simpleName}"
+                homeLookupStatus = "IPTV lookup failed: ${e.javaClass.simpleName}"
             }
         }
     }
     var cacheMessage by remember { mutableStateOf<String?>(null) }
     var cacheTitle by remember { mutableStateOf("Cache cleaner") }
     var cacheBusy by remember { mutableStateOf(false) }
+    var cacheStorageShortcut by remember { mutableStateOf(false) }
     fun cleanAppCache() {
         if (cacheBusy) return
-        cacheTitle = "App cache cleanup"
+        cacheTitle = "Memory and storage cleanup"
+        cacheStorageShortcut = true
+        lastWorkingLinks.evictAll()
         cacheBusy = true
         val activeApi = api
         scope.launch {
@@ -520,6 +531,7 @@ fun App() {
                     memory?.clear()
                     disk?.clear()
                     activeApi?.clearCatalogueCache()
+                    HomePlayback.clearCaches()
                     val staleDownload = java.io.File(context.cacheDir, "install/SharkNailTV.apk.part")
                     val staleBytes = staleDownload.length()
                     val removedDownload = staleDownload.lastModified() in 1L until
@@ -539,6 +551,35 @@ fun App() {
     val livePreviewEnabled = playbackPrefs(context).getBoolean("livePreviewEnabled", true)
     var diagnostics by remember { mutableStateOf(false) }
     var testRun by remember { mutableIntStateOf(0) }
+    var speedServer by remember { mutableStateOf(prefs.getString("libreSpeedServer", "").orEmpty()) }
+    var speedReport by remember { mutableStateOf("") }
+    var speedRunning by remember { mutableStateOf(false) }
+    var speedJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun testDownload() {
+        val endpoint = LibreSpeedProbe.endpoint(speedServer)
+        if (endpoint == null) {
+            speedReport = "Enter an HTTPS LibreSpeed server URL."
+            return
+        }
+        prefs.edit().putString("libreSpeedServer", speedServer.trim()).apply()
+        speedRunning = true
+        speedReport = "Measuring download speed…"
+        speedJob = scope.launch {
+            try {
+                speedReport = withContext(Dispatchers.IO) { LibreSpeedProbe.downloadReport(endpoint) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: java.io.IOException) {
+                speedReport = "Speed test failed. Check the server URL and try again."
+            } finally {
+                speedRunning = false
+            }
+        }
+    }
+    fun closeDiagnostics() {
+        speedJob?.cancel()
+        diagnostics = false
+    }
     var networkReport by remember { mutableStateOf("Checking…") }
     LaunchedEffect(diagnostics,testRun) {
         if(diagnostics) {
@@ -662,7 +703,7 @@ fun App() {
                 SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
         } else Box(Modifier.fillMaxSize()) {
-            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
+            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
@@ -672,7 +713,7 @@ fun App() {
             Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 Column(Modifier.fillMaxSize().padding(horizontal=22.dp).padding(bottom=if(section=="Shark TV") 12.dp else if(section=="Home") 4.dp else 0.dp)) {
-                GlassHeader()
+                GlassHeader(if (section == "Shark TV") 94.dp else 132.dp)
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
                 val serviceCatalogue = selected == null && (section == "Shark Streaming" || section.endsWith(" Catalogue"))
@@ -705,7 +746,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home playback searches enabled account addons; Xtream Codes remains separate.",color = Color.White)
+                                    Text("Home playback searches your connected IPTV catalogue.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
@@ -842,85 +883,14 @@ fun App() {
                             )
                         }
                         "Sports Guide" -> { PublicGuide(fixtures,fixtureStatus, onRefresh={sportsRefresh++}) }
-                        "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,livePreviewEnabled,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++},{section="EPG / TV Guide"}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
+                        "Shark TV" -> {if(connected) LiveBrowser(categories,categoryId,live,api,lastLiveId,catalogueLoading,livePreviewEnabled,{categoryId=it},{api?.clearCatalogueCache(); catalogueRetry++}){lastLiveId=it.id;section="Shark TV";selected=it} else ConnectPrompt{showLogin=true}}
                         "EPG / TV Guide" -> { if(connected) BroadcastGuide(live,api){section="Shark TV";selected=it} else ConnectPrompt{showLogin=true} }
                         "Search" -> { var query by remember { mutableStateOf("") }; OutlinedTextField(query,{query=it},label={Text("Search titles")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White)); if(query.isNotBlank()) V4PosterRow(tmdbKey,"Results",(trendingMovies+trendingSeries+movies+series).filter{it.title.contains(query,true)}){selected=it} }
                         "My List" -> {Text("My List",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(vertical=18.dp));Text("Saved favourites will appear here when the feature is connected.",color = Color.White)}
                         "Xtream Codes" -> {Text("Xtream Codes",color=Color.White,fontSize=25.sp); FocusAction("Connect / Change IPTV Account"){if(password.isBlank()) password=readSavedPassword(context);showLogin=true}; FocusAction("Disconnect (keep login)"){api=null;connected=false}; Text(if(connected) "Connected" else "Not connected",color=Color.White); Text(credentialStatus,color=Color.White); FocusAction("Back to Settings"){section="Settings"}}
-                        "Home Playback Source" -> {
-                            Text("Nuvio Account",color = Color.White,fontSize=27.sp,fontWeight=FontWeight.Bold)
-                            Text("Scan with your phone to link your account",color=Color.White,fontSize=15.sp)
-                            var nuvioStatus by remember { mutableStateOf(if (NuvioTvAccount.linked(context)) "Account linked" else "Not connected") }
-                            var nuvioCode by remember { mutableStateOf("") }
-                            var nuvioUrl by remember { mutableStateOf("") }
-                            Text(nuvioStatus,color = Color.White)
-                            if (nuvioCode.isNotBlank() && nuvioUrl.isNotBlank()) {
-                                NuvioLoginQr(nuvioUrl)
-                                Text("Scan with your phone to approve Nuvio login",color = Color.White)
-                                Text("Enter code: $nuvioCode",color=Color.White,fontSize=25.sp)
-                            }
-                            if (!NuvioTvAccount.configured) {
-                                Text("Nuvio server configuration is missing. A developer must provide the public backend URL and publishable key in nuvio.properties before building. Account linking is unavailable in this package.",color=Color(0xFFFFC66D))
-                            } else {
-                                FocusAction("Connect Nuvio Account", enabled = !nuvioBusy) {
-                                    if (nuvioBusy) return@FocusAction
-                                    nuvioBusy = true
-                                    scope.launch {
-                                        try {
-                                            nuvioStatus = "Requesting device link…"
-                                            val link = NuvioTvAccount.start()
-                                            nuvioCode = link.code
-                                            nuvioUrl = link.verificationUrl
-                                            nuvioStatus = "Waiting for phone approval…"
-                                            NuvioTvAccount.awaitApproval(context,link) { status -> nuvioStatus = status }
-                                            nuvioCode = ""; nuvioUrl = ""
-                                            nuvioStatus = "Account linked. Syncing addons…"
-                                            addonCache.clear()
-                                            val addons = NuvioTvAccount.sync(context)
-                                            nuvioStatus = "Linked • ${usableSyncedAddons(addons).size} enabled HTTPS addons"
-                                        } catch (e: Exception) {
-                                            if (e is kotlinx.coroutines.CancellationException) throw e
-                                            nuvioStatus = "Nuvio link failed: ${e.javaClass.simpleName}"
-                                        } finally {
-                                            nuvioBusy = false
-                                        }
-                                    }
-                                }
-                                FocusAction("Sync My Addons", enabled = !nuvioBusy) {
-                                    if (nuvioBusy) return@FocusAction
-                                    if (!NuvioTvAccount.linked(context)) {
-                                        nuvioStatus = "Connect your Nuvio account first."
-                                        return@FocusAction
-                                    }
-                                    nuvioBusy = true
-                                    nuvioStatus = "Syncing addons…"
-                                    scope.launch {
-                                        try {
-                                            val addons = usableSyncedAddons(NuvioTvAccount.sync(context))
-                                            addonCache["linked"] = android.os.SystemClock.elapsedRealtime() to addons.map { it.manifestUrl }
-                                            nuvioStatus = "Synced ${addons.size} enabled HTTPS addons"
-                                        } catch (e: Exception) {
-                                            if (e is kotlinx.coroutines.CancellationException) throw e
-                                            nuvioStatus = "Sync failed: ${e.messageForNuvioSync()}"
-                                        } finally {
-                                            nuvioBusy = false
-                                        }
-                                    }
-                                }
-                            }
-                            FocusAction("Disconnect Nuvio", enabled = !nuvioBusy) {
-                                if (nuvioBusy) return@FocusAction
-                                NuvioTvAccount.clear(context); addonCache.clear()
-                                lastWorkingLinks.evictAll()
-                                prefs.edit().remove("home_addon_urls").apply()
-                                nuvioCode = ""; nuvioUrl = ""; nuvioStatus = "Not connected"
-                            }
-                            Text("TMDB Home uses account addons; Xtream Codes stays separate.",color = Color.White)
-                            FocusAction("Back to Settings") { section="Settings" }
-                        }
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
-                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Home Playback Source","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
+                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
                             var focusedSetting by remember { mutableStateOf<String?>(null) }
                             Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                                 options.chunked(3).forEachIndexed { rowIndex, labels ->
@@ -1015,7 +985,7 @@ fun App() {
                             Text("Sharks Toolkit", color = Color.White, fontSize = 26.sp)
                             FocusAction("Playback profile · ${if (sharkMega) "Shark Mega" else "Standard"}") {
                                 sharkMega = !sharkMega
-                                playbackPrefs(context).edit().putBoolean("nuvioSharkMega", sharkMega).apply()
+                                playbackPrefs(context).edit().putBoolean("sharkMega", sharkMega).apply()
                             }
                             Text(
                                 "Shark Mega starts playback with a short buffer and builds a larger buffer as you watch.",
@@ -1053,7 +1023,7 @@ fun App() {
             var focusedNav by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=5.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 listOf("Home","Shark TV","Movies","TV Series","Sports Guide","Shark Stream","Settings").forEach { item ->
-                    val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Shark Stream" && section.endsWith(" Catalogue")) || (item=="Settings" && section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","Home Playback Source","System Health"))
+                    val active=section==(if(item=="Shark Stream") "Shark Streaming" else item) || (item=="Shark Stream" && section.endsWith(" Catalogue")) || (item=="Settings" && section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health"))
                     val focused=focusedNav==item
                     val emphasized=focused || (focusedNav==null && active)
                     val tileFill = if (active) listOf(Color(0xFF192D51), Color(0xFF101D38))
@@ -1092,8 +1062,45 @@ fun App() {
             }
             }
         }
-        cacheMessage?.let { message -> PremiumDialog(onDismissRequest={cacheMessage=null},title={Text(cacheTitle)},text={Text(message)},confirmButton={PremiumButton(onClick={cacheMessage=null}){Text("OK")}}) }
-        if(diagnostics) PremiumDialog(onDismissRequest={diagnostics=false},title={Text("Connection Status")},text={Text(networkReport)},confirmButton={PremiumButton(onClick={diagnostics=false}){Text("Close")}},dismissButton={PremiumButton(onClick={testRun++}){Text("Retest")}})
+        cacheMessage?.let { message ->
+            PremiumDialog(
+                onDismissRequest = { cacheMessage = null },
+                title = { Text(cacheTitle) },
+                text = { Text(message) },
+                confirmButton = { PremiumButton(onClick = { cacheMessage = null }) { Text("OK") } },
+                dismissButton = if (cacheStorageShortcut) {
+                    {
+                        PremiumButton(onClick = {
+                            val opened = runCatching {
+                                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
+                            }.isSuccess
+                            cacheMessage = if (opened) null else "Open Storage in your TV’s Android settings."
+                        }) { Text("Android Storage") }
+                    }
+                } else null
+            )
+        }
+        if (diagnostics) PremiumDialog(
+            onDismissRequest = ::closeDiagnostics,
+            title = { Text("Connection Status") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(networkReport)
+                    OutlinedTextField(
+                        value = speedServer,
+                        onValueChange = { speedServer = it; speedReport = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !speedRunning,
+                        singleLine = true,
+                        label = { Text("LibreSpeed server URL") }
+                    )
+                    if (speedReport.isNotBlank()) Text(speedReport)
+                    FocusAction("Test download speed", enabled = !speedRunning, onClick = ::testDownload)
+                }
+            },
+            confirmButton = { PremiumButton(onClick = ::closeDiagnostics) { Text("Close") } },
+            dismissButton = { PremiumButton(onClick = { testRun++ }) { Text("Retest connection") } }
+        )
         if(exitPrompt) PremiumDialog(onDismissRequest={exitPrompt=false},title={Text("Exit Shark Nail TV?")},confirmButton={PremiumButton(onClick={exitPrompt=false;(context as? android.app.Activity)?.finish()}){Text("Exit")}},dismissButton={PremiumButton(onClick={exitPrompt=false}){Text("Cancel")}})
         if(categoryMenu) PremiumDialog(onDismissRequest={categoryMenu=false},title={Text("Categories")},text={Column(Modifier.heightIn(max=300.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) { categories.forEach { (id,name) -> Box(Modifier.fillMaxWidth()) { FocusAction(name,modifier=Modifier.fillMaxWidth()) { categoryId=id; categoryMenu=false } } } }},confirmButton={PremiumButton(onClick={categoryMenu=false}){Text("Close")}})
         if(showLogin) {
@@ -1173,8 +1180,8 @@ fun App() {
         Text(label,color=Color.White,fontSize=14.sp,fontWeight=if(active||focused)FontWeight.Bold else FontWeight.Medium,maxLines=1)
     }
 }
-@Composable private fun GlassHeader() {
-    Row(Modifier.fillMaxWidth().height(132.dp).clipToBounds().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
+@Composable private fun GlassHeader(height: androidx.compose.ui.unit.Dp) {
+    Row(Modifier.fillMaxWidth().height(height).clipToBounds().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
         val context=LocalContext.current
         
         val motion=rememberInfiniteTransition(label="mascot arm")
@@ -1550,7 +1557,6 @@ private fun chromeBrush() = Brush.verticalGradient(0f to Color(0xFFFDFEFF),0.24f
         "Refresh Posters" -> Icons.Filled.Photo
         "Refresh Sports" -> Icons.Filled.SportsSoccer
         "Connection Status" -> Icons.Filled.Wifi
-        "Home Playback Source" -> Icons.Filled.Home
         "Clear Memory Cache" -> Icons.Filled.Delete
         "Playback & Display" -> Icons.Filled.Tv
         "Sharks Toolkit" -> Icons.Filled.Build
@@ -1595,6 +1601,13 @@ private data class AudioTrackSwitch(
             delay(15_000)
         }
     }
+    val playerPreferences = remember(context) { playbackPrefs(context) }
+    var liveBarStyle by remember {
+        mutableStateOf(LiveBarStyle.entries.firstOrNull {
+            it.name == playerPreferences.getString("liveBarStyle", null)
+        } ?: LiveBarStyle.BLUE_SMOKE)
+    }
+    val barAccent = if (liveStream) liveBarStyle.accent else Color(0xFF327AFF)
     val schedule = remember(programmes) {
         programmes.orEmpty().mapNotNull { programme ->
             val start = parseEpgTime(programme.start) ?: return@mapNotNull null
@@ -1800,13 +1813,13 @@ private data class AudioTrackSwitch(
         androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
-                    .hudSurface()
+                    .then(if (liveStream) Modifier.smokyLiveBar(liveBarStyle) else Modifier.hudSurface())
                     .glassFrame(2.dp, Color.Cyan)
-                    .padding(horizontal = 22.dp, vertical = 14.dp),
+                    .padding(horizontal = if (liveStream) liveBarStyle.inset.dp else 22.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.width(4.dp).height(25.dp).clip(SharkFrameShape).background(Color(0xFF327AFF)))
+                    Box(Modifier.width(4.dp).height(25.dp).clip(SharkFrameShape).background(barAccent))
                     Text(title.ifBlank { "SharkNailTV" }, modifier = Modifier.weight(1f), color = Color.White,
                         fontSize = 23.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val badge = if (liveStream) "● LIVE" else player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
@@ -1822,7 +1835,7 @@ private data class AudioTrackSwitch(
                         val elapsed = (guideTime-currentProgramme.start).toFloat() / (currentProgramme.end-currentProgramme.start)
                         LinearProgressIndicator(progress = { elapsed.coerceIn(0f,1f) },
                             modifier = Modifier.fillMaxWidth().height(3.dp).clip(SharkFrameShape),
-                            color = Color(0xFF327AFF), trackColor = Color(0xFF2D3B59))
+                            color = barAccent, trackColor = Color(0xFF2D3B59))
                     }
                 } else {
                     LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat()/duration).coerceIn(0f,1f) else 0f },
@@ -1892,7 +1905,15 @@ private data class AudioTrackSwitch(
                     if (options.isEmpty()) Text("No supported tracks available", color = Color.White)
                 }
                 "Screen" -> listOf("Fit" to 0,"Fill" to 3,"Zoom" to 4).forEach { (name,mode) -> FocusAction(if(resize==mode) "$name (selected)" else name){resize=mode;panel="";interaction++} }
-                "Settings" -> { listOf(0.75f,1f,1.25f,1.5f,2f).forEach { speed -> FocusAction("Speed ${speed}x"){player.setPlaybackSpeed(speed);panel="";interaction++} };FocusAction("Retry playback"){playerError="";player.prepare();player.playWhenReady=true;panel="";interaction++} }
+                "Settings" -> { if (liveStream) FocusAction("Channel bar style") { panel = "Channel bar style" }; listOf(0.75f,1f,1.25f,1.5f,2f).forEach { speed -> FocusAction("Speed ${speed}x"){player.setPlaybackSpeed(speed);panel="";interaction++} };FocusAction("Retry playback"){playerError="";player.prepare();player.playWhenReady=true;panel="";interaction++} }
+                "Channel bar style" -> LiveBarStyle.entries.forEach { style ->
+                    FocusAction(if (style == liveBarStyle) "${style.label} ✓" else style.label) {
+                        liveBarStyle = style
+                        playerPreferences.edit().putString("liveBarStyle", style.name).apply()
+                        panel = ""
+                        interaction++
+                    }
+                }
                 "Info" -> {Text("Video: ${player.videoFormat?.width ?: 0} × ${player.videoFormat?.height ?: 0}\nCodec: ${player.videoFormat?.sampleMimeType ?: "Unknown"}\nAudio: ${player.audioFormat?.sampleMimeType ?: "Unknown"}\nFPS: ${player.videoFormat?.frameRate ?: 0}",color=Color.White)}
             }
         }},confirmButton={PremiumButton(onClick={panel="";interaction++}){Text("Close",color=Color.White)}})
@@ -1923,7 +1944,7 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
         modifier.height(54.dp).onFocusChanged { focused = it.isFocused }
             .clip(shape)
             .hudSurface()
-            .glassFrame(1.5.dp, if (focused) Color.White else Color.Cyan, focused = focused)
+            .glassFrame(1.5.dp, if (focused) Color.White else Color.Cyan, focused = focused, repeatPulse = true)
             .clickable(onClick = onClick)
             .padding(horizontal = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2364,13 +2385,16 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable private fun LiveBrowser(categories:List<Pair<String,String>>, categoryId:String?, channels:List<Entry>, api:XtreamApi?, lastId:String, loading:Boolean, previewEnabled:Boolean, onCategory:(String)->Unit, onRetry:()->Unit, onGuide:()->Unit, onPlay:(Entry)->Unit) {
+@Composable private fun LiveBrowser(categories:List<Pair<String,String>>, categoryId:String?, channels:List<Entry>, api:XtreamApi?, lastId:String, loading:Boolean, previewEnabled:Boolean, onCategory:(String)->Unit, onRetry:()->Unit, onPlay:(Entry)->Unit) {
     val context=LocalContext.current
     var query by remember { mutableStateOf("") }
     var search by remember { mutableStateOf(false) }
     val filtered=remember(channels,query){channels.distinctBy { it.id }.filter { it.title.contains(query,true) }}
     var current by remember(categoryId,channels){mutableStateOf(channels.firstOrNull { it.id==lastId } ?: channels.firstOrNull())}
-    val preview = remember(channels,lastId) { channels.firstOrNull { it.id==lastId } }
+    val preview by produceState(current, current) {
+        delay(400)
+        value = current
+    }
     var listings by remember(api, current) { mutableStateOf<List<Program>>(emptyList()) }
     var favouriteIds by remember { mutableStateOf(context.getSharedPreferences("live_browser",0).getStringSet("favourites",emptySet()).orEmpty().toSet()) }
     val channelState=androidx.compose.foundation.lazy.rememberLazyListState()
@@ -2388,7 +2412,6 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
     }
     CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
     Column(Modifier.fillMaxSize().clipToBounds().background(Color(0xF507152E),RoundedCornerShape(0.dp)).padding(horizontal=8.dp,vertical=3.dp)) {
-        CompactLiveAction("TV Guide", Modifier.align(Alignment.End), onGuide)
         if(search) OutlinedTextField(query,{query=it},singleLine=true,label={Text("Find channel")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),modifier=Modifier.fillMaxWidth())
         Row(Modifier.weight(1f).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(0.27f).fillMaxHeight()) {
@@ -2407,22 +2430,29 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
                     }
                 }
             }
-            Column(Modifier.weight(0.40f).fillMaxHeight().padding(top=24.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-                Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color.Black).glassFrame(2.dp,Color(0xFF48CFFF)).padding(3.dp),contentAlignment=Alignment.Center) {
-                    val entry=preview
-                    if(previewEnabled && entry!=null && api!=null) LivePreview(api.url(entry, playbackPrefs(context).getString("streamFormat", "Auto"))) else Text("Press OK to play a channel",color=Color.White,fontSize=12.sp)
+            BoxWithConstraints(Modifier.weight(0.40f).fillMaxHeight()) {
+                val previewHeight = minOf(maxWidth * (9f / 16f), maxHeight * .46f)
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Box(Modifier.fillMaxWidth().height(previewHeight).background(Color.Black).glassFrame(2.dp,Color(0xFF48CFFF)).padding(3.dp),contentAlignment=Alignment.Center) {
+                        val entry=preview
+                        if(previewEnabled && entry!=null && api!=null) {
+                            key(entry.id) { LivePreview(api.url(entry, playbackPrefs(context).getString("streamFormat", "Auto"))) }
+                        } else Text("Press OK to play a channel",color=Color.White,fontSize=12.sp)
+                    }
+                    Text(current?.title.orEmpty(),modifier=Modifier.heightIn(min=22.dp),color=Color.White,fontSize=15.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
+                    val now=System.currentTimeMillis()
+                    val upcoming=listings.filter { (parseEpgTime(it.end) ?: Long.MAX_VALUE)>now }.sortedBy { parseEpgTime(it.start) ?: Long.MAX_VALUE }.take(8)
+                    Text(if(upcoming.isEmpty()) "No programme information" else "Now / next · UK time",color = Color.White,fontSize=12.sp)
+                    upcoming.take(2).forEach { programme -> Text("${parseEpgTime(programme.start)?.let { guideClock(context,it) }.orEmpty()}  ${programme.title}",color=Color.White,fontSize=12.sp,maxLines=2) }
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                        CompactLiveAction("Full screen",Modifier.weight(1f)){current?.let(onPlay)}
+                        CompactLiveAction(if(current?.id in favouriteIds) "★ Saved" else "Favourite",Modifier.weight(1f)) {current?.let { e -> favouriteIds=if(e.id in favouriteIds) favouriteIds-e.id else favouriteIds+e.id;context.getSharedPreferences("live_browser",0).edit().putStringSet("favourites",favouriteIds).apply() }}
+                        CompactLiveAction(if(search) "Close" else "Search",Modifier.weight(1f)){search=!search;if(!search)query=""}
+                        CompactLiveAction("Retry",Modifier.weight(1f)){onRetry()}
+                    }
+                    upcoming.drop(2).forEach { programme -> Text("${parseEpgTime(programme.start)?.let { guideClock(context,it) }.orEmpty()}  ${programme.title}",color=Color.White,fontSize=12.sp,maxLines=2) }
+
                 }
-                Text(current?.title.orEmpty(),modifier=Modifier.height(40.dp),color=Color.White,fontSize=15.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                    CompactLiveAction("Full screen",Modifier.weight(1f)){current?.let(onPlay)}
-                    CompactLiveAction(if(current?.id in favouriteIds) "★ Saved" else "Favourite",Modifier.weight(1f)) {current?.let { e -> favouriteIds=if(e.id in favouriteIds) favouriteIds-e.id else favouriteIds+e.id;context.getSharedPreferences("live_browser",0).edit().putStringSet("favourites",favouriteIds).apply() }}
-                    CompactLiveAction(if(search) "Close" else "Search",Modifier.weight(1f)){search=!search;if(!search)query=""}
-                    CompactLiveAction("Retry",Modifier.weight(1f)){onRetry()}
-                }
-                val now=System.currentTimeMillis()
-                val upcoming=listings.filter { (parseEpgTime(it.end) ?: Long.MAX_VALUE)>now }.sortedBy { parseEpgTime(it.start) ?: Long.MAX_VALUE }.take(8)
-                Text(if(upcoming.isEmpty()) "No programme information" else "Now / next · UK time",color = Color.White,fontSize=12.sp)
-                upcoming.forEach { programme -> Text("${parseEpgTime(programme.start)?.let { guideClock(context,it) }.orEmpty()}  ${programme.title}",color=Color.White,fontSize=12.sp,maxLines=2) }
             }
         }
     }
@@ -2439,7 +2469,7 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 @Composable private fun BrowserRow(label:String,active:Boolean,image:String,onFocused:()->Unit,onClick:()->Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape=RoundedCornerShape(0.dp)
-    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.hudSurface(active).glassFrame(2.5.dp,if(focused)SharkFocusGold else Color(0xFF304564),shape, focused = focused).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(34.dp).onFocusChanged { focused=it.isFocused;if(focused)onFocused() }.hudSurface(active).glassFrame(2.5.dp,if(focused)SharkFocusGold else Color(0xFF304564),shape, focused = focused, repeatPulse = true).clickable(onClick=onClick).padding(horizontal=9.dp),verticalAlignment=Alignment.CenterVertically) {
         if(image=="sky") GlassChannelWord()
         Text(label,color=Color.White,fontWeight=FontWeight.Normal,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
@@ -2473,21 +2503,3 @@ private val KeepVisibleFocus = object : androidx.compose.foundation.gestures.Bri
 }
 
 
-/** The QR encodes the verification URL supplied by the Nuvio device-link response. */
-@Composable private fun NuvioLoginQr(url: String) {
-    val qr = remember(url) {
-        if (url.isBlank() || !url.startsWith("https://")) return@remember null
-        runCatching {
-            val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
-                url, com.google.zxing.BarcodeFormat.QR_CODE, 256, 256)
-            val pixels = IntArray(256 * 256) { i ->
-                if(matrix[i % 256, i / 256]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
-            }
-            android.graphics.Bitmap.createBitmap(pixels,256,256,android.graphics.Bitmap.Config.ARGB_8888)
-        }.getOrNull()
-    }
-    if(qr != null) androidx.compose.foundation.Image(
-        bitmap=qr.asImageBitmap(),contentDescription="Scan to link Nuvio account",
-        modifier=Modifier.size(246.dp).padding(8.dp).glassFrame(2.dp,HudAccent).padding(10.dp))
-    else Text("Unable to generate login QR code",color=Color.White)
-}

@@ -1,6 +1,9 @@
 package com.example.xtreamtv
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
@@ -16,11 +19,16 @@ object HomePlayback {
         repeat(3) { title=title.replace(suffix, "").replace(yearSuffix, "").trim() }
         return java.text.Normalizer.normalize(title, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
     }
-    suspend fun lookupXtream(api:XtreamApi, entry:Entry):List<HomeStream> = withContext(Dispatchers.IO) {
+    internal fun clearCaches() {
+        synchronized(cache) { cache.clear() }
+        synchronized(catalogues) { catalogues.clear() }
+    }
+
+    suspend fun lookupXtream(api:XtreamApi, entry:Entry, season: Int, episode: Int):List<HomeStream> = withContext(Dispatchers.IO) {
         val tv=entry.genre.equals("TV Series",true) || entry.kind=="series" || entry.kind=="tv"
         val target=normalize(entry.title)
         if(target.isBlank()) return@withContext emptyList()
-        val cacheKey="${entry.genre}:$target:${entry.year}"
+        val cacheKey="${entry.genre}:$target:${entry.year}:$season:$episode"
         synchronized(cache) { cache[api]?.get(cacheKey) }?.let { if(android.os.SystemClock.elapsedRealtime()-it.first<300000) return@withContext it.second }
         val cached=synchronized(catalogues) { catalogues[api]?.get(tv) }
         val catalogue=if(cached!=null && android.os.SystemClock.elapsedRealtime()-cached.first<300000) cached.second else {
@@ -33,7 +41,18 @@ object HomePlayback {
             val year=yearSuffix.find(name.trim().replace(suffix,""))?.value?.filter { it.isDigit() }.orEmpty()
             normalize(name)==target && (year.isBlank() || entry.year.isBlank() || year==entry.year)
         }
-        val result = if(tv) candidates.take(5).flatMap { match -> api.episodes(match.id).map { HomeStream("${match.title} · ${it.title}",api.url(it)) } }
+        val result = if (tv) candidates.take(5).map { match ->
+            async {
+                try {
+                    api.episodes(match.id).filter { it.title.substringBefore(" ·") == "S$season E$episode" }
+                        .map { HomeStream("${match.title} · ${it.title}", api.url(it)) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: java.io.IOException) {
+                    emptyList()
+                }
+            }
+        }.awaitAll().flatten()
         else candidates.map { HomeStream(it.title,api.url(it)) }
         if(result.isNotEmpty()) synchronized(cache) { val map=cache.getOrPut(api){ mutableMapOf() }; if(map.size>=100) map.clear(); map[cacheKey]=android.os.SystemClock.elapsedRealtime() to result }
         result
