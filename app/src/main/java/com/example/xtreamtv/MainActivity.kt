@@ -739,7 +739,7 @@ fun App() {
                         Text(homeLookupStatus.ifBlank { "Preparing torrent playback…" }, color=Color.White)
                     }
                 } else {
-                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 30000L else 0L,sharkMega=sharkMega,onFirstFrame={
                         if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
                     }) }
                 }
@@ -776,7 +776,7 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null && !torrentPreparing && homePlaying?.url?.startsWith("magnet:?") != true) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 30000L else 0L,sharkMega=sharkMega,onFirstFrame={
                                     if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
                                 }) }
                             } else {
@@ -1750,7 +1750,7 @@ private data class AudioTrackSwitch(
                     windowMs+=1000L
                     if(buffering) recentBufferMs+=1000L
                 }
-                if(stalledMs >= (if(firstFrame) 12000L else startupTimeoutMs) || recentBufferMs>=18000L) {
+                if(stalledMs >= (if(firstFrame) 25000L else startupTimeoutMs) || recentBufferMs>=30000L) {
                     playerError="Source too slow — switching link"
                     reportFailure()
                 }
@@ -1869,9 +1869,7 @@ private data class AudioTrackSwitch(
                     Box(Modifier.width(4.dp).height(25.dp).clip(SharkFrameShape).background(barAccent))
                     Text(title.ifBlank { "SharkNailTV" }, modifier = Modifier.weight(1f), color = Color.White,
                         fontSize = 23.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val badge = if (liveStream) "● LIVE" else player.videoFormat?.height?.takeIf { it > 0 }?.let { "${it}p" }.orEmpty()
-                    if (badge.isNotBlank()) Text(badge, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.background(Color(0xFF233752), androidx.compose.ui.graphics.RectangleShape).padding(horizontal = 11.dp, vertical = 5.dp))
+                    if (liveStream) Text("● LIVE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
                 if (liveStream) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
