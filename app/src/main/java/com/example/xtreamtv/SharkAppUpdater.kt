@@ -28,7 +28,7 @@ object SharkAppUpdater {
         if (!manual) prefs.edit().putLong("last_check", now).apply()
         thread {
             try {
-                val release = JSONObject(readText(API))
+                val release = fetchLatestRelease()
                 if (release.optBoolean("draft") || release.optBoolean("prerelease")) return@thread
                 val tag = release.optString("tag_name").removePrefix("v")
                 val latestCode = versionCode(tag) ?: error("Unsupported release tag: $tag. Use a numeric version such as v3.1.0")
@@ -57,6 +57,45 @@ object SharkAppUpdater {
                 }
             } catch (e: Exception) {
                 if (manual) activity.runOnUiThread { AlertDialog.Builder(activity).setTitle("Update check failed").setMessage("Could not check GitHub Releases: ${e.message ?: "Unknown error"}. Verify internet access and that the repository has a public release with an APK.").setPositiveButton("OK", null).show() }
+            }
+        }
+    }
+    /**
+     * GitHub's API can be blocked or rate-limited on some TV networks.
+     * Fall back to the public releases/latest redirect, without requiring API access.
+     */
+    private fun fetchLatestRelease(): JSONObject {
+        try {
+            return JSONObject(readText(API))
+        } catch (apiError: Exception) {
+            try {
+                val connection = URL("https://github.com/sharkmantv/SharkNailTV/releases/latest")
+                    .openConnection() as HttpURLConnection
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = 12000
+                connection.readTimeout = 12000
+                connection.setRequestProperty("User-Agent", "SharkNailTV-Android")
+                val location = try {
+                    val status = connection.responseCode
+                    if (status !in 300..399) error("Release redirect HTTP $status")
+                    connection.getHeaderField("Location") ?: error("Missing release redirect")
+                } finally {
+                    connection.disconnect()
+                }
+                val target = URL(URL("https://github.com"), location)
+                if (target.protocol != "https" || target.host != "github.com" ||
+                    !target.path.startsWith("/sharkmantv/SharkNailTV/releases/tag/")) {
+                    error("Unexpected release redirect")
+                }
+                val tag = target.path.substringAfterLast("/")
+                if (versionCode(tag.removePrefix("v")) == null) error("Invalid release tag")
+                val apk = "https://github.com/sharkmantv/SharkNailTV/releases/download/$tag/SharkNailTV.apk"
+                return JSONObject().put("tag_name", tag).put("draft", false)
+                    .put("prerelease", false)
+                    .put("assets", org.json.JSONArray().put(JSONObject()
+                        .put("name", "SharkNailTV.apk").put("browser_download_url", apk)))
+            } catch (fallbackError: Exception) {
+                error("GitHub API: ${apiError.message}; release fallback: ${fallbackError.message}")
             }
         }
     }
