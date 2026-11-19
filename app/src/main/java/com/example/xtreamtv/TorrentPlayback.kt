@@ -71,17 +71,28 @@ internal object TorrentPlayback {
             val lastPiece = ((offset + expectedSize - 1) / pieceSize).toInt()
             prioritizeWindow(torrent, firstPiece, lastPiece)
             onProgress("Buffering video from torrent peers…")
-            val startupDeadline = System.currentTimeMillis() + 120_000L
-            // The range server waits for verified pieces as Media3 requests them.
-            // Requiring four complete pieces before opening the player causes an
-            // unnecessary download screen, especially on slow torrents.
-            // One verified initial piece is sufficient to hand off to Media3.
+            // Do not leave the TV on a silent two-minute buffering screen.
+            // Reissue deadlines periodically in case peers arrive after the first request.
+            val startupDeadline = System.currentTimeMillis() + 35_000L
+            var nextPriorityRefresh = 0L
+            var nextProgressUpdate = 0L
             while (System.currentTimeMillis() < startupDeadline) {
+                if (!torrent.isValid) error("Torrent connection stopped. Choose another source.")
                 if (torrent.havePiece(firstPiece) && target.isFile) break
+                val now = System.currentTimeMillis()
+                if (now >= nextPriorityRefresh) {
+                    prioritizeWindow(torrent, firstPiece, lastPiece)
+                    nextPriorityRefresh = now + 5_000L
+                }
+                if (now >= nextProgressUpdate) {
+                    val elapsed = ((now - (startupDeadline - 35_000L)) / 1000L).coerceAtLeast(0)
+                    onProgress("Waiting for torrent video data… ${elapsed}s / 35s. Try another source if this fails.")
+                    nextProgressUpdate = now + 2_000L
+                }
                 delay(250)
             }
             if (!torrent.havePiece(firstPiece) || !target.isFile) {
-                error("Torrent could not buffer the first video piece within 2 minutes. Try a direct stream or a torrent with more peers.")
+                error("No playable torrent data arrived within 35 seconds. This source may have unavailable or slow peers. Try a direct stream or a different torrent.")
             }
             activeServer?.close()
             val server = ProgressiveServer(target, torrent, offset, expectedSize, pieceSize)
