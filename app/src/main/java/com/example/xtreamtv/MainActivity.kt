@@ -1856,7 +1856,9 @@ private data class AudioTrackSwitch(
                 Text("SharkNailTV", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
         }
-        androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
+        // Fade the playback controls instead of sliding the entire complex bar.
+        // Sliding remeasures/repositions its contents every frame and can stutter on Android TV.
+        androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.fadeIn(animationSpec=tween(120)),exit=androidx.compose.animation.fadeOut(animationSpec=tween(140))) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
                     .background(Brush.verticalGradient(listOf(Color(0xC9082657), Color(0xB8061738))), androidx.compose.ui.graphics.RectangleShape)
