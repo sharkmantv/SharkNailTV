@@ -493,7 +493,7 @@ fun App() {
         homeStreams = emptyList()
         failedUrls=emptySet(); autoResumeMs=0L; showHomeSources=false
         autoSession=playbackPrefs(context).getBoolean("smartAuto",true)
-        v        val linkKey = homeLinkKey(entry)
+        val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
         homeLookupStatus = "Searching PenguPlay for TMDB ${entry.id}…"
@@ -513,7 +513,7 @@ fun App() {
                     return@launch
                 }
                 val matches = penguplay.distinctBy { it.url }
-       val results = if (sharkMega) withContext(Dispatchers.Default) {
+                val results = if (sharkMega) withContext(Dispatchers.Default) {
                     SmartPlayback.preferHardwareDecoders(matches)
                 } else matches
                 val cm=context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
@@ -551,8 +551,8 @@ fun App() {
     var cacheStorageShortcut by remember { mutableStateOf(false) }
     fun cleanAppCache() {
         if (cacheBusy) return
-        cacheTitle = "Memory and storage cleanup"
-        cacheStorageShortcut = true
+        cacheTitle = "SharkNailTV cache cleanup"
+        cacheStorageShortcut = false
         lastWorkingLinks.evictAll()
         cacheBusy = true
         val activeApi = api
