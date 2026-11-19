@@ -48,7 +48,11 @@ internal fun readSavedPassword(context:Context):String = runCatching {
 }.getOrDefault("")
 internal fun playbackPrefs(context:Context)=context.getSharedPreferences("playback_config",0)
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-internal fun configuredPlayer(context:Context, preview:Boolean = false):ExoPlayer {
+internal fun configuredPlayer(
+    context: Context,
+    preview: Boolean = false,
+    sharkMega: Boolean = false
+): ExoPlayer {
     val p=playbackPrefs(context)
     val factory=DefaultRenderersFactory(context.applicationContext).setEnableDecoderFallback(p.getBoolean("fallback",true))
     val decoder=p.getString("decoder","Hardware preferred")
@@ -66,6 +70,12 @@ internal fun configuredPlayer(context:Context, preview:Boolean = false):ExoPlaye
             .setBufferDurationsMs(4_000, 8_000, 1_000, 2_000)
             .setPrioritizeTimeOverSizeThresholds(false)
             .setTargetBufferBytes(8 * 1024 * 1024)
+            .build()
+    } else if (sharkMega) {
+        DefaultLoadControl.Builder()
+            .setBufferDurationsMs(20_000, 45_000, 500, 2_500)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .setTargetBufferBytes(48 * 1024 * 1024)
             .build()
     } else DefaultLoadControl.Builder().setBufferDurationsMs(min,min*2,startup,5000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(when(p.getString("buffer","Normal")){"Small"->24*1024*1024;"Large"->96*1024*1024;else->48*1024*1024}).build()
     return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
