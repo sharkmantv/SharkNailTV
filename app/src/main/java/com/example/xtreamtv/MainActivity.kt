@@ -506,7 +506,7 @@ fun App() {
                   catch (_: Exception) { emptyList() } else emptyList()
                 // PenguPlay is a Stremio-compatible HTTP source; ignore torrent links.
                 val penguplay = try {
-                    PenguPlay.lookup(prefs.getString("penguplay_manifest", "https://pengu.uk/manifest.json").orEmpty(), entry, tmdbKey, season, episode)
+                    if (prefs.getString("pengu_manifest", "").isNullOrBlank()) emptyList() else PenguPlay.lookup(prefs.getString("pengu_manifest", "").orEmpty(), entry, tmdbKey, season, episode)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                   catch (_: Exception) { emptyList() }
                 val matches = (penguplay + iptv).distinctBy { it.url }
