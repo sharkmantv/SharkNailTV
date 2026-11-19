@@ -62,8 +62,8 @@ internal object TorrentPlayback {
                 delay(250)
             }
             val torrent = handle ?: error("Torrent handle unavailable")
-            // Sequential mode prioritizes early video pieces instead of waiting for a full download.
-            torrent.setSequentialDownload(true)
+            // This libtorrent4j TorrentHandle version does not expose setSequentialDownload.
+            // Rely on verified-piece checks for safe progressive playback.
             val offset = files.fileOffset(chosen)
             val pieceSize = info.pieceLength().toLong()
             require(pieceSize > 0L) { "Invalid torrent piece size" }
