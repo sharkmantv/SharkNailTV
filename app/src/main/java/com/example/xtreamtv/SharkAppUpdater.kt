@@ -20,6 +20,7 @@ import kotlin.concurrent.thread
 object SharkAppUpdater {
     private const val API = "https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest"
     private const val RELEASES = "https://github.com/sharkmantv/SharkNailTV/releases"
+    private const val MANIFEST = "$RELEASES/latest/download/update.json"
     private const val PREF = "shark_app_updates"
     private const val DAY = 24L * 60 * 60 * 1000
     private const val CACHE_LIFETIME = 7L * DAY
@@ -66,8 +67,14 @@ object SharkAppUpdater {
     private fun loadRelease(activity: Activity): JSONObject {
         val prefs = activity.getSharedPreferences(PREF, 0)
         try {
-            val release = try { JSONObject(readText(API)) } catch (error: GithubRateLimitException) {
-                try { readPublicRelease() } catch (_: Exception) { throw error }
+            // New releases ship a tiny public manifest, avoiding the GitHub REST API quota.
+            // Older releases without the manifest still use the API and HTML fallback.
+            val release = try {
+                JSONObject(readPublicText(MANIFEST))
+            } catch (_: Exception) {
+                try { JSONObject(readText(API)) } catch (error: GithubRateLimitException) {
+                    try { readPublicRelease() } catch (_: Exception) { throw error }
+                }
             }
             val response = release.toString()
             // Only cache a complete public stable release containing its APK asset.
