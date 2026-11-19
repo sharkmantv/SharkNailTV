@@ -136,7 +136,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
         Row(Modifier.weight(1f).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             SettingsPanel("Display",Modifier.weight(1f)) {
                 Text("HDR window mode",color=Color.White)
-                listOf("Auto","On","Off").forEach { v -> PremiumButton(compact=true,onClick={hdr=v;p.edit().putString("hdr",v).apply()},modifier=Modifier.fillMaxWidth()) { Text(if(hdr==v) "✓ $v" else v) } }
+                listOf("Auto","On","Off").forEach { v -> PremiumButton(compact=true,onClick={hdr=v;p.edit().putString("hdr",v).apply();(context as? android.app.Activity)?.let { applyDisplaySettings(it) }},modifier=Modifier.fillMaxWidth()) { Text(if(hdr==v) "✓ $v" else v) } }
                 Text("Resolution",color=Color.White)
                 listOf("Automatic","720p","1080p","1440p","4K","8K").forEach { v ->
                     val supported=v=="Automatic" || modes.any { it.physicalHeight==resolutionHeight(v) }
@@ -150,7 +150,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                 Text("Reported modes: "+rates.joinToString { "$it Hz" },color=Color.White,fontSize=12.sp)
                 val currentMode=(context as? android.app.Activity)?.windowManager?.defaultDisplay?.mode
                 Text(currentMode?.let { "Current: ${it.physicalWidth} × ${it.physicalHeight} · ${it.refreshRate} Hz" }.orEmpty(),color=Color.White,fontSize=12.sp)
-                Text("Display changes apply on next app launch. TV controls final HDR output.",color=Color.White,fontSize=12.sp)
+                Text("HDR window changes apply immediately. HDR video may still switch your TV into HDR; this setting does not convert HDR streams to SDR. Resolution changes may require reopening the player.",color=Color.White,fontSize=12.sp)
             }
             SettingsPanel("Playback",Modifier.weight(1f)) {
                 Text("Shark Smart AutoPlay",color=Color.White)
