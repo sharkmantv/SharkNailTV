@@ -96,7 +96,22 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk SharkNailTV.apk
           test -s SharkNailTV.apk
+      - name: Prepare API-free update manifest
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = os.environ["RELEASE_TAG"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({
+              "tag_name": tag,
+              "draft": False,
+              "prerelease": False,
+              "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]
+          }), encoding="utf-8")
+          PY
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$RELEASE_TAG" SharkNailTV.apk --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV update $VERSION_NAME" --latest
+        run: gh release create "$RELEASE_TAG" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV update $VERSION_NAME" --latest
