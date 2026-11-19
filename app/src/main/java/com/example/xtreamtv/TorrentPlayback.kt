@@ -71,13 +71,16 @@ internal object TorrentPlayback {
             val lastPiece = ((offset + expectedSize - 1) / pieceSize).toInt()
             onProgress("Buffering video from torrent peers…")
             val startupDeadline = System.currentTimeMillis() + 120_000L
-            val startupPieces = minOf(lastPiece, firstPiece + 3)
+            // The range server waits for verified pieces as Media3 requests them.
+            // Requiring four complete pieces before opening the player causes an
+            // unnecessary download screen, especially on slow torrents.
+            // One verified initial piece is sufficient to hand off to Media3.
             while (System.currentTimeMillis() < startupDeadline) {
-                if ((firstPiece..startupPieces).all { torrent.havePiece(it) } && target.isFile) break
-                delay(500)
+                if (torrent.havePiece(firstPiece) && target.isFile) break
+                delay(250)
             }
-            if (!(firstPiece..startupPieces).all { torrent.havePiece(it) } || !target.isFile) {
-                error("Torrent did not buffer its first video pieces within 2 minutes. Try a source with more peers.")
+            if (!torrent.havePiece(firstPiece) || !target.isFile) {
+                error("Torrent could not buffer the first video piece within 2 minutes. Try a direct stream or a torrent with more peers.")
             }
             activeServer?.close()
             val server = ProgressiveServer(target, torrent, offset, expectedSize, pieceSize)
