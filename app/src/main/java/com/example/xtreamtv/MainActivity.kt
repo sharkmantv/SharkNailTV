@@ -453,9 +453,16 @@ fun App() {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            homePlaying = null
-            showHomeSources = true
-            homeLookupStatus = "Torrent failed: ${e.message ?: e.javaClass.simpleName}"
+            if (homePlaying?.url == selectedSource.url && autoSession) {
+                failedUrls = failedUrls + selectedSource.url
+                homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
+                showHomeSources = homePlaying == null
+                homeLookupStatus = if (homePlaying == null) "All PenguPlay sources failed" else "Torrent failed — trying next PenguPlay source"
+            } else {
+                homePlaying = null
+                showHomeSources = true
+                homeLookupStatus = "Torrent failed: ${e.message ?: e.javaClass.simpleName}"
+            }
         } finally {
             torrentPreparing = false
         }
@@ -526,13 +533,12 @@ fun App() {
                 val ranked = SmartPlayback.rank(results, rankingMode, kbps, context.resources.displayMetrics.heightPixels)
                 homeStreams = ranked.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) } +
                     ranked.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
-                val cachedLink = if (reuseLastLink) lastWorkingLinks.get(linkKey) else null
-                val preferred = homeStreams.firstOrNull { it.url == cachedLink && (it.url.startsWith("https://", true) || it.url.startsWith("http://", true)) }
-                if (preferred != null) {
-                    autoSession = true
-                    homePlaying = preferred
-                } else if (autoSession) {
+                // Always start from the current quality ranking. A previously working
+                // link may be slower or lower quality than newly discovered sources.
+                // Failed sources are excluded for the rest of this playback attempt.
+                if (autoSession) {
                     homePlaying = homeStreams.firstOrNull()
+                    if (homePlaying == null) showHomeSources = true
                 } else {
                     showHomeSources = true
                 }
