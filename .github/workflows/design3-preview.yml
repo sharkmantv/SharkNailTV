@@ -1,0 +1,45 @@
+name: Design 3 home screen - preview build
+on:
+  push:
+    branches: [design3-home-tear-prototype]
+    paths:
+      - 'app/**'
+      - '.github/workflows/design3-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Build preview APK
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Package branch source
+        run: |
+          git archive --format=zip --output=/tmp/SharkNailTV-Design3-preview-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-Design3-preview-APK
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-Design3-preview-source
+          path: /tmp/SharkNailTV-Design3-preview-source.zip
+          if-no-files-found: error
