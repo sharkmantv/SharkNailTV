@@ -485,7 +485,7 @@ fun App() {
         homeLookupStatus = ""
         selected = entry
         // Episode searches are explicit so the correct season/episode is always used.
-        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search Torrentio for this TMDB title; IPTV is optional."
+        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search your IPTV provider for this title."
     }
     fun searchHomeStreams(entry: Entry) {
         homeLookupJob?.cancel()
@@ -497,23 +497,14 @@ fun App() {
         val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
-        homeLookupStatus = "Searching Torrentio for TMDB ${entry.id}…"
+        homeLookupStatus = "Searching IPTV provider for TMDB ${entry.id}…"
         homeLookupJob = scope.launch {
             try {
-                var torrentioError: String? = null
-                val torrentio = try {
-                    Torrentio.lookup("https://torrentio.strem.fun/manifest.json", entry, tmdbKey, season, episode)
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                  catch (e: Exception) {
-                    torrentioError = e.message ?: e.javaClass.simpleName
-                    emptyList()
-                }
-                // IPTV is an optional fallback; Torrentio does not require a provider login.
                 val iptv = if (provider != null) try {
                     HomePlayback.lookupXtream(provider, entry, season, episode)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                   catch (_: Exception) { emptyList() } else emptyList()
-                val matches = (torrentio + iptv).distinctBy { it.url }
+                val matches = iptv.distinctBy { it.url }
                 val results = if (sharkMega) withContext(Dispatchers.Default) {
                     SmartPlayback.preferHardwareDecoders(matches)
                 } else matches
@@ -537,11 +528,10 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = when {
-                    torrentioError != null -> "Torrentio lookup failed: ${torrentioError}. IPTV links: ${iptv.size}"
-                    results.isEmpty() -> "No direct links. Torrentio torrent hashes need the native playback bridge."
-                    else -> "Torrentio direct links: ${torrentio.size} · IPTV fallback: ${iptv.size}"
-                }
+                homeLookupStatus = if (provider == null) "Connect an IPTV provider to find playable links."
+                    else if (results.isEmpty()) "No matching IPTV streams found for this title."
+                    else "IPTV links: ${iptv.size}"
+
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 homeLookupStatus = "Source lookup failed: ${e.javaClass.simpleName}"
@@ -791,7 +781,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home searches Torrentio first using TMDB IDs; IPTV is optional fallback. Torrent sources download locally before playback.",color = Color.White)
+                                    Text("Home searches your connected IPTV provider for playable streams.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
