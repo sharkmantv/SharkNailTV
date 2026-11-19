@@ -1,25 +1,32 @@
 package com.example.xtreamtv
 
 import android.content.Context
-import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionManager
 import org.libtorrent4j.TorrentInfo
+import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.swig.torrent_flags_t
 import java.io.File
+import java.io.RandomAccessFile
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 
 /**
- * Native libtorrent4j playback preparation. Downloads the selected video completely
- * before handing its local URI to Media3; this is not progressive torrent streaming.
- * Only use with media you are authorized to download.
+ * Progressive torrent playback for media the user is authorized to access.
+ * A loopback HTTP range server exposes ONLY verified torrent pieces to Media3.
+ * A sparse file's apparent length is never used as proof that bytes are available.
  */
 internal object TorrentPlayback {
     private val session = SessionManager()
     private var started = false
     private val videoExtensions = setOf("mkv", "mp4", "avi", "webm", "mov", "m4v", "ts")
+    @Volatile private var activeServer: ProgressiveServer? = null
 
     suspend fun prepare(context: Context, magnet: String, onProgress: (String) -> Unit): String =
         withContext(Dispatchers.IO) {
@@ -36,8 +43,7 @@ internal object TorrentPlayback {
             val chosen = (0 until files.numFiles()).filter { index ->
                 files.filePath(index).substringAfterLast('.').lowercase() in videoExtensions
             }.maxByOrNull { files.fileSize(it) } ?: error("No playable video in torrent")
-            val relative = files.filePath(chosen)
-            val target = File(root, relative).canonicalFile
+            val target = File(root, files.filePath(chosen)).canonicalFile
             require(target.path.startsWith(root.canonicalPath + File.separator)) { "Unsafe torrent file path" }
             val expectedSize = files.fileSize(chosen)
             require(expectedSize > 0 && expectedSize < 100L * 1024 * 1024 * 1024) { "Unsupported video size" }
@@ -45,30 +51,132 @@ internal object TorrentPlayback {
                 if (index == chosen) Priority.DEFAULT else Priority.IGNORE
             }
             session.download(info, root, null, priorities, null, torrent_flags_t())
-            // File length alone is not sufficient: wait for libtorrent to report all
-            // selected bytes downloaded and verified.
-            val deadline = System.currentTimeMillis() + 4L * 60 * 60 * 1000
-            var lastProgress = -1
-            var lastProgressAt = System.currentTimeMillis()
+            val deadline = System.currentTimeMillis() + 120_000L
+            var handle: TorrentHandle? = null
             while (System.currentTimeMillis() < deadline) {
-                val handle = session.find(info.infoHash())
-                if (handle != null && handle.isValid) {
-                    val status = handle.status()
-                    val percentage = (status.progress() * 100).toInt().coerceIn(0, 100)
-                    if (percentage > lastProgress) {
-                        lastProgress = percentage
-                        lastProgressAt = System.currentTimeMillis()
-                    }
-                    onProgress("Downloading video from peers: $percentage%")
-                    if (System.currentTimeMillis() - lastProgressAt > 120_000L) {
-                        error("Torrent stalled at $percentage% for over 2 minutes. Check available peers and TV network connectivity.")
-                    }
-                    if (status.isFinished && target.isFile && target.length() == expectedSize) {
-                        return@withContext Uri.fromFile(target).toString()
+                val candidate = session.find(info.infoHash())
+                if (candidate != null && candidate.isValid) {
+                    handle = candidate
+                    break
+                }
+                delay(250)
+            }
+            val torrent = handle ?: error("Torrent handle unavailable")
+            // Sequential mode prioritizes early video pieces instead of waiting for a full download.
+            torrent.setSequentialDownload(true)
+            val offset = files.fileOffset(chosen)
+            val pieceSize = info.pieceLength().toLong()
+            require(pieceSize > 0L) { "Invalid torrent piece size" }
+            val firstPiece = (offset / pieceSize).toInt()
+            val lastPiece = ((offset + expectedSize - 1) / pieceSize).toInt()
+            onProgress("Buffering video from torrent peers…")
+            val startupDeadline = System.currentTimeMillis() + 120_000L
+            val startupPieces = minOf(lastPiece, firstPiece + 3)
+            while (System.currentTimeMillis() < startupDeadline) {
+                if ((firstPiece..startupPieces).all { torrent.havePiece(it) } && target.isFile) break
+                delay(500)
+            }
+            if (!(firstPiece..startupPieces).all { torrent.havePiece(it) } || !target.isFile) {
+                error("Torrent did not buffer its first video pieces within 2 minutes. Try a source with more peers.")
+            }
+            activeServer?.close()
+            val server = ProgressiveServer(target, torrent, offset, expectedSize, pieceSize)
+            activeServer = server
+            server.url
+        }
+
+    private class ProgressiveServer(
+        private val file: File,
+        private val torrent: TorrentHandle,
+        private val fileOffset: Long,
+        private val size: Long,
+        private val pieceSize: Long
+    ) {
+        private val running = AtomicBoolean(true)
+        private val socket = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
+        val url: String = "http://127.0.0.1:${socket.localPort}/video"
+        init {
+            thread(name = "torrent-http-accept", isDaemon = true) {
+                while (running.get()) {
+                    try {
+                        val client = socket.accept()
+                        thread(name = "torrent-http-client", isDaemon = true) { serve(client) }
+                    } catch (_: Exception) {
+                        if (!running.get()) break
                     }
                 }
-                delay(1500)
             }
-            error("Torrent download timed out")
         }
+        fun close() {
+            running.set(false)
+            try { socket.close() } catch (_: Exception) {}
+        }
+        private fun serve(client: Socket) {
+            client.use { peer ->
+                try {
+                    peer.soTimeout = 15_000
+                    val reader = peer.getInputStream().bufferedReader(Charsets.US_ASCII)
+                    val request = reader.readLine() ?: return
+                    val method = request.substringBefore(' ')
+                    var range: String? = null
+                    while (true) {
+                        val line = reader.readLine() ?: return
+                        if (line.isEmpty()) break
+                        if (line.startsWith("Range:", ignoreCase = true)) range = line.substringAfter(':').trim()
+                    }
+                    if (method != "GET" && method != "HEAD") return
+                    var start = 0L
+                    var end = size - 1
+                    var partial = false
+                    if (range != null) {
+                        val spec = range.removePrefix("bytes=").substringBefore(',')
+                        val first = spec.substringBefore('-').toLongOrNull()
+                        val last = spec.substringAfter('-', "").toLongOrNull()
+                        if (first == null || first !in 0 until size) {
+                            peer.getOutputStream().write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */$size\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                            return
+                        }
+                        start = first
+                        if (last != null) end = minOf(last, end)
+                        if (end < start) return
+                        partial = true
+                    }
+                    val output = peer.getOutputStream()
+                    val headers = buildString {
+                        append(if (partial) "HTTP/1.1 206 Partial Content\r\n" else "HTTP/1.1 200 OK\r\n")
+                        append("Content-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\n")
+                        append("Content-Length: ${end - start + 1}\r\n")
+                        if (partial) append("Content-Range: bytes $start-$end/$size\r\n")
+                        append("Connection: close\r\n\r\n")
+                    }
+                    output.write(headers.toByteArray(Charsets.US_ASCII))
+                    if (method == "HEAD") return
+                    RandomAccessFile(file, "r").use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        var position = start
+                        var lastReceived = System.currentTimeMillis()
+                        while (running.get() && position <= end) {
+                            val absolute = fileOffset + position
+                            val piece = (absolute / pieceSize).toInt()
+                            if (!torrent.isValid || !torrent.havePiece(piece)) {
+                                if (System.currentTimeMillis() - lastReceived > 120_000L) return
+                                Thread.sleep(150)
+                                continue
+                            }
+                            val bytesToPieceEnd = pieceSize - absolute % pieceSize
+                            val length = minOf(buffer.size.toLong(), end - position + 1, bytesToPieceEnd).toInt()
+                            input.seek(position)
+                            val count = input.read(buffer, 0, length)
+                            if (count <= 0) return
+                            output.write(buffer, 0, count)
+                            position += count
+                            lastReceived = System.currentTimeMillis()
+                        }
+                    }
+                } catch (_: Exception) {
+                    // A seek or player stop may close this HTTP connection at any time.
+                }
+            }
+        }
+    }
 }
