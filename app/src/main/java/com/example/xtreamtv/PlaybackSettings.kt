@@ -207,7 +207,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                 listOf(null,"en","es","fr","de","it").forEach { v -> PremiumButton(compact=true,onClick={audioLanguage=v;p.edit().putString("audioLanguage",v).apply()},modifier=Modifier.fillMaxWidth()) { Text((if(audioLanguage==v) "✓ " else "")+(v?:"Automatic")) } }
                 Text("Preferred subtitle language",color=Color.White)
                 listOf(null,"en","es","fr","de","it").forEach { v -> PremiumButton(compact=true,onClick={textLanguage=v;p.edit().putString("textLanguage",v).apply()},modifier=Modifier.fillMaxWidth()) { Text((if(textLanguage==v) "✓ " else "")+(v?:"Automatic")) } }
-                PremiumButton(compact=true,onClick={p.edit().clear().apply();streamFormat="Auto";clockFormat="24-hour";decoder="Hardware preferred";smartMode="Shark Smart";smartAuto=true;buffer="Normal";fallback=true;subtitles=true;resize=0;hdr="Auto";resolution="Automatic";refresh="Auto";audioLanguage=null;textLanguage=null}) { Text("Reset settings") }
+                PremiumButton(compact=true,onClick={p.edit().clear().apply();streamFormat="Auto";clockFormat="24-hour";decoder="Hardware preferred";smartMode="Shark Smart";smartAuto=true;buffer="Normal";fallback=true;subtitles=true;resize=0;dynamicRange="Auto";resolution="Automatic";refresh="Auto";audioLanguage=null;textLanguage=null}) { Text("Reset settings") }
                 PremiumButton(compact=true,onClick=onBack){Text("Back to Settings")}
             }
         }
