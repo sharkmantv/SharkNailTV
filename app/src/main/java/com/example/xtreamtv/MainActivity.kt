@@ -1236,7 +1236,45 @@ fun App() {
     }
 }
 @Composable private fun GlassHeader(height: androidx.compose.ui.unit.Dp) {
-    Row(Modifier.fillMaxWidth().height(height).clipToBounds().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
+    Box(Modifier.fillMaxWidth().height(height).clipToBounds()) {
+        // Static electric-blue torn edges: no per-frame layout or particle work.
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            fun tear(right: Boolean) {
+                val side = if (right) w else 0f
+                val direction = if (right) -1f else 1f
+                val edge = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(side, 0f)
+                    lineTo(side + direction * w * .19f, 0f)
+                    lineTo(side + direction * w * .14f, h * .12f)
+                    lineTo(side + direction * w * .22f, h * .25f)
+                    lineTo(side + direction * w * .16f, h * .39f)
+                    lineTo(side + direction * w * .23f, h * .53f)
+                    lineTo(side + direction * w * .12f, h * .68f)
+                    lineTo(side + direction * w * .17f, h * .84f)
+                    lineTo(side, h)
+                    close()
+                }
+                drawPath(edge, Brush.horizontalGradient(
+                    if (right) listOf(Color(0x001A7CFF), Color(0xAA006DDF))
+                    else listOf(Color(0xAA006DDF), Color(0x001A7CFF))))
+                val seam = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(side + direction * w * .19f, 0f)
+                    lineTo(side + direction * w * .14f, h * .12f)
+                    lineTo(side + direction * w * .22f, h * .25f)
+                    lineTo(side + direction * w * .16f, h * .39f)
+                    lineTo(side + direction * w * .23f, h * .53f)
+                    lineTo(side + direction * w * .12f, h * .68f)
+                    lineTo(side + direction * w * .17f, h * .84f)
+                }
+                drawPath(seam, Color(0xFF0876D9), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx()))
+                drawPath(seam, Color(0xFF65E8FF), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
+            }
+            tear(false)
+            tear(true)
+        }
+        Row(Modifier.fillMaxSize().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
         val context=LocalContext.current
         
         val motion=rememberInfiniteTransition(label="mascot arm")
@@ -1300,6 +1338,7 @@ fun App() {
             }
         }
         Mascot(Modifier.weight(1.45f).height(136.dp),true)
+        }
     }
 }
 @Composable private fun V4Hero() {
