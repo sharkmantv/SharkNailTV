@@ -19,6 +19,7 @@ import kotlin.concurrent.thread
 /** Checks the public GitHub release feed once per day, with user-approved APK installation. */
 object SharkAppUpdater {
     private const val API = "https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest"
+    private const val RELEASES = "https://github.com/sharkmantv/SharkNailTV/releases"
     private const val PREF = "shark_app_updates"
     private const val DAY = 24L * 60 * 60 * 1000
     private const val CACHE_LIFETIME = 7L * DAY
@@ -65,8 +66,10 @@ object SharkAppUpdater {
     private fun loadRelease(activity: Activity): JSONObject {
         val prefs = activity.getSharedPreferences(PREF, 0)
         try {
-            val response = readText(API)
-            val release = JSONObject(response)
+            val release = try { JSONObject(readText(API)) } catch (error: GithubRateLimitException) {
+                try { readPublicRelease() } catch (_: Exception) { throw error }
+            }
+            val response = release.toString()
             // Only cache a complete public stable release containing its APK asset.
             if (!release.optBoolean("draft") && !release.optBoolean("prerelease") &&
                 release.optJSONArray("assets") != null) {
@@ -82,6 +85,43 @@ object SharkAppUpdater {
             }
             throw e
         }
+    }
+    /** API-independent fallback using the public GitHub release page and asset list. */
+    private fun readPublicRelease(): JSONObject {
+        val latest = URL("$RELEASES/latest").openConnection() as HttpURLConnection
+        latest.connectTimeout = 12000
+        latest.readTimeout = 12000
+        latest.instanceFollowRedirects = true
+        latest.setRequestProperty("User-Agent", "SharkNailTV-Android")
+        val finalUrl: String
+        try {
+            if (latest.responseCode != 200) error("Public releases page returned HTTP ${latest.responseCode}")
+            finalUrl = latest.url.toString().substringBefore('?').trimEnd('/')
+        } finally { latest.disconnect() }
+        val prefix = "$RELEASES/tag/"
+        require(finalUrl.startsWith(prefix)) { "Latest release did not redirect to a version tag" }
+        val tag = finalUrl.removePrefix(prefix)
+        require(tag.matches(Regex("v?[0-9]+([.][0-9]+){0,2}"))) { "Unsupported public release tag" }
+        val html = readPublicText("$RELEASES/expanded_assets/$tag")
+        val assetPattern = Regex("""href=["']([^"'<>]*?/releases/download/[^"'<>]*?[.]apk(?:[?][^"'<>]*)?)["']""", RegexOption.IGNORE_CASE)
+        val apkPath = assetPattern.findAll(html)
+            .map { it.groupValues[1].replace("&amp;", "&").substringBefore('?') }
+            .firstOrNull { it.startsWith("/sharkmantv/SharkNailTV/releases/download/$tag/") }
+            ?: error("Public release has no downloadable APK")
+        val asset = JSONObject().put("name", apkPath.substringAfterLast('/'))
+            .put("browser_download_url", "https://github.com$apkPath")
+        return JSONObject().put("tag_name", tag).put("draft", false)
+            .put("prerelease", false).put("assets", org.json.JSONArray().put(asset))
+    }
+    private fun readPublicText(url: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 12000
+        connection.readTimeout = 12000
+        connection.setRequestProperty("User-Agent", "SharkNailTV-Android")
+        try {
+            if (connection.responseCode != 200) error("Public release assets returned HTTP ${connection.responseCode}")
+            return connection.inputStream.bufferedReader().use { it.readText() }
+        } finally { connection.disconnect() }
     }
     private class GithubRateLimitException(message: String) : Exception(message)
 
