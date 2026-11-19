@@ -412,9 +412,20 @@ fun App() {
     }
     var nuvioBusy by remember { mutableStateOf(false) }
     val addonCache = remember { mutableMapOf<String, Pair<Long,List<String>>>() }
+    val lastWorkingLinks = remember { android.util.LruCache<String, String>(100) }
+    var reuseLastLink by remember {
+        mutableStateOf(playbackPrefs(context).getBoolean("reuseLastLink", false))
+    }
     var homeLookupStatus by remember { mutableStateOf("") }
     var homeSeason by remember { mutableIntStateOf(1) }
     var homeEpisode by remember { mutableIntStateOf(1) }
+    var sharkMega by remember {
+        mutableStateOf(playbackPrefs(context).getBoolean("nuvioSharkMega", true))
+    }
+    fun homeLinkKey(entry: Entry): String =
+        if (entry.genre.equals("TV Series", true)) "${entry.id}:$homeSeason:$homeEpisode"
+        else "${entry.id}:movie"
+
 
     var homeStreams by remember { mutableStateOf<List<HomeStream>>(emptyList()) }
     var homePlaying by remember { mutableStateOf<HomeStream?>(null) }
@@ -424,7 +435,12 @@ fun App() {
     var autoResumeMs by remember { mutableStateOf(0L) }
     var failedUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
     fun fallbackHome(stream:HomeStream, resumeMs:Long) {
-        if (!autoSession || homePlaying?.url != stream.url) return
+        if (homePlaying?.url != stream.url) return
+        selected?.let { entry ->
+            val key = homeLinkKey(entry)
+            if (lastWorkingLinks.get(key) == stream.url) lastWorkingLinks.remove(key)
+        }
+        if (!autoSession) return
         autoResumeMs = maxOf(autoResumeMs, resumeMs)
         failedUrls = failedUrls + stream.url
         homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
@@ -451,6 +467,7 @@ fun App() {
             homeLookupStatus = "Connect your Nuvio account in Settings → Home Playback Source."
             return
         }
+        val linkKey = homeLinkKey(entry)
         homeLookupStatus = "Syncing Nuvio addons and finding streams…"
         homeLookupJob = scope.launch {
             try {
@@ -462,8 +479,19 @@ fun App() {
                 val results = NuvioCompatibleAddon.streamsFromAddons(addonUrls, "tmdb:${entry.id}", series, homeSeason, homeEpisode)
                 val cm=context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                 val kbps=cm.getNetworkCapabilities(cm.activeNetwork)?.linkDownstreamBandwidthKbps ?: 0
-                homeStreams=SmartPlayback.rank(results,playbackPrefs(context).getString("smartMode","Shark Smart").orEmpty(),kbps,context.resources.displayMetrics.heightPixels)
-                if(autoSession) homePlaying=homeStreams.firstOrNull() else showHomeSources=true
+                val rankingMode = if (sharkMega) "Shark Turbo"
+                    else playbackPrefs(context).getString("smartMode", "Shark Smart").orEmpty()
+                homeStreams = SmartPlayback.rank(results, rankingMode, kbps, context.resources.displayMetrics.heightPixels)
+                val cachedLink = if (reuseLastLink) lastWorkingLinks.get(linkKey) else null
+                val preferred = homeStreams.firstOrNull { it.url == cachedLink }
+                if (preferred != null) {
+                    autoSession = true
+                    homePlaying = preferred
+                } else if (autoSession) {
+                    homePlaying = homeStreams.firstOrNull()
+                } else {
+                    showHomeSources = true
+                }
                 homeLookupStatus = if (results.isEmpty()) "No playable URLs returned. This addon may require an IMDb ID or may not support TMDB IDs." else "${results.size} playable URL(s) returned"
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -506,15 +534,7 @@ fun App() {
             }
         }
     }
-    fun launchToolkitAction(intent: android.content.Intent) {
-        try {
-            context.startActivity(intent)
-        } catch (_: android.content.ActivityNotFoundException) {
-            cacheTitle = "Sharks Toolkit"
-            cacheMessage = "This TV does not have an app that can open this tool."
-        }
-    }
-    var livePreviewEnabled by remember { mutableStateOf(playbackPrefs(context).getBoolean("livePreviewEnabled", true)) }
+    val livePreviewEnabled = playbackPrefs(context).getBoolean("livePreviewEnabled", true)
     var diagnostics by remember { mutableStateOf(false) }
     var testRun by remember { mutableIntStateOf(0) }
     var networkReport by remember { mutableStateOf("Checking…") }
@@ -628,8 +648,11 @@ fun App() {
         surfaceVariant = Color(0xFF17294B), outline = Color(0xFF6989BB), onSurface = Color.White, onSurfaceVariant = Color.White)) {
         if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
+            val linkKey = homeLinkKey(checkNotNull(selected))
             BackHandler { homePlaying=null }
-            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) } }
+            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
+            }) } }
         } else if(selected?.kind in listOf("live","movie","episode") && api!=null) {
             val entry=selected!!
             BackHandler { selected=episodeParent; episodeParent=null }
@@ -662,7 +685,9 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L) }
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                                    if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
+                                }) }
                             } else {
                                 Text(e.title,color=Color.White,fontSize=28.sp)
                                 Text(e.overview,color=Color.White,maxLines=5)
@@ -884,6 +909,7 @@ fun App() {
                             FocusAction("Disconnect Nuvio", enabled = !nuvioBusy) {
                                 if (nuvioBusy) return@FocusAction
                                 NuvioTvAccount.clear(context); addonCache.clear()
+                                lastWorkingLinks.evictAll()
                                 prefs.edit().remove("home_addon_urls").apply()
                                 nuvioCode = ""; nuvioUrl = ""; nuvioStatus = "Not connected"
                             }
@@ -958,39 +984,25 @@ fun App() {
                         }
                         "Sharks Toolkit" -> {
                             Text("Sharks Toolkit", color = Color.White, fontSize = 26.sp)
-                            Text("SharkNailTV ${BuildConfig.VERSION_NAME}", color = Color.White, fontSize = 13.sp)
-                            val storageSummary by produceState("Reading storage…", cacheBusy) {
-                                value = withContext(Dispatchers.IO) {
-                                    val imageCache = coil.Coil.imageLoader(context).diskCache?.size ?: 0L
-                                    val freeSpace = android.os.StatFs(context.cacheDir.absolutePath).availableBytes
-                                    "Poster cache: ${formatBytes(imageCache)}  ·  Free storage: ${formatBytes(freeSpace)}"
-                                }
+                            FocusAction("Playback profile · ${if (sharkMega) "Shark Mega" else "Standard"}") {
+                                sharkMega = !sharkMega
+                                playbackPrefs(context).edit().putBoolean("nuvioSharkMega", sharkMega).apply()
                             }
-                            Text(storageSummary, color = Color.White, fontSize = 14.sp)
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    PremiumButton(onClick = { cleanAppCache() }, enabled = !cacheBusy) {
-                                        Text(if (cacheBusy) "Cleaning…" else "Clean App Cache")
-                                    }
-                                    FocusAction("Test Connection") { diagnostics = true; testRun++ }
-                                    FocusAction("System Health") { section = "System Health" }
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FocusAction("Android Storage") {
-                                        launchToolkitAction(android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
-                                    }
-                                    FocusAction("SD Maid SE") {
-                                        val installed = context.packageManager.getLaunchIntentForPackage("eu.darken.sdmse")
-                                        launchToolkitAction(installed ?: android.content.Intent(android.content.Intent.ACTION_VIEW,
-                                            android.net.Uri.parse("https://f-droid.org/packages/eu.darken.sdmse/")))
-                                    }
-                                    FocusAction(if (livePreviewEnabled) "Live Preview: On" else "Live Preview: Off") {
-                                        livePreviewEnabled = !livePreviewEnabled
-                                        playbackPrefs(context).edit().putBoolean("livePreviewEnabled", livePreviewEnabled).apply()
-                                    }
-                                }
-                                FocusAction("Back to Settings") { section = "Settings" }
+                            Text(
+                                "Shark Mega starts playback with a short buffer and builds a larger buffer as you watch.",
+                                color = Color.LightGray
+                            )
+                            Text("Stream selection", color = Color.White, fontSize = 18.sp)
+                            FocusAction("Reuse Last Link · ${if (reuseLastLink) "On" else "Off"}") {
+                                reuseLastLink = !reuseLastLink
+                                playbackPrefs(context).edit().putBoolean("reuseLastLink", reuseLastLink).apply()
+                                if (!reuseLastLink) lastWorkingLinks.evictAll()
                             }
+                            Text(
+                                "Auto-play the last working link for this movie or episode when the add-on still offers it. Links are remembered while the app is open.",
+                                color = Color.LightGray
+                            )
+                            FocusAction("Back to Settings") { section = "Settings" }
                         }
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
                         "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", "").orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
@@ -1544,7 +1556,7 @@ private data class AudioTrackSwitch(
     val startedAt: Long
 )
 
-@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false) {
+@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false,sharkMega:Boolean=false,onFirstFrame:()->Unit={}) {
     val context=LocalContext.current
     var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(url, liveStream) {
@@ -1573,7 +1585,7 @@ private data class AudioTrackSwitch(
     var playing by remember(url) { mutableStateOf(false) }
     val rootFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
-    val player=remember { configuredPlayer(context) }
+    val player=remember { configuredPlayer(context, sharkMega = sharkMega) }
     var audioSwitch by remember(player, url) { mutableStateOf<AudioTrackSwitch?>(null) }
     var trackNotice by remember(url) { mutableStateOf("") }
     var tracks by remember(player, url) { mutableStateOf(Tracks.EMPTY) }
@@ -1610,10 +1622,12 @@ private data class AudioTrackSwitch(
         player.setMediaItem(sharkMediaItem(context,url,inferFormat));if(resumeMs>0L) player.seekTo(resumeMs);player.prepare();player.playWhenReady=true
     }
     val latestFailure by rememberUpdatedState(onFailure)
+    val latestFirstFrame by rememberUpdatedState(onFirstFrame)
     var firstFrame by remember(url) { mutableStateOf(false) }
     var showPlayerBrand by remember(url) { mutableStateOf(false) }
     LaunchedEffect(url, firstFrame) {
         if (firstFrame) {
+            latestFirstFrame()
             showPlayerBrand = true
             delay(2_000)
             showPlayerBrand = false
