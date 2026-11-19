@@ -73,9 +73,9 @@ internal fun configuredPlayer(
             .build()
     } else if (sharkMega) {
         DefaultLoadControl.Builder()
-            .setBufferDurationsMs(20_000, 45_000, 500, 2_500)
-            .setPrioritizeTimeOverSizeThresholds(false)
-            .setTargetBufferBytes(48 * 1024 * 1024)
+            .setBufferDurationsMs(60_000, 120_000, 3_000, 10_000)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setTargetBufferBytes(128 * 1024 * 1024)
             .build()
     } else DefaultLoadControl.Builder().setBufferDurationsMs(min,min*2,startup,5000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(when(p.getString("buffer","Normal")){"Small"->24*1024*1024;"Large"->96*1024*1024;else->48*1024*1024}).build()
     return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
