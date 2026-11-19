@@ -77,7 +77,7 @@ internal fun configuredPlayer(
             .setPrioritizeTimeOverSizeThresholds(true)
             .setTargetBufferBytes(128 * 1024 * 1024)
             .build()
-    } else DefaultLoadControl.Builder().setBufferDurationsMs(min,min*2,startup,5000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(when(p.getString("buffer","Normal")){"Small"->24*1024*1024;"Large"->96*1024*1024;else->48*1024*1024}).build()
+    } else DefaultLoadControl.Builder().setBufferDurationsMs(if(min<60_000) 60_000 else min,120_000,3_000,10_000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(128*1024*1024).build()
     return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
         setVideoChangeFrameRateStrategy(if(p.getString("refreshRate","Auto")=="Auto") androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
         trackSelectionParameters=trackSelectionParameters.buildUpon().apply {
