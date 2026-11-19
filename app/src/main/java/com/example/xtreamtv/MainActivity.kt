@@ -1128,6 +1128,9 @@ fun App() {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(networkReport)
+                    val penguManifestConfigured = prefs.getString("pengu_manifest", null)?.isNotBlank() == true || BuildConfig.PENGUPLAY_MANIFEST_URL.isNotBlank()
+                    Text(if (penguManifestConfigured) "PenguPlay: manifest configured (stream availability not yet tested)" else "PenguPlay: manifest missing — check GitHub secret and rebuild")
+                    Text("Speed test measures general internet download performance, not the speed of individual IPTV or PenguPlay servers.",fontSize=12.sp)
                     if (speedReport.isNotBlank()) Text(speedReport)
                     FocusAction("Test download speed", enabled = !speedRunning, onClick = ::testDownload)
                 }
