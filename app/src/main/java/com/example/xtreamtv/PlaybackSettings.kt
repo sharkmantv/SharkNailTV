@@ -121,6 +121,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
     val context=LocalContext.current
     val p=playbackPrefs(context)
     var dynamicRange by remember { mutableStateOf(p.getString("dynamicRange","Auto").orEmpty()) }
+    var uniformBarHeight by remember { mutableIntStateOf(p.getInt("uniformBarHeight",76)) }
     var resolution by remember { mutableStateOf(p.getString("resolution","Automatic").orEmpty()) }
     var refresh by remember { mutableStateOf(p.getString("refreshRate","Auto").orEmpty()) }
     var audioLanguage by remember { mutableStateOf(p.getString("audioLanguage",null)) }
@@ -146,6 +147,13 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                     }
                 }
                 Text("Auto follows the stream. SDR/HDR preferences are best-effort and require a compatible source and decoder; they cannot force the TV output format. Restart playback after changing.",color=Color.LightGray,fontSize=12.sp)
+                Text("Uniform menu bar size",color=Color.White)
+                listOf(64 to "Standard",76 to "Large",88 to "Extra Large").forEach { (height,label) ->
+                    PremiumButton(compact=true,onClick={uniformBarHeight=height;p.edit().putInt("uniformBarHeight",height).apply()},modifier=Modifier.fillMaxWidth()) {
+                        Text((if(uniformBarHeight==height) "✓ " else "")+"$label (${height}dp)")
+                    }
+                }
+                Text("Settings tiles use equal column widths and a matching height. Changes appear when you return to Settings.",color=Color.LightGray,fontSize=12.sp)
                 Text("Resolution",color=Color.White)
                 listOf("Automatic","720p","1080p","1440p","4K","8K").forEach { v ->
                     val supported=v=="Automatic" || modes.any { it.physicalHeight==resolutionHeight(v) }
