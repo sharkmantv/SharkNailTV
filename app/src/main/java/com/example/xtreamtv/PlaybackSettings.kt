@@ -64,7 +64,6 @@ internal fun configuredPlayer(
         }
     })
     val min=when(p.getString("buffer","Normal")){"Small"->10000;"Large"->50000;else->25000}
-    val startup=when(p.getString("smartMode","Shark Smart")){"Shark Turbo"->750;"Shark Ultra 4K"->2000;else->1000}
     val load = if (preview) {
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(4_000, 8_000, 1_000, 2_000)
@@ -80,8 +79,12 @@ internal fun configuredPlayer(
             "Large" -> 90_000
             else -> 60_000
         }
+        // Shark Mega is a fast-start profile, not a larger memory allocation.
+        // Preserve the user's chosen forward-buffer size for stability.
+        val startMs = if (sharkMega) 750 else 1_500
+        val rebufferMs = if (sharkMega) 1_500 else 3_000
         DefaultLoadControl.Builder()
-            .setBufferDurationsMs(min, max, 1_500, 3_000)
+            .setBufferDurationsMs(min, max, startMs, rebufferMs)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
     }
