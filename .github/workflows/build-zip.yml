@@ -28,6 +28,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PENGUPLAY_MANIFEST_URL: ${{ secrets.PENGUPLAY_MANIFEST_URL }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
