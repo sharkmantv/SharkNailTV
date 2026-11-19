@@ -755,7 +755,7 @@ fun App() {
             Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                 Column(Modifier.fillMaxSize().padding(horizontal=22.dp).padding(bottom=if(section=="Shark TV") 12.dp else if(section=="Home") 4.dp else 0.dp)) {
-                GlassHeader(if (section == "Shark TV") 94.dp else 132.dp)
+                GlassHeader(132.dp)
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
                 val serviceCatalogue = selected == null && (section == "Shark Streaming" || section.endsWith(" Catalogue"))
