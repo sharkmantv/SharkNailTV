@@ -521,9 +521,14 @@ fun App() {
                 val kbps=cm.getNetworkCapabilities(cm.activeNetwork)?.linkDownstreamBandwidthKbps ?: 0
                 val rankingMode = if (sharkMega) "Shark Turbo"
                     else playbackPrefs(context).getString("smartMode", "Shark Smart").orEmpty()
-                homeStreams = SmartPlayback.rank(results, rankingMode, kbps, context.resources.displayMetrics.heightPixels)
+                // Direct HTTP(S) streams start in Media3 without torrent buffering.
+                // Keep SmartPlayback's ordering within each group, but never select
+                // a magnet ahead of an available direct stream for automatic play.
+                val ranked = SmartPlayback.rank(results, rankingMode, kbps, context.resources.displayMetrics.heightPixels)
+                homeStreams = ranked.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) } +
+                    ranked.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
                 val cachedLink = if (reuseLastLink) lastWorkingLinks.get(linkKey) else null
-                val preferred = homeStreams.firstOrNull { it.url == cachedLink }
+                val preferred = homeStreams.firstOrNull { it.url == cachedLink && (it.url.startsWith("https://", true) || it.url.startsWith("http://", true)) }
                 if (preferred != null) {
                     autoSession = true
                     homePlaying = preferred
