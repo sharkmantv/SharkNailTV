@@ -349,11 +349,12 @@ fun App() {
     var fixtures by remember { mutableStateOf<List<PublicFixture>>(emptyList()) }
     var sportsRefresh by remember { mutableIntStateOf(0) }
     var posterRefresh by remember { mutableIntStateOf(0) }
+    var refreshNotice by remember { mutableStateOf<String?>(null) }
     var fixtureStatus by remember { mutableStateOf("Loading sports schedule…") }
     LaunchedEffect(sportsKey,sportsRefresh) {
         var forceRefresh=sportsRefresh > 0
         while(true) {
-            fixtureStatus = "Refreshing sports…"; try { fixtures = PublicSports.load(sportsKey, forceRefresh); fixtureStatus = if(fixtures.isEmpty()) "No fixtures returned" else "Football 7 days · UFC & Boxing 30 days" } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; fixtureStatus = "Sports listings unavailable: ${e.message ?: "connection error"}" }; forceRefresh=false; delay(7200000)
+            fixtureStatus = "Refreshing sports…"; try { fixtures = PublicSports.load(sportsKey, forceRefresh); fixtureStatus = if(fixtures.isEmpty()) "No fixtures returned" else "Football 7 days · UFC & Boxing 30 days"; if (sportsRefresh > 0) refreshNotice = "Sports refresh: $fixtureStatus" } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; fixtureStatus = "Sports listings unavailable: ${e.message ?: "connection error"}"; if (sportsRefresh > 0) refreshNotice = fixtureStatus }; forceRefresh=false; delay(7200000)
         }
     }
     var api by remember { mutableStateOf<XtreamApi?>(null) }
@@ -633,7 +634,7 @@ fun App() {
     }
     LaunchedEffect(tmdbKey,posterRefresh) {
         tmdbStatus = "Loading posters…"
-        if (tmdbKey.isBlank()) { tmdbStatus = "TMDB key missing. Open Settings."; return@LaunchedEffect }
+        if (tmdbKey.isBlank()) { tmdbStatus = "TMDB key missing. Open Settings."; if (posterRefresh > 0) refreshNotice = tmdbStatus; return@LaunchedEffect }
         coroutineScope {
             val movie = async { runCatching { TmdbApi.trending(tmdbKey, "movie") } }
             val tv = async { runCatching { TmdbApi.trending(tmdbKey, "tv") } }
@@ -643,6 +644,7 @@ fun App() {
             m.getOrNull()?.let { trendingMovies = it }
             t.getOrNull()?.let { trendingSeries = it }
             tmdbStatus = listOfNotNull(m.exceptionOrNull()?.let { "Movies: ${it.javaClass.simpleName} ${it.message.orEmpty().substringBefore("https://")}" }, t.exceptionOrNull()?.let { "TV: ${it.javaClass.simpleName} ${it.message.orEmpty().substringBefore("https://")}" }).joinToString(" | ")
+            if (posterRefresh > 0) refreshNotice = if (tmdbStatus.isNotBlank()) "Poster refresh: $tmdbStatus" else "Poster catalogue refreshed."
         }
     }
     LaunchedEffect(api,catalogueKind,catalogueRetry) {
@@ -995,8 +997,8 @@ fun App() {
                                                                     cacheMessage="IPTV catalogue only — app software unchanged. Provider categories refreshed. Channels, movies, series and guide reload when opened."
                                                                 } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; cacheMessage="Provider refresh failed (${if(e is java.io.IOException) "network error" else e.javaClass.simpleName}); saved login unchanged." } finally { loading=false }
                                                             } }
-                                                            "Refresh Posters" -> { tmdbStatus="Refreshing posters…"; posterRefresh++ }
-                                                            "Refresh Sports" -> { fixtureStatus="Refreshing sports…"; sportsRefresh++ }
+                                                            "Refresh Posters" -> { refreshNotice="Refreshing movie and TV posters…"; tmdbStatus="Refreshing posters…"; posterRefresh++ }
+                                                            "Refresh Sports" -> { refreshNotice="Refreshing sports fixtures…"; fixtureStatus="Refreshing sports…"; sportsRefresh++ }
                                                             "Clear Memory Cache" -> cleanAppCache()
                                                             "Connection Status" -> { diagnostics=true; testRun++ }
                                                             else -> section=label
@@ -1121,6 +1123,9 @@ fun App() {
                 }
             }
             }
+        }
+        refreshNotice?.let { notice ->
+            PremiumDialog(onDismissRequest={ refreshNotice=null },title={ Text("Refresh status") },text={ Text(notice) },confirmButton={ PremiumButton(onClick={ refreshNotice=null }) { Text("OK") } })
         }
         cacheMessage?.let { message ->
             PremiumDialog(
