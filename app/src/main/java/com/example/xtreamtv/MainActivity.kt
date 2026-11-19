@@ -485,7 +485,7 @@ fun App() {
         homeLookupStatus = ""
         selected = entry
         // Episode searches are explicit so the correct season/episode is always used.
-        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search Torrentio for this TMDB title; IPTV is optional."
+        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search your IPTV provider for this title."
     }
     fun searchHomeStreams(entry: Entry) {
         homeLookupJob?.cancel()
@@ -497,23 +497,19 @@ fun App() {
         val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
-        homeLookupStatus = "Searching Torrentio for TMDB ${entry.id}…"
+        homeLookupStatus = "Searching IPTV provider for TMDB ${entry.id}…"
         homeLookupJob = scope.launch {
             try {
-                var torrentioError: String? = null
-                val torrentio = try {
-                    Torrentio.lookup("https://torrentio.strem.fun/manifest.json", entry, tmdbKey, season, episode)
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                  catch (e: Exception) {
-                    torrentioError = e.message ?: e.javaClass.simpleName
-                    emptyList()
-                }
-                // IPTV is an optional fallback; Torrentio does not require a provider login.
                 val iptv = if (provider != null) try {
                     HomePlayback.lookupXtream(provider, entry, season, episode)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                   catch (_: Exception) { emptyList() } else emptyList()
-                val matches = (torrentio + iptv).distinctBy { it.url }
+                // PenguPlay is a Stremio-compatible HTTP source; ignore torrent links.
+                val penguplay = try {
+                    if (prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).isNullOrBlank()) emptyList() else PenguPlay.lookup(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty(), entry, tmdbKey, season, episode)
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                  catch (_: Exception) { emptyList() }
+                val matches = (penguplay + iptv).distinctBy { it.url }
                 val results = if (sharkMega) withContext(Dispatchers.Default) {
                     SmartPlayback.preferHardwareDecoders(matches)
                 } else matches
@@ -537,11 +533,10 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = when {
-                    torrentioError != null -> "Torrentio lookup failed: ${torrentioError}. IPTV links: ${iptv.size}"
-                    results.isEmpty() -> "No direct links. Torrentio torrent hashes need the native playback bridge."
-                    else -> "Torrentio direct links: ${torrentio.size} · IPTV fallback: ${iptv.size}"
-                }
+                homeLookupStatus = if (provider == null && results.isEmpty()) "No direct links found. Connect IPTV or configure PenguPlay."
+                    else if (results.isEmpty()) "No direct streaming links found for this title."
+                    else "PenguPlay direct links: ${penguplay.size} · IPTV links: ${iptv.size}"
+
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 homeLookupStatus = "Source lookup failed: ${e.javaClass.simpleName}"
@@ -791,7 +786,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home searches Torrentio first using TMDB IDs; IPTV is optional fallback. Torrent sources download locally before playback.",color = Color.White)
+                                    Text("Home searches PenguPlay direct streams and your connected IPTV provider.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
@@ -1049,7 +1044,7 @@ fun App() {
                             FocusAction("Back to Settings") { section = "Settings" }
                         }
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
-                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", "").orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
+                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
                     }
                     if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && (loading || catalogueLoading)) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if(section in listOf("Home","Movies","TV Series") && tmdbStatus.isNotBlank()) Text(tmdbStatus,color = Color.White,fontSize=12.sp)

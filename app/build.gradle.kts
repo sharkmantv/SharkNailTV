@@ -22,6 +22,9 @@ android {
     packaging { jniLibs { useLegacyPackaging = true } }
     defaultConfig { buildConfigField("String", "TMDB_API_KEY", "\"2c67bb8f745b1db06a58acfffff805f4\"") }
     defaultConfig { buildConfigField("String", "SPORTS_API_KEY", "\"${sportsProperties.getProperty("SPORTS_API_KEY", "")}\"") }
+    // Optional private CI secret; never commit a personal manifest URL to source control.
+    val penguManifest = System.getenv("PENGUPLAY_MANIFEST_URL").orEmpty()
+    defaultConfig { buildConfigField("String", "PENGUPLAY_MANIFEST_URL", "\"${penguManifest.replace("\\", "\\\\").replace("\"", "\\\"")}\"") }
     signingConfigs {
         create("updates") {
             storeFile = file(System.getenv("SHARK_KEYSTORE_PATH") ?: "missing-update-keystore")
