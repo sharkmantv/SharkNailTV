@@ -504,7 +504,12 @@ fun App() {
                     HomePlayback.lookupXtream(provider, entry, season, episode)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                   catch (_: Exception) { emptyList() } else emptyList()
-                val matches = iptv.distinctBy { it.url }
+                // PenguPlay is a Stremio-compatible HTTP source; ignore torrent links.
+                val penguplay = try {
+                    PenguPlay.lookup(prefs.getString("penguplay_manifest", "https://pengu.uk/manifest.json").orEmpty(), entry, tmdbKey, season, episode)
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                  catch (_: Exception) { emptyList() }
+                val matches = (penguplay + iptv).distinctBy { it.url }
                 val results = if (sharkMega) withContext(Dispatchers.Default) {
                     SmartPlayback.preferHardwareDecoders(matches)
                 } else matches
@@ -528,9 +533,9 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (provider == null) "Connect an IPTV provider to find playable links."
-                    else if (results.isEmpty()) "No matching IPTV streams found for this title."
-                    else "IPTV links: ${iptv.size}"
+                homeLookupStatus = if (provider == null && results.isEmpty()) "No direct links found. Connect IPTV or configure PenguPlay."
+                    else if (results.isEmpty()) "No direct streaming links found for this title."
+                    else "PenguPlay direct links: ${penguplay.size} · IPTV links: ${iptv.size}"
 
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -781,7 +786,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home searches your connected IPTV provider for playable streams.",color = Color.White)
+                                    Text("Home searches PenguPlay direct streams and your connected IPTV provider.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
