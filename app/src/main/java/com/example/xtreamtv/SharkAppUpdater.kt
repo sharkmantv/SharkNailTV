@@ -21,6 +21,7 @@ object SharkAppUpdater {
     private const val API = "https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest"
     private const val PREF = "shark_app_updates"
     private const val DAY = 24L * 60 * 60 * 1000
+    private const val CACHE_LIFETIME = 7L * DAY
     fun check(activity: Activity, manual: Boolean = false) {
         val prefs = activity.getSharedPreferences(PREF, 0)
         val now = System.currentTimeMillis()
@@ -28,7 +29,7 @@ object SharkAppUpdater {
         if (!manual) prefs.edit().putLong("last_check", now).apply()
         thread {
             try {
-                val release = JSONObject(readText(API))
+                val release = loadRelease(activity)
                 if (release.optBoolean("draft") || release.optBoolean("prerelease")) return@thread
                 val tag = release.optString("tag_name").removePrefix("v")
                 val latestCode = versionCode(tag) ?: error("Unsupported release tag: $tag. Use a numeric version such as v3.1.0")
@@ -60,6 +61,30 @@ object SharkAppUpdater {
             }
         }
     }
+    /** Preserve a known-good release so a transient GitHub API limit cannot hide its Update button. */
+    private fun loadRelease(activity: Activity): JSONObject {
+        val prefs = activity.getSharedPreferences(PREF, 0)
+        try {
+            val response = readText(API)
+            val release = JSONObject(response)
+            // Only cache a complete public stable release containing its APK asset.
+            if (!release.optBoolean("draft") && !release.optBoolean("prerelease") &&
+                release.optJSONArray("assets") != null) {
+                prefs.edit().putString("cached_release", response)
+                    .putLong("cached_release_at", System.currentTimeMillis()).apply()
+            }
+            return release
+        } catch (e: GithubRateLimitException) {
+            val cached = prefs.getString("cached_release", null)
+            val age = System.currentTimeMillis() - prefs.getLong("cached_release_at", 0L)
+            if (cached != null && age in 0..CACHE_LIFETIME) {
+                return JSONObject(cached)
+            }
+            throw e
+        }
+    }
+    private class GithubRateLimitException(message: String) : Exception(message)
+
     private fun versionCode(version: String): Int? {
         val parts = version.split('.')
         if (parts.size !in 1..3) return null
@@ -75,6 +100,13 @@ object SharkAppUpdater {
         try { if (connection.responseCode != 200) {
                 val status = connection.responseCode
                 if (status == 404) error("No public stable GitHub release found (HTTP 404). Publish a non-draft, non-prerelease release with an APK.")
+                if (status == 403 || status == 429) {
+                    val remaining = connection.getHeaderField("X-RateLimit-Remaining")
+                    val retryAfter = connection.getHeaderField("Retry-After")
+                    val detail = if (remaining == "0") "GitHub API rate limit reached" else "GitHub temporarily rejected the release check"
+                    val wait = retryAfter?.toLongOrNull()?.let { " Retry after $it seconds." } ?: ""
+                    throw GithubRateLimitException("$detail (HTTP $status).$wait Try again later.")
+                }
                 error("GitHub release check returned HTTP $status")
             }
             return connection.inputStream.bufferedReader().use { it.readText() }
