@@ -92,11 +92,25 @@ jobs:
           printf 'SHARK_KEYSTORE_PATH=%s\n' "$SHARK_KEYSTORE_PATH" >> "$GITHUB_ENV"
       - name: Build signed update APK
         run: gradle --no-daemon --stacktrace :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
-      - name: Prepare release asset
+      - name: Prepare and verify signed release asset
         shell: bash
         run: |
+          set -euo pipefail
           cp app/build/outputs/apk/release/app-release.apk SharkNailTV.apk
           test -s SharkNailTV.apk
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/apksigner" verify --verbose --print-certs SharkNailTV.apk
+          badging=$("$tools/aapt" dump badging SharkNailTV.apk)
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]] || {
+            echo "::error::APK package or version does not match the OTA release"
+            exit 1
+          }
+      - name: Upload signed APK build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-signed-OTA
+          path: SharkNailTV.apk
+          if-no-files-found: error
       - name: Prepare API-free update manifest
         shell: bash
         run: |
