@@ -1257,9 +1257,7 @@ fun App() {
                     lineTo(side, h)
                     close()
                 }
-                drawPath(edge, Brush.horizontalGradient(
-                    if (right) listOf(Color(0x001A7CFF), Color(0xAA006DDF))
-                    else listOf(Color(0xAA006DDF), Color(0x001A7CFF))))
+                // Leave the existing background plain; the torn seam is the only edge effect.
                 val seam = androidx.compose.ui.graphics.Path().apply {
                     moveTo(side + direction * w * .19f, 0f)
                     lineTo(side + direction * w * .14f, h * .12f)
@@ -1282,7 +1280,7 @@ fun App() {
         }
         // Distinct shark heads and gripping claws, separate from both brand logos.
         // Drawn once on the header canvas: no bitmap loading or particle animation.
-        Canvas(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize().then(Modifier.zIndex(2f))) {
             fun shark(right: Boolean) {
                 val w = size.width
                 val h = size.height
