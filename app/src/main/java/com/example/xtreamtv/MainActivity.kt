@@ -665,7 +665,7 @@ fun App() {
             when(catalogueKind) { "live" -> live=entries; "movie" -> movies=entries; else -> series=entries }
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; error="Catalogue request failed (${e.javaClass.simpleName})" } finally { entriesLoading=false }
     }
-    val serviceWatchRegion = if (section == "Hulu Catalogue") "US" else "GB"
+    // Use the same US catalogue availability for every streaming-service shelf.\n    val serviceWatchRegion = "US"
     LaunchedEffect(section, serviceCategory, serviceGenre, tmdbKey) {
         if (!section.endsWith(" Catalogue")) return@LaunchedEffect
         serviceLoading = true
