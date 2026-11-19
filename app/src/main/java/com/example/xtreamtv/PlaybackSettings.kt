@@ -81,6 +81,13 @@ internal fun configuredPlayer(
     return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
         setVideoChangeFrameRateStrategy(if(p.getString("refreshRate","Auto")=="Auto") androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
         trackSelectionParameters=trackSelectionParameters.buildUpon().apply {
+            // Prefer AVC for SDR compatibility, or HEVC for HDR-capable alternatives.
+            // A codec preference is not HDR-to-SDR tone mapping; streams with one
+            // video track will continue to use that track.
+            when(p.getString("dynamicRange","Auto")) {
+                "Prefer SDR" -> setPreferredVideoMimeTypes(androidx.media3.common.MimeTypes.VIDEO_H264, androidx.media3.common.MimeTypes.VIDEO_H265)
+                "Prefer HDR" -> setPreferredVideoMimeTypes(androidx.media3.common.MimeTypes.VIDEO_H265, androidx.media3.common.MimeTypes.VIDEO_H264)
+            }
             if (preview) {
                 setMaxVideoSize(960, 540)
                 setMaxVideoBitrate(1_500_000)
@@ -113,6 +120,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
 @Composable internal fun PlaybackSettings(onBack:()->Unit) {
     val context=LocalContext.current
     val p=playbackPrefs(context)
+    var dynamicRange by remember { mutableStateOf(p.getString("dynamicRange","Auto").orEmpty()) }
     var resolution by remember { mutableStateOf(p.getString("resolution","Automatic").orEmpty()) }
     var refresh by remember { mutableStateOf(p.getString("refreshRate","Auto").orEmpty()) }
     var audioLanguage by remember { mutableStateOf(p.getString("audioLanguage",null)) }
@@ -131,6 +139,13 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
         Text("Playback & Display",color=Color.White,fontSize=20.sp)
         Row(Modifier.weight(1f).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             SettingsPanel("Display",Modifier.weight(1f)) {
+                Text("Video dynamic range",color=Color.White)
+                listOf("Auto","Prefer SDR","Prefer HDR").forEach { v ->
+                    PremiumButton(compact=true,onClick={dynamicRange=v;p.edit().putString("dynamicRange",v).apply()},modifier=Modifier.fillMaxWidth()) {
+                        Text((if(dynamicRange==v) "✓ " else "")+v)
+                    }
+                }
+                Text("Auto follows the stream. SDR/HDR preferences are best-effort and require a compatible source and decoder; they cannot force the TV output format. Restart playback after changing.",color=Color.LightGray,fontSize=12.sp)
                 Text("Resolution",color=Color.White)
                 listOf("Automatic","720p","1080p","1440p","4K","8K").forEach { v ->
                     val supported=v=="Automatic" || modes.any { it.physicalHeight==resolutionHeight(v) }
