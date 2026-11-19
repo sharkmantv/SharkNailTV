@@ -721,9 +721,21 @@ fun App() {
             val stream=homePlaying!!
             val linkKey = homeLinkKey(checkNotNull(selected))
             BackHandler { homePlaying=null }
-            Box(Modifier.fillMaxSize().background(Color.Black)) { key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
-                if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
-            }) } }
+            Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment=Alignment.Center) {
+                if (stream.url.startsWith("magnet:?", ignoreCase=true) || torrentPreparing) {
+                    // A magnet is not a Media3 data source. Wait until the native engine
+                    // returns a verified local file URI before constructing SafePlayer.
+                    Column(horizontalAlignment=Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(16.dp))
+                        Text(homeLookupStatus.ifBlank { "Preparing torrent playback…" }, color=Color.White)
+                    }
+                } else {
+                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                        if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
+                    }) }
+                }
+            }
         } else if(selected?.kind in listOf("live","movie","episode") && api!=null) {
             val entry=selected!!
             BackHandler { selected=episodeParent; episodeParent=null }
