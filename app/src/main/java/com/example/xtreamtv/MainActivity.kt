@@ -808,6 +808,7 @@ fun App() {
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
             } else HomeHeroBackground("", subdued=true)
+            if (section == "Home" && selected == null) SharkHomeTearBackground()
             selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(1280,720).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(HudBackground.copy(alpha = .78f))) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color(0x10091A30),Color(0x55061538)))))
             Column(Modifier.fillMaxSize()) {
@@ -2427,6 +2428,70 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
 @Composable private fun ElectricCaption(value:String) {
     Text(value,color = Color.White,fontSize=11.sp,fontWeight=FontWeight.Normal,maxLines=2,overflow=TextOverflow.Ellipsis)
 }
+/**
+ * Home-screen layer, not the splash intro. Side artwork never intercepts DPAD
+ * focus or pointer input. The boot tear runs once; breathing is a 0.6% vertical
+ * translation only (no bitmap stretching or scaling).
+ */
+@Composable private fun SharkHomeTearBackground() {
+    val entrance = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        entrance.animateTo(1f, tween(1350, easing=androidx.compose.animation.core.FastOutSlowInEasing))
+    }
+    val breathing = rememberInfiniteTransition(label="subtle home shark breathing")
+    val breath = breathing.animateFloat(
+        initialValue=0f, targetValue=1f,
+        animationSpec=infiniteRepeatable(tween(2400, easing=androidx.compose.animation.core.FastOutSlowInEasing), RepeatMode.Reverse),
+        label="breathing phase"
+    )
+    Box(Modifier.fillMaxSize().clipToBounds()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w=size.width; val h=size.height
+            val p=entrance.value
+            val glow=Color(0xFFFF321C)
+            for(right in listOf(false,true)) {
+                val edge=if(right) w*.79f else w*.21f
+                val sign=if(right) 1f else -1f
+                val path=androidx.compose.ui.graphics.Path().apply {
+                    moveTo(edge+sign*w*.09f,0f)
+                    lineTo(edge-sign*w*.015f,h*.12f)
+                    lineTo(edge+sign*w*.065f,h*.23f)
+                    lineTo(edge-sign*w*.035f,h*.36f)
+                    lineTo(edge+sign*w*.055f,h*.49f)
+                    lineTo(edge-sign*w*.015f,h*.62f)
+                    lineTo(edge+sign*w*.06f,h*.76f)
+                    lineTo(edge+sign*w*.015f,h)
+                }
+                drawPath(path,glow.copy(alpha=.13f*p),style=androidx.compose.ui.graphics.drawscope.Stroke(width=w*.028f))
+                drawPath(path,glow.copy(alpha=.85f*p),style=androidx.compose.ui.graphics.drawscope.Stroke(width=w*.006f))
+                drawPath(path,Color(0xFFFFB25C).copy(alpha=.9f*p),style=androidx.compose.ui.graphics.drawscope.Stroke(width=w*.0018f))
+            }
+        }
+        Image(
+            painter=painterResource(R.drawable.shark_brand),
+            contentDescription=null,
+            modifier=Modifier.align(Alignment.CenterStart).fillMaxWidth(.39f).fillMaxHeight(.72f)
+                .graphicsLayer {
+                    translationX=-(1f-entrance.value)*size.width*.9f
+                    translationY=breath.value*size.height*.006f
+                    alpha=entrance.value
+                },
+            contentScale=ContentScale.Fit
+        )
+        Image(
+            painter=painterResource(R.drawable.shark_brand_right),
+            contentDescription=null,
+            modifier=Modifier.align(Alignment.CenterEnd).fillMaxWidth(.39f).fillMaxHeight(.72f)
+                .graphicsLayer {
+                    translationX=(1f-entrance.value)*size.width*.9f
+                    translationY=breath.value*size.height*.006f
+                    alpha=entrance.value
+                },
+            contentScale=ContentScale.Fit
+        )
+    }
+}
+
 @Composable private fun HomeHeroBackground(artwork:String, subdued:Boolean=false) {
     val base = HudBackground
     val context = LocalContext.current
