@@ -71,13 +71,20 @@ internal fun configuredPlayer(
             .setPrioritizeTimeOverSizeThresholds(false)
             .setTargetBufferBytes(8 * 1024 * 1024)
             .build()
-    } else if (sharkMega) {
+    } else {
+        // A fixed 128 MB allocation on Shark Mega can pressure lower-memory
+        // Android TV boxes. Let Media3 size the target to the selected tracks.
+        // Keep enough forward buffer for jitter without delaying first playback.
+        val max = when(p.getString("buffer","Normal")) {
+            "Small" -> 30_000
+            "Large" -> 90_000
+            else -> 60_000
+        }
         DefaultLoadControl.Builder()
-            .setBufferDurationsMs(60_000, 120_000, 3_000, 10_000)
+            .setBufferDurationsMs(min, max, 1_500, 3_000)
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setTargetBufferBytes(128 * 1024 * 1024)
             .build()
-    } else DefaultLoadControl.Builder().setBufferDurationsMs(min,when(p.getString("buffer","Normal")) { "Small" -> 30_000; "Large" -> 100_000; else -> 60_000 },2_000,5_000).setPrioritizeTimeOverSizeThresholds(true).setTargetBufferBytes(64*1024*1024).build()
+    }
     return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
         setVideoChangeFrameRateStrategy(if(p.getString("refreshRate","Auto")=="Auto") androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
         trackSelectionParameters=trackSelectionParameters.buildUpon().apply {
