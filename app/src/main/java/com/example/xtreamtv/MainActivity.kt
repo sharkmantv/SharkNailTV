@@ -573,11 +573,19 @@ fun App() {
                     disk?.clear()
                     activeApi?.clearCatalogueCache()
                     HomePlayback.clearCaches()
-                    val staleDownload = java.io.File(context.cacheDir, "install/SharkNailTV.apk.part")
-                    val staleBytes = staleDownload.length()
-                    val removedDownload = staleDownload.lastModified() in 1L until
-                        (System.currentTimeMillis() - 24 * 60 * 60 * 1000L) && staleDownload.delete()
-                    val diskFreed = (diskBefore - (disk?.size ?: 0L)).coerceAtLeast(0L) + if (removedDownload) staleBytes else 0L
+                    // Only remove known OTA cache filenames after a full day.
+                    // Recent APKs may still be needed by Android's package installer.
+                    val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+                    val installCache = java.io.File(context.cacheDir, "install")
+                    val staleOtaBytes = listOf("SharkNailTV.apk.part", "SharkNailTV.apk")
+                        .sumOf { name ->
+                            val file = java.io.File(installCache, name)
+                            if (file.isFile && file.lastModified() in 1L until cutoff) {
+                                val bytes = file.length()
+                                if (file.delete()) bytes else 0L
+                            } else 0L
+                        }
+                    val diskFreed = (diskBefore - (disk?.size ?: 0L)).coerceAtLeast(0L) + staleOtaBytes
                     val memoryFreed = (memoryBefore - (memory?.size?.toLong() ?: 0L)).coerceAtLeast(0L)
                     "Storage reclaimed: ${formatBytes(diskFreed)}\nImage memory cache cleared: ${formatBytes(memoryFreed)}"
                 }
