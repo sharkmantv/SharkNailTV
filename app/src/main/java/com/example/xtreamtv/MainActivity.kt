@@ -485,7 +485,7 @@ fun App() {
         homeLookupStatus = ""
         selected = entry
         // Episode searches are explicit so the correct season/episode is always used.
-        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search your IPTV provider for this title."
+        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search PenguPlay for this title."
     }
     fun searchHomeStreams(entry: Entry) {
         homeLookupJob?.cancel()
@@ -493,24 +493,27 @@ fun App() {
         homeStreams = emptyList()
         failedUrls=emptySet(); autoResumeMs=0L; showHomeSources=false
         autoSession=playbackPrefs(context).getBoolean("smartAuto",true)
-        val provider = api
-        val linkKey = homeLinkKey(entry)
+        v        val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
-        homeLookupStatus = "Searching IPTV provider for TMDB ${entry.id}…"
+        homeLookupStatus = "Searching PenguPlay for TMDB ${entry.id}…"
         homeLookupJob = scope.launch {
             try {
-                val iptv = if (provider != null) try {
-                    HomePlayback.lookupXtream(provider, entry, season, episode)
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                  catch (_: Exception) { emptyList() } else emptyList()
-                // PenguPlay is a Stremio-compatible HTTP source; ignore torrent links.
+                val manifest = prefs.getString("pengu_manifest", null)?.takeIf { it.isNotBlank() }
+                    ?: BuildConfig.PENGUPLAY_MANIFEST_URL
+                if (manifest.isBlank()) {
+                    homeLookupStatus = "PenguPlay is not configured. Check the GitHub PENGUPLAY_MANIFEST_URL secret and rebuild."
+                    return@launch
+                }
                 val penguplay = try {
-                    if (prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).isNullOrBlank()) emptyList() else PenguPlay.lookup(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty(), entry, tmdbKey, season, episode)
+                    PenguPlay.lookup(manifest, entry, tmdbKey, season, episode)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                  catch (_: Exception) { emptyList() }
-                val matches = (penguplay + iptv).distinctBy { it.url }
-                val results = if (sharkMega) withContext(Dispatchers.Default) {
+                  catch (e: Exception) {
+                    homeLookupStatus = "PenguPlay lookup failed: ${e.message ?: e.javaClass.simpleName}"
+                    return@launch
+                }
+                val matches = penguplay.distinctBy { it.url }
+       val results = if (sharkMega) withContext(Dispatchers.Default) {
                     SmartPlayback.preferHardwareDecoders(matches)
                 } else matches
                 val cm=context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
@@ -533,9 +536,8 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (provider == null && results.isEmpty()) "No direct links found. Connect IPTV or configure PenguPlay."
-                    else if (results.isEmpty()) "No direct streaming links found for this title."
-                    else "PenguPlay direct links: ${penguplay.size} · IPTV links: ${iptv.size}"
+                homeLookupStatus = if (results.isEmpty()) "No PenguPlay direct streams found for this title."
+                    else "PenguPlay direct links: ${penguplay.size}"
 
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -786,7 +788,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home searches PenguPlay direct streams and your connected IPTV provider.",color = Color.White)
+                                    Text("Home TMDB posters search PenguPlay only. Movies and TV Series tabs use IPTV.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
