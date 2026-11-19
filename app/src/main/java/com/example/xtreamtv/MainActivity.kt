@@ -1275,6 +1275,11 @@ fun App() {
             tear(false)
             tear(true)
         }
+        // Animate the outer claw sharks on entry without changing the two original brand logos.
+        val clawEntrance = remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(Unit) {
+            clawEntrance.animateTo(1f, tween(durationMillis = 1150))
+        }
         // Distinct shark heads and gripping claws, separate from both brand logos.
         // Drawn once on the header canvas: no bitmap loading or particle animation.
         Canvas(Modifier.fillMaxSize()) {
@@ -1283,7 +1288,7 @@ fun App() {
                 val h = size.height
                 val x0 = if (right) w else 0f
                 val d = if (right) -1f else 1f
-                fun p(x: Float, y: Float) = Offset(x0 + d*w*x, h*y)
+                fun p(x: Float, y: Float) = Offset(x0 + d*w*(x - .28f * (1f - clawEntrance.value)), h*y)
                 val head = androidx.compose.ui.graphics.Path().apply {
                     moveTo(p(0f,.08f).x,p(0f,.08f).y)
                     cubicTo(p(.05f,-.04f).x,p(.05f,-.04f).y,p(.19f,.04f).x,p(.19f,.04f).y,p(.21f,.30f).x,p(.21f,.30f).y)
