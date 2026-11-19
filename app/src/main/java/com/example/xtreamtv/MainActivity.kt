@@ -441,6 +441,9 @@ fun App() {
     var homeLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var showHomeSources by remember { mutableStateOf(false) }
     var torrentPreparing by remember { mutableStateOf(false) }
+    var autoSession by remember { mutableStateOf(false) }
+    var autoResumeMs by remember { mutableStateOf(0L) }
+    var failedUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(homePlaying?.url) {
         val selectedSource = homePlaying ?: return@LaunchedEffect
         if (!selectedSource.url.startsWith("magnet:?")) return@LaunchedEffect
@@ -468,9 +471,6 @@ fun App() {
         }
     }
 
-    var autoSession by remember { mutableStateOf(false) }
-    var autoResumeMs by remember { mutableStateOf(0L) }
-    var failedUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
     fun fallbackHome(stream:HomeStream, resumeMs:Long) {
         if (homePlaying?.url != stream.url) return
         selected?.let { entry ->
