@@ -153,8 +153,9 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                 Text("HDR window changes apply immediately. HDR video may still switch your TV into HDR; this setting does not convert HDR streams to SDR. Resolution changes may require reopening the player.",color=Color.White,fontSize=12.sp)
             }
             SettingsPanel("Playback",Modifier.weight(1f)) {
-                Text("Shark Smart AutoPlay",color=Color.White)
-                PremiumButton(compact=true,onClick={smartAuto=!smartAuto;p.edit().putBoolean("smartAuto",smartAuto).apply()}) { Text("AutoPlay: ${if(smartAuto) "On" else "Off"}") }
+                Text("One Source Player · automatic failover",color=Color.White)
+                PremiumButton(compact=true,onClick={smartAuto=!smartAuto;p.edit().putBoolean("smartAuto",smartAuto).apply()}) { Text("Try next source on failure: ${if(smartAuto) "On" else "Off"}") }
+                Text("Tries one link at a time; only switches after a playback error or startup timeout. Off lets you choose a source manually.",color=Color.LightGray,fontSize=12.sp)
                 SmartPlayback.modes.forEach { mode -> PremiumButton(compact=true,onClick={smartMode=mode;p.edit().putString("smartMode",mode).apply()},modifier=Modifier.fillMaxWidth()) { Text(if(smartMode==mode) "✓ $mode" else mode) } }
                 Text("Shark Player",color=Color.White)
                 Text("Built-in Media3 playback engine",color = Color.White,fontSize=14.sp)
