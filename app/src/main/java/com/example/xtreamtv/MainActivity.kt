@@ -473,17 +473,26 @@ fun App() {
         failedUrls=emptySet(); autoResumeMs=0L; showHomeSources=false
         autoSession=playbackPrefs(context).getBoolean("smartAuto",true)
         val provider = api
-        if (provider == null) {
-            homeLookupStatus = "Connect your IPTV provider in Settings → Xtream Codes."
-            return
-        }
         val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
-        homeLookupStatus = "Searching your IPTV catalogue…"
+        homeLookupStatus = "Searching IPTV and Torrentio…"
         homeLookupJob = scope.launch {
             try {
-                val matches = HomePlayback.lookupXtream(provider, entry, season, episode)
+                val iptv = if (provider != null) try {
+                    HomePlayback.lookupXtream(provider, entry, season, episode)
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                  catch (_: Exception) { emptyList() } else emptyList()
+                // Torrentio supports Stremio streams. Only direct HTTP(S) sources are playable
+                // until the native BitTorrent session/player bridge is implemented.
+                val torrentio = try {
+                    Torrentio.lookup(
+                        "https://torrentio.strem.fun/manifest.json",
+                        entry, BuildConfig.TMDB_API_KEY, season, episode
+                    )
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                  catch (_: Exception) { emptyList() }
+                val matches = (iptv + torrentio).distinctBy { it.url }
                 val results = if (sharkMega) withContext(Dispatchers.Default) {
                     SmartPlayback.preferHardwareDecoders(matches)
                 } else matches
@@ -502,10 +511,11 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (results.isEmpty()) "No matching stream in your IPTV catalogue." else "${results.size} playable URL(s) returned"
+                homeLookupStatus = if (results.isEmpty()) "No playable IPTV or Torrentio direct streams found."
+                    else "${results.size} playable URL(s) · IPTV ${iptv.size} · Torrentio ${torrentio.size}"
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                homeLookupStatus = "IPTV lookup failed: ${e.javaClass.simpleName}"
+                homeLookupStatus = "Source lookup failed: ${e.javaClass.simpleName}"
             }
         }
     }
