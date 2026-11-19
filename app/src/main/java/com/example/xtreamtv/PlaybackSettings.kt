@@ -92,9 +92,6 @@ internal fun configuredPlayer(
 }
 internal fun applyDisplaySettings(activity:android.app.Activity) {
     val p=playbackPrefs(activity)
-    if(android.os.Build.VERSION.SDK_INT>=26) {
-        activity.window.colorMode=if(p.getString("hdr","Auto")=="On") android.content.pm.ActivityInfo.COLOR_MODE_HDR else android.content.pm.ActivityInfo.COLOR_MODE_DEFAULT
-    }
     val display=activity.windowManager.defaultDisplay
     val current=display.mode
     val requested=p.getString("resolution","Automatic")
@@ -116,7 +113,6 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
 @Composable internal fun PlaybackSettings(onBack:()->Unit) {
     val context=LocalContext.current
     val p=playbackPrefs(context)
-    var hdr by remember { mutableStateOf(p.getString("hdr","Auto").orEmpty()) }
     var resolution by remember { mutableStateOf(p.getString("resolution","Automatic").orEmpty()) }
     var refresh by remember { mutableStateOf(p.getString("refreshRate","Auto").orEmpty()) }
     var audioLanguage by remember { mutableStateOf(p.getString("audioLanguage",null)) }
@@ -135,8 +131,6 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
         Text("Playback & Display",color=Color.White,fontSize=20.sp)
         Row(Modifier.weight(1f).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             SettingsPanel("Display",Modifier.weight(1f)) {
-                Text("HDR window mode",color=Color.White)
-                listOf("Auto","On","Off").forEach { v -> PremiumButton(compact=true,onClick={hdr=v;p.edit().putString("hdr",v).apply();(context as? android.app.Activity)?.let { applyDisplaySettings(it) }},modifier=Modifier.fillMaxWidth()) { Text(if(hdr==v) "✓ $v" else v) } }
                 Text("Resolution",color=Color.White)
                 listOf("Automatic","720p","1080p","1440p","4K","8K").forEach { v ->
                     val supported=v=="Automatic" || modes.any { it.physicalHeight==resolutionHeight(v) }
@@ -150,7 +144,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                 Text("Reported modes: "+rates.joinToString { "$it Hz" },color=Color.White,fontSize=12.sp)
                 val currentMode=(context as? android.app.Activity)?.windowManager?.defaultDisplay?.mode
                 Text(currentMode?.let { "Current: ${it.physicalWidth} × ${it.physicalHeight} · ${it.refreshRate} Hz" }.orEmpty(),color=Color.White,fontSize=12.sp)
-                Text("HDR window changes apply immediately. HDR video may still switch your TV into HDR; this setting does not convert HDR streams to SDR. Resolution changes may require reopening the player.",color=Color.White,fontSize=12.sp)
+
             }
             SettingsPanel("Playback",Modifier.weight(1f)) {
                 Text("One Source Player · automatic failover",color=Color.White)
