@@ -1856,8 +1856,8 @@ private data class AudioTrackSwitch(
         androidx.compose.animation.AnimatedVisibility(visible,modifier=Modifier.align(Alignment.BottomCenter),enter=androidx.compose.animation.slideInVertically { it },exit=androidx.compose.animation.slideOutVertically { it }) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
-                    .then(if (liveStream) Modifier.smokyLiveBar(liveBarStyle) else Modifier.hudSurface())
-                    .glassFrame(2.dp, Color.Cyan)
+                    .background(Brush.verticalGradient(listOf(Color(0xC9082657), Color(0xB8061738))), androidx.compose.ui.graphics.RectangleShape)
+                    .border(2.dp, Color(0xFF12B8FF), androidx.compose.ui.graphics.RectangleShape)
                     .padding(horizontal = if (liveStream) liveBarStyle.inset.dp else 22.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
@@ -1982,19 +1982,27 @@ private data class TimedProgramme(val title: String, val start: Long, val end: L
 
 @Composable private fun PlayerTile(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val shape = SharkFrameShape
+    val yellowPulse = rememberInfiniteTransition(label = "Sky yellow focus pulse")
+    val glow by yellowPulse.animateFloat(0.45f, 1f, infiniteRepeatable(tween(850), RepeatMode.Reverse), label = "focused button glow")
+    val focusYellow = Color(0xFFFFD53D)
     Column(
         modifier.height(54.dp).onFocusChanged { focused = it.isFocused }
-            .clip(shape)
-            .hudSurface()
-            .glassFrame(1.5.dp, if (focused) Color.White else Color.Cyan, focused = focused, repeatPulse = true)
+            .background(
+                Brush.verticalGradient(listOf(Color(0xB20C2854), Color(0xB9081737))),
+                androidx.compose.ui.graphics.RectangleShape
+            )
+            .border(
+                if (focused) 2.dp else 1.dp,
+                if (focused) focusYellow.copy(alpha = glow) else Color(0xFF2D83CF),
+                androidx.compose.ui.graphics.RectangleShape
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+        Icon(icon, contentDescription = null, tint = if (focused) focusYellow else Color.White, modifier = Modifier.size(20.dp))
+        Text(label, color = if (focused) focusYellow else Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
