@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.key.*
 import androidx.compose.foundation.*
 import androidx.compose.animation.core.animateFloat
@@ -30,7 +31,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
@@ -1238,101 +1238,6 @@ fun App() {
 }
 @Composable private fun GlassHeader(height: androidx.compose.ui.unit.Dp) {
     Box(Modifier.fillMaxWidth().height(height).clipToBounds()) {
-        // Static electric-blue torn edges: no per-frame layout or particle work.
-        Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            fun tear(right: Boolean) {
-                val side = if (right) w else 0f
-                val direction = if (right) -1f else 1f
-                val edge = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(side, 0f)
-                    lineTo(side + direction * w * .19f, 0f)
-                    lineTo(side + direction * w * .14f, h * .12f)
-                    lineTo(side + direction * w * .22f, h * .25f)
-                    lineTo(side + direction * w * .16f, h * .39f)
-                    lineTo(side + direction * w * .23f, h * .53f)
-                    lineTo(side + direction * w * .12f, h * .68f)
-                    lineTo(side + direction * w * .17f, h * .84f)
-                    lineTo(side, h)
-                    close()
-                }
-                // Leave the existing background plain; the torn seam is the only edge effect.
-                val seam = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(side + direction * w * .19f, 0f)
-                    lineTo(side + direction * w * .14f, h * .12f)
-                    lineTo(side + direction * w * .22f, h * .25f)
-                    lineTo(side + direction * w * .16f, h * .39f)
-                    lineTo(side + direction * w * .23f, h * .53f)
-                    lineTo(side + direction * w * .12f, h * .68f)
-                    lineTo(side + direction * w * .17f, h * .84f)
-                }
-                drawPath(seam, Color(0xFF0876D9), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx()))
-                drawPath(seam, Color(0xFF65E8FF), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
-            }
-            tear(false)
-            tear(true)
-        }
-        // Animate the outer claw sharks on entry without changing the two original brand logos.
-        val clawEntrance = remember { androidx.compose.animation.core.Animatable(0f) }
-        LaunchedEffect(Unit) {
-            clawEntrance.animateTo(1f, tween(durationMillis = 1150))
-        }
-        // Distinct shark heads and gripping claws, separate from both brand logos.
-        // Drawn once on the header canvas: no bitmap loading or particle animation.
-        Canvas(Modifier.fillMaxSize().then(Modifier.zIndex(2f))) {
-            fun shark(right: Boolean) {
-                val w = size.width
-                val h = size.height
-                val x0 = if (right) w else 0f
-                val d = if (right) -1f else 1f
-                fun p(x: Float, y: Float) = Offset(x0 + d*w*(x - .28f * (1f - clawEntrance.value)), h*y)
-                val head = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(p(0f,.08f).x,p(0f,.08f).y)
-                    cubicTo(p(.05f,-.04f).x,p(.05f,-.04f).y,p(.19f,.04f).x,p(.19f,.04f).y,p(.21f,.30f).x,p(.21f,.30f).y)
-                    cubicTo(p(.23f,.43f).x,p(.23f,.43f).y,p(.19f,.54f).x,p(.19f,.54f).y,p(.14f,.60f).x,p(.14f,.60f).y)
-                    lineTo(p(.22f,.76f).x,p(.22f,.76f).y)
-                    cubicTo(p(.15f,.91f).x,p(.15f,.91f).y,p(.04f,.80f).x,p(.04f,.80f).y,p(0f,.90f).x,p(0f,.90f).y)
-                    close()
-                }
-                drawPath(head, Brush.linearGradient(listOf(Color(0xFF05162C),Color(0xFF3289C5),Color(0xFFBCEBFF)),start=p(0f,.15f),end=p(.22f,.70f)))
-                drawPath(head,Color(0xFF72E8FF),style=androidx.compose.ui.graphics.drawscope.Stroke(width=2.dp.toPx()))
-                // Open dark mouth with white triangular teeth.
-                val mouth=androidx.compose.ui.graphics.Path().apply {
-                    moveTo(p(.09f,.58f).x,p(.09f,.58f).y)
-                    quadraticBezierTo(p(.19f,.57f).x,p(.19f,.57f).y,p(.22f,.76f).x,p(.22f,.76f).y)
-                    quadraticBezierTo(p(.13f,.87f).x,p(.13f,.87f).y,p(.09f,.58f).x,p(.09f,.58f).y)
-                    close()
-                }
-                drawPath(mouth,Color(0xFF06101C))
-                for (i in 0..4) {
-                    val t=i/5f
-                    val tooth=androidx.compose.ui.graphics.Path().apply {
-                        moveTo(p(.10f+.10f*t,.61f+.14f*t).x,p(.10f+.10f*t,.61f+.14f*t).y)
-                        lineTo(p(.12f+.10f*t,.69f+.10f*t).x,p(.12f+.10f*t,.69f+.10f*t).y)
-                        lineTo(p(.12f+.10f*t,.59f+.14f*t).x,p(.12f+.10f*t,.59f+.14f*t).y)
-                        close()
-                    }
-                    drawPath(tooth,Color.White)
-                }
-                drawCircle(Color(0xFF07131E),h*.043f,p(.15f,.38f))
-                drawCircle(Color(0xFF7DF4FF),h*.012f,p(.16f,.37f))
-                // Three curved steel claws gripping the ripped screen edge.
-                for (i in 0..2) {
-                    val y=.17f+i*.22f
-                    val claw=androidx.compose.ui.graphics.Path().apply {
-                        moveTo(p(.18f,y).x,p(.18f,y).y)
-                        quadraticBezierTo(p(.27f,y-.08f).x,p(.27f,y-.08f).y,p(.25f,y+.11f).x,p(.25f,y+.11f).y)
-                        quadraticBezierTo(p(.23f,y+.04f).x,p(.23f,y+.04f).y,p(.18f,y).x,p(.18f,y).y)
-                        close()
-                    }
-                    drawPath(claw,Brush.linearGradient(listOf(Color.White,Color(0xFF66798C),Color(0xFF0D2035))))
-                    drawPath(claw,Color(0xFF48D8FF),style=androidx.compose.ui.graphics.drawscope.Stroke(width=1.dp.toPx()))
-                }
-            }
-            shark(false)
-            shark(true)
-        }
         Row(Modifier.fillMaxSize().padding(top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
         val context=LocalContext.current
         
