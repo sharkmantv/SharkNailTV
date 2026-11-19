@@ -31,7 +31,7 @@ object SharkAppUpdater {
                 val release = JSONObject(readText(API))
                 if (release.optBoolean("draft") || release.optBoolean("prerelease")) return@thread
                 val tag = release.optString("tag_name").removePrefix("v")
-                val latestCode = versionCode(tag) ?: return@thread
+                val latestCode = versionCode(tag) ?: error("Unsupported release tag: $tag")
                 if (latestCode <= BuildConfig.VERSION_CODE) {
                     if (manual) activity.runOnUiThread { AlertDialog.Builder(activity).setTitle("SharkNailTV is up to date").setMessage("Installed version: ${BuildConfig.VERSION_NAME}").setPositiveButton("OK", null).show() }
                     return@thread
@@ -40,12 +40,12 @@ object SharkAppUpdater {
                 var url: String? = null
                 for (i in 0 until assets.length()) {
                     val a = assets.getJSONObject(i)
-                    if (a.optString("name") == "SharkNailTV.apk") {
+                    if (a.optString("name").endsWith(".apk", ignoreCase = true)) {
                         url = a.optString("browser_download_url"); break
                     }
                 }
-                val apkUrl = url ?: return@thread
-                if (!apkUrl.startsWith("https://github.com/sharkmantv/SharkNailTV/releases/download/")) return@thread
+                val apkUrl = url ?: error("Latest release has no APK asset. Publish a signed APK in GitHub Releases.")
+                if (!apkUrl.startsWith("https://github.com/sharkmantv/SharkNailTV/releases/download/")) error("Unexpected APK download URL")
                 activity.runOnUiThread {
                     if (!activity.isFinishing && !activity.isDestroyed) AlertDialog.Builder(activity)
                         .setTitle("SharkNailTV update available")
@@ -55,7 +55,7 @@ object SharkAppUpdater {
                         .show()
                 }
             } catch (e: Exception) {
-                if (manual) activity.runOnUiThread { AlertDialog.Builder(activity).setTitle("Update check failed").setMessage("Could not check GitHub Releases. Check internet access and that a public release contains SharkNailTV.apk. ${e.message ?: ""}").setPositiveButton("OK", null).show() }
+                if (manual) activity.runOnUiThread { AlertDialog.Builder(activity).setTitle("Update check failed").setMessage("Could not check GitHub Releases: ${e.message ?: "Unknown error"}. Verify internet access and that the repository has a public release with an APK.").setPositiveButton("OK", null).show() }
             }
         }
     }
@@ -71,7 +71,7 @@ object SharkAppUpdater {
         connection.connectTimeout = 12000; connection.readTimeout = 12000
         connection.setRequestProperty("Accept", "application/vnd.github+json")
         connection.setRequestProperty("User-Agent", "SharkNailTV-Android")
-        try { if (connection.responseCode != 200) error("Release unavailable")
+        try { if (connection.responseCode != 200) error("GitHub release check returned HTTP ${connection.responseCode}")
             return connection.inputStream.bufferedReader().use { it.readText() }
         } finally { connection.disconnect() }
     }
