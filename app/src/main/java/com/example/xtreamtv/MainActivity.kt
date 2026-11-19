@@ -464,7 +464,7 @@ fun App() {
         homeLookupStatus = ""
         selected = entry
         // Episode searches are explicit so the correct season/episode is always used.
-        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Search your connected IPTV catalogue for this title."
+        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search IPTV and Torrentio using this TMDB title."
     }
     fun searchHomeStreams(entry: Entry) {
         homeLookupJob?.cancel()
@@ -750,7 +750,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home playback searches your connected IPTV catalogue.",color = Color.White)
+                                    Text("Finds matching streams using TMDB IDs, your IPTV catalogue and Torrentio. Torrent hashes need a torrent playback engine.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
