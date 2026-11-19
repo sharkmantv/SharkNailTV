@@ -440,6 +440,27 @@ fun App() {
     var homePlaying by remember { mutableStateOf<HomeStream?>(null) }
     var homeLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var showHomeSources by remember { mutableStateOf(false) }
+    var torrentPreparing by remember { mutableStateOf(false) }
+    LaunchedEffect(homePlaying?.url) {
+        val selectedSource = homePlaying ?: return@LaunchedEffect
+        if (!selectedSource.url.startsWith("magnet:?")) return@LaunchedEffect
+        torrentPreparing = true
+        try {
+            val ready = TorrentPlayback.prepare(context, selectedSource.url) { progress ->
+                homeLookupStatus = progress
+            }
+            homePlaying = HomeStream(selectedSource.title, ready)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            homePlaying = null
+            showHomeSources = true
+            homeLookupStatus = "Torrent failed: ${e.message ?: e.javaClass.simpleName}"
+        } finally {
+            torrentPreparing = false
+        }
+    }
+
     var autoSession by remember { mutableStateOf(false) }
     var autoResumeMs by remember { mutableStateOf(0L) }
     var failedUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -733,7 +754,7 @@ fun App() {
                     Spacer(Modifier.height(14.dp))
                     when(e.kind) {
                         "tmdb" -> {
-                            if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null) {
+                            if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null && !torrentPreparing && homePlaying?.url?.startsWith("magnet:?") != true) {
                                 val stream = homePlaying!!
                                 key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 15000L else 0L,sharkMega=sharkMega,onFirstFrame={
                                     if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
@@ -753,7 +774,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home searches Torrentio first using TMDB IDs; IPTV is optional fallback. Torrent hashes need a playback bridge.",color = Color.White)
+                                    Text("Home searches Torrentio first using TMDB IDs; IPTV is optional fallback. Torrent sources download locally before playback.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
