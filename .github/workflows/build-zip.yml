@@ -40,8 +40,12 @@ jobs:
           set -euo pipefail
           source="$REQUESTED_SOURCE"
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            source=repository-zip
-            if [[ -f incoming/SharkNailTV.zip ]]; then source=zip; fi
+            source=repository
+            # Only build the incoming ZIP when this push actually updates that ZIP.
+            # Otherwise build current repository code, not a stale uploaded archive.
+            if git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep -Fxq 'incoming/SharkNailTV.zip'; then
+              source=zip
+            fi
           fi
           case "$source" in
             repository)
