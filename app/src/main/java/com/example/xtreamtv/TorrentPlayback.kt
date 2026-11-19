@@ -42,7 +42,7 @@ internal object TorrentPlayback {
             val expectedSize = files.fileSize(chosen)
             require(expectedSize > 0 && expectedSize < 100L * 1024 * 1024 * 1024) { "Unsupported video size" }
             val priorities = Array(files.numFiles()) { index ->
-                if (index == chosen) Priority.NORMAL else Priority.IGNORE
+                if (index == chosen) Priority.DEFAULT else Priority.IGNORE
             }
             session.download(info, root, null, priorities, null, torrent_flags_t())
             // File length alone is not sufficient: wait for libtorrent to report all
