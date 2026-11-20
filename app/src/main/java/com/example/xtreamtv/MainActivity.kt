@@ -148,57 +148,72 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
 
 /** One-time cinematic shark breakthrough. The home screen remains unchanged afterwards. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
-    val impact = remember { androidx.compose.animation.core.Animatable(0f) }
-    val curtain = remember { androidx.compose.animation.core.Animatable(1f) }
+    // Sharks emerge through an animated water surface; no sliding doors or torn curtain.
+    val emergence = remember { androidx.compose.animation.core.Animatable(0f) }
     val fade = remember { androidx.compose.animation.core.Animatable(1f) }
+    val water = rememberInfiniteTransition(label = "Shark intro water")
+    val wavePhase by water.animateFloat(
+        0f, 6.28318f,
+        infiniteRepeatable(tween(2100, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "Moving water"
+    )
     LaunchedEffect(Unit) {
-        impact.animateTo(1f, androidx.compose.animation.core.spring(
-            dampingRatio = 0.55f,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium))
-        delay(350)
-        curtain.animateTo(0f, tween(560))
-        delay(1350)
-        fade.animateTo(0f, tween(400))
+        emergence.animateTo(1f, tween(1250, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        delay(1050)
+        fade.animateTo(0f, tween(450))
         onFinished()
     }
-    Box(Modifier.fillMaxSize().background(Color(0xFF061125)), contentAlignment = Alignment.Center) {
-        // The existing two-shark illustration lunges forward through a torn navy curtain.
+    Box(Modifier.fillMaxSize().background(Color(0xFF03162C)), contentAlignment = Alignment.Center) {
         Image(painterResource(R.drawable.shark_intro_claws_background),
-            "Two sharks tearing through the screen",
+            "Sharks bursting out of ocean water",
             Modifier.fillMaxSize().graphicsLayer {
-                val p = impact.value
-                scaleX = 0.78f + 0.22f * p
-                scaleY = 0.78f + 0.22f * p
+                val p = emergence.value
+                scaleX = 0.92f + 0.13f * p
+                scaleY = 0.92f + 0.13f * p
+                translationY = (1f-p) * 44f
                 alpha = fade.value
             }, contentScale = ContentScale.Crop)
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
             val w = size.width
             val h = size.height
-            val opening = (impact.value * 0.42f + (1f - curtain.value) * 0.13f).coerceIn(0f, 0.55f)
-            val left = w * (0.5f - opening)
-            val right = w * (0.5f + opening)
-            val jag = floatArrayOf(-.022f,.016f,-.031f,.028f,-.012f,.035f,-.025f,.014f,-.018f,.024f,-.012f)
-            val leftPath = androidx.compose.ui.graphics.Path().apply {
-                moveTo(0f,0f); lineTo(left,0f)
-                for (i in 0..10) lineTo(left + jag[i]*w, h*i/10f)
-                lineTo(0f,h); close()
-            }
-            val rightPath = androidx.compose.ui.graphics.Path().apply {
-                moveTo(w,0f); lineTo(right,0f)
-                for (i in 0..10) lineTo(right - jag[i]*w, h*i/10f)
-                lineTo(w,h); close()
-            }
-            val cover = Color(0xFF061125).copy(alpha = curtain.value)
-            drawPath(leftPath, cover)
-            drawPath(rightPath, cover)
-            if (impact.value > 0.12f) {
-                val edge = Color(0xFFE42A43).copy(alpha = (1f-curtain.value)*.9f)
-                for (i in 0..9) {
-                    val a = h*i/10f
-                    val b = h*(i+1)/10f
-                    drawLine(edge, Offset(left+jag[i]*w,a), Offset(left+jag[i+1]*w,b), strokeWidth=4f)
-                    drawLine(edge, Offset(right-jag[i]*w,a), Offset(right-jag[i+1]*w,b), strokeWidth=4f)
+            val p = emergence.value
+            val surfaceY = h * (0.69f + 0.17f * p)
+            val amplitude = h * (0.015f + 0.013f * (1f-p))
+            val surface = androidx.compose.ui.graphics.Path().apply {
+                moveTo(0f, h)
+                lineTo(0f, surfaceY)
+                for (step in 0..80) {
+                    val x = w * step / 80f
+                    val wave = kotlin.math.sin(step * 0.27f + wavePhase) * amplitude +
+                        kotlin.math.sin(step * 0.55f - wavePhase * 1.3f) * amplitude * 0.35f
+                    lineTo(x, surfaceY + wave)
                 }
+                lineTo(w,h)
+                close()
+            }
+            drawPath(surface, Brush.verticalGradient(
+                listOf(Color(0xB91AB7E8), Color(0xDE064B85), Color(0xF0031938)),
+                startY=surfaceY-amplitude, endY=h
+            ))
+            val foamAlpha = (0.45f + (1f-p)*0.45f).coerceIn(0f,1f)
+            for (step in 0..52) {
+                val x = w * step / 52f
+                val y = surfaceY + kotlin.math.sin(step * 0.27f + wavePhase) * amplitude +
+                    kotlin.math.sin(step * 0.55f - wavePhase * 1.3f) * amplitude * 0.35f
+                drawCircle(Color(0xFFD6F8FF), radius=1.6f + 2.5f*(1f-p), center=Offset(x,y), alpha=foamAlpha)
+            }
+            // Water droplets fly outward as the sharks break through the surface.
+            for (i in 0 until 34) {
+                val angle = (i * 2.39996f)
+                val distance = (0.06f + (i % 7) * 0.019f) * p
+                val x = w * (0.5f + kotlin.math.cos(angle) * distance)
+                val y = h * (0.69f - kotlin.math.abs(kotlin.math.sin(angle)) * distance * 1.6f)
+                drawCircle(
+                    color = if(i % 3 == 0) Color.White else Color(0xFF65DBFF),
+                    radius = (2f + i % 4) * (1f - p * 0.65f),
+                    center = Offset(x,y),
+                    alpha = (1f-p*0.75f).coerceIn(0f,1f)
+                )
             }
         }
         Image(painterResource(R.drawable.shark_brand), "Original SharkNailTV logo",
