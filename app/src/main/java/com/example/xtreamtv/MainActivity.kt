@@ -914,7 +914,7 @@ fun App() {
                                 "Hulu" to R.drawable.themed_marquee_hulu
                             )
                             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                val tileWidth = minOf((maxWidth - 62.dp) / 6, maxHeight - 20.dp).coerceIn(1.dp, 280.dp)
+                                val tileWidth = minOf((maxWidth - 62.dp) / 3, (maxHeight - 20.dp) * 2.25f).coerceIn(1.dp, 400.dp)
                                 CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
                                     LazyRow(
                                         Modifier.fillMaxWidth(),
@@ -922,7 +922,7 @@ fun App() {
                                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
                                     ) {
                                         items(services, key = { it.first }) { (provider, artwork) ->
-                                            StreamingBrandCard(provider, artwork, Modifier.size(tileWidth)) {
+                                            StreamingBrandCard(provider, artwork, Modifier.width(tileWidth).height(tileWidth / 2.25f)) {
                                                 serviceCategory = "Movies"
                                                 serviceGenre = null
                                                 section = "$provider Catalogue"
