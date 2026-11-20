@@ -35,14 +35,35 @@ internal object SmartPlayback {
         title.contains("480") -> 480
         else -> 0
     }
+    /**
+     * Prefer the highest advertised resolution likely to play smoothly.
+     * ConnectivityManager reports a network link estimate, NOT measured internet
+     * throughput; never treat it as a guaranteed source-server bitrate.
+     * Unknown-resolution links are retained for fallback after labelled sources.
+     */
     fun rank(streams:List<HomeStream>, mode:String, kbps:Int, screen:Int):List<HomeStream> {
-        val budget = (when {
-            mode == "Shark Ultra 4K" -> 2160
-            kbps in 1..7999 -> 720
+        val displayHeight=screen.coerceAtLeast(480)
+        val cap = when {
             mode == "Shark Turbo" -> 1080
-            kbps >= 35000 -> 2160
-            else -> 1080
-        }).coerceAtMost(screen.coerceAtLeast(480))
-        return streams.distinctBy { it.url }.sortedByDescending { val h=height(it.title); if(h>budget) -h else h }
+            mode == "Shark Ultra 4K" -> 2160
+            // Very weak link estimates are a useful warning, but Wi-Fi link
+            // capacity alone cannot prove that a 4K source will be reliable.
+            kbps in 1..5999 -> 720
+            else -> 2160
+        }.coerceAtMost(displayHeight)
+        return streams.distinctBy { it.url }.sortedWith(
+            compareByDescending<HomeStream> { stream ->
+                val h=height(stream.title)
+                when {
+                    h == 0 -> 0
+                    h <= cap -> h
+                    else -> -h
+                }
+            }.thenByDescending { stream ->
+                // An unlabelled stream should not outrank a known 1080p/4K source.
+                // Keep source order when metadata cannot distinguish two links.
+                height(stream.title) > 0
+            }
+        )
     }
 }
