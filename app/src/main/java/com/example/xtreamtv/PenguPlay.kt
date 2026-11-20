@@ -9,9 +9,14 @@ import java.net.URLEncoder
 
 /** Stremio addon stream resolver. The configured manifest is kept out of shipped source. */
 internal object PenguPlay {
-    suspend fun lookup(manifest: String, entry: Entry, tmdbKey: String, season: Int = 1, episode: Int = 1): List<HomeStream> = withContext(Dispatchers.IO) {
+    suspend fun lookup(manifest: String, entry: Entry, tmdbKey: String, season: Int = 1, episode: Int = 1, configuredAddon: Boolean = false): List<HomeStream> = withContext(Dispatchers.IO) {
         val base = URL(manifest)
-        require(base.protocol == "https" && base.host.equals("pengu.uk", ignoreCase = true)) { "Invalid PenguPlay manifest" }
+        require(base.protocol == "https" && (configuredAddon || base.host.equals("pengu.uk", ignoreCase = true))) { "Invalid addon manifest" }
+        require(base.userInfo == null && base.port in listOf(-1, 443) && base.query == null && base.ref == null) { "Unsupported manifest URL" }
+        val host = base.host.lowercase()
+        require(host.isNotBlank() && host != "localhost" && !host.endsWith(".local") &&
+            !host.endsWith(".internal") && !host.matches(Regex("""\\d+\\.\\d+\\.\\d+\\.\\d+""")) &&
+            !host.contains(':')) { "Private or numeric addon hosts are not supported" }
         require(base.path.endsWith("/manifest.json")) { "Expected Stremio manifest URL" }
         val isSeries = entry.genre == "TV Series"
         val imdbId = entry.id.takeIf { it.startsWith("tt") } ?: run {
