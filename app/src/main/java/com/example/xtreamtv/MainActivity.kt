@@ -818,7 +818,7 @@ fun App() {
                 SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
         } else Box(Modifier.fillMaxSize()) {
-            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health","Shark Performance Hub")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
+            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health","Shark Performance Hub","Shark Focus Studio")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
@@ -1005,7 +1005,7 @@ fun App() {
                         "Xtream Codes" -> {Text("Xtream Codes",color=Color.White,fontSize=25.sp); FocusAction("Connect / Change IPTV Account"){if(password.isBlank()) password=readSavedPassword(context);showLogin=true}; FocusAction("Disconnect (keep login)"){api=null;connected=false}; Text(if(connected) "Connected" else "Not connected",color=Color.White); Text(credentialStatus,color=Color.White); FocusAction("Back to Settings"){section="Settings"}}
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
-                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health","Shark Performance Hub")
+                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Shark Focus Studio","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health","Shark Performance Hub")
                             val interfacePrefs = playbackPrefs(context)
                             val uniformBarHeight = interfacePrefs.getInt("uniformBarHeight",76).coerceIn(64,88).dp
                             var focusedSetting by remember { mutableStateOf<String?>(null) }
@@ -1057,7 +1057,7 @@ fun App() {
                                                             "Refresh Posters" -> { refreshNotice="Refreshing movie and TV posters…"; tmdbStatus="Refreshing posters…"; posterRefresh++ }
                                                             "Refresh Sports" -> { refreshNotice="Refreshing sports fixtures…"; fixtureStatus="Refreshing sports…"; sportsRefresh++ }
                                                             "Clear Memory Cache" -> cleanAppCache()
-                                                            "Connection Status" -> { diagnostics=true; testRun++ }
+                                                            "Shark Focus Studio" -> section=label
                                                             else -> section=label
                                                         }
                                                     },
@@ -1081,6 +1081,30 @@ fun App() {
                             }
                         }
                         "Playback & Display" -> { PlaybackSettings { section="Settings" } }
+                        "Shark Focus Studio" -> {
+                            val focusPrefs = playbackPrefs(context)
+                            var pulseDuration by remember { mutableIntStateOf(focusPrefs.getInt("sharkFocusPulseMs", 1100)) }
+                            Text("Shark Focus Studio", color=Color.White, fontSize=26.sp)
+                            Text("Customise how fast the fiery yellow, orange and red focus outline pulses on posters and menus.", color=Color.LightGray, fontSize=14.sp)
+                            Text("Fire pulse speed", color=Color(0xFFFFD53D), fontSize=19.sp)
+                            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                                FocusAction(if(pulseDuration==1800) "✓ Slow" else "Slow") {
+                                    pulseDuration=1800
+                                    focusPrefs.edit().putInt("sharkFocusPulseMs",1800).apply()
+                                }
+                                FocusAction(if(pulseDuration==1100) "✓ Normal" else "Normal") {
+                                    pulseDuration=1100
+                                    focusPrefs.edit().putInt("sharkFocusPulseMs",1100).apply()
+                                }
+                                FocusAction(if(pulseDuration==650) "✓ Fast" else "Fast") {
+                                    pulseDuration=650
+                                    focusPrefs.edit().putInt("sharkFocusPulseMs",650).apply()
+                                }
+                            }
+                            Text("Selected: ${when(pulseDuration){1800->"Slow";650->"Fast";else->"Normal"}} · Focus pulse stays enabled while an item is selected.", color=Color.White, fontSize=14.sp)
+                            Text("The change takes effect when the poster or menu is redrawn.", color=Color.LightGray, fontSize=12.sp)
+                            FocusAction("Back to Settings") { section="Settings" }
+                        }
                         "Shark Performance Hub" -> {
                             val activity = context as? android.app.Activity
                             val displayMode = activity?.windowManager?.defaultDisplay?.mode
@@ -1404,10 +1428,11 @@ fun App() {
     repeatPulse: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val focusPulseMs = playbackPrefs(LocalContext.current).getInt("sharkFocusPulseMs", 1100).coerceIn(500, 2200)
     val fireMotion = rememberInfiniteTransition(label = "Shark TV fire focus")
     val firePhase by fireMotion.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(focusPulseMs), RepeatMode.Reverse),
         label = "Yellow orange red focus pulse"
     )
     val fireColor = androidx.compose.ui.graphics.lerp(
@@ -1473,8 +1498,9 @@ fun App() {
             LazyRow(modifier=Modifier.height((cardWidth*1.5f+5f).dp).clipToBounds(),horizontalArrangement=Arrangement.spacedBy(7.dp),contentPadding=PaddingValues(start=2.dp,end=6.dp,top=2.dp,bottom=3.dp)) {
                 itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
+                    val focusPulseMs = playbackPrefs(LocalContext.current).getInt("sharkFocusPulseMs", 1100).coerceIn(500, 2200)
                     val posterPulse = rememberInfiniteTransition(label = "Home poster fire")
-                    val posterFire by posterPulse.animateFloat(0f, 1f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "Home poster fire colour")
+                    val posterFire by posterPulse.animateFloat(0f, 1f, infiniteRepeatable(tween(focusPulseMs), RepeatMode.Reverse), label = "Home poster fire colour")
                     val posterBorder = androidx.compose.ui.graphics.lerp(Color(0xFFFFE747), Color(0xFFFF4920), posterFire)
 
                     Box(Modifier.width(cardWidth.dp).onFocusChanged {
