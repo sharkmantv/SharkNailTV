@@ -969,6 +969,7 @@ fun App() {
                                     key(section, serviceCategory, serviceGenre) {
                                         HomeTmdbRow(
                                             tmdbKey, "", serviceEntries, posterWidth,
+                                            landscape = false,
                                             onNearEnd = {
                                                 if (serviceHasMore && !serviceLoading && serviceError.isBlank()) servicePageRequest++
                                             },
@@ -1487,6 +1488,7 @@ fun App() {
     title: String,
     entries: List<Entry>,
     cardWidth: Int = 245,
+    landscape: Boolean = true,
     onNearEnd: (() -> Unit)? = null,
     endAction: (() -> Unit)? = null,
     onSelect: (Entry) -> Unit
@@ -1501,7 +1503,7 @@ fun App() {
             Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
             val distinctEntries = entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" }
-            LazyRow(modifier=Modifier.height((cardWidth*9f/16f+14f).dp),horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=12.dp,end=14.dp,top=6.dp,bottom=6.dp)) {
+            LazyRow(modifier=Modifier.height((cardWidth*(if(landscape) 9f/16f else 1.5f)+14f).dp),horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=12.dp,end=14.dp,top=6.dp,bottom=6.dp)) {
                 itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
                     val posterPulse = rememberInfiniteTransition(label = "Home poster fire")
@@ -1515,17 +1517,17 @@ fun App() {
                         .zIndex(if (focused) 2f else 0f)
                         
                         .glassFrame(if (focused) 3.3.dp else 2.5.dp, if (focused) posterBorder else Color(0xFF56BFFF), focused = focused, repeatPulse = false).clickable {onSelect(entry)}.padding(3.dp)) {
-                        Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color(0xFF071424))) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(if(landscape) 16f/9f else 2f/3f).background(Color(0xFF071424))) {
                             val logo by produceState("",entry.id,entry.genre,tmdbKey) {
-                                if(entry.kind=="tmdb" && tmdbKey.isNotBlank()) value=TmdbApi.titleLogo(tmdbKey,entry)
+                                if(landscape && entry.kind=="tmdb" && tmdbKey.isNotBlank()) value=TmdbApi.titleLogo(tmdbKey,entry)
                             }
                             var logoReady by remember(logo) { mutableStateOf(false) }
-                            val posterUrl=entry.backdrop.ifBlank { entry.image }
+                            val posterUrl=if(landscape) entry.backdrop.ifBlank { entry.image } else entry.image.ifBlank { entry.backdrop }
                             AsyncImage(model=posterUrl,contentDescription=entry.title,
                                 modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
-                            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height((cardWidth*0.24f).dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=0.85f)))))
+                            if(landscape) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height((cardWidth*0.24f).dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=0.85f)))))
                             if(logo.isNotBlank()) AsyncImage(model=logo,contentDescription=entry.title,modifier=Modifier.align(Alignment.BottomStart).padding(7.dp).fillMaxWidth(0.82f).height((cardWidth*0.19f).dp),contentScale=ContentScale.Fit,alignment=Alignment.BottomStart,onSuccess={logoReady=true},onError={logoReady=false})
-                            if(!logoReady) Text(entry.title,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold,maxLines=2,overflow=TextOverflow.Ellipsis,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,2f),5f)),modifier=Modifier.align(Alignment.BottomStart).padding(8.dp))
+                            if(landscape && !logoReady) Text(entry.title,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold,maxLines=2,overflow=TextOverflow.Ellipsis,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,2f),5f)),modifier=Modifier.align(Alignment.BottomStart).padding(8.dp))
                             if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))
                         }
                     }
