@@ -1,4 +1,4 @@
-name: Build SharkNailTV ZIP and publish OTA
+name: Build SharkNailTV ZIP (artifact only)
 
 on:
   push:
@@ -15,7 +15,7 @@ on:
         default: repository
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: sharknailtv-release
@@ -170,11 +170,3 @@ jobs:
           name: SharkNailTV-APK
           path: SharkNailTV*.apk
           if-no-files-found: error
-      - name: Publish signed APK for Software Update
-        if: github.ref == 'refs/heads/main' && hashFiles('SharkNailTV.apk') != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="v$VERSION_NAME"
-          gh release create "$tag" SharkNailTV.apk --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes 'Built by the SharkNailTV ZIP and OTA workflow.' --latest
