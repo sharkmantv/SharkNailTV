@@ -519,7 +519,7 @@ fun App() {
                 failedUrls = failedUrls + selectedSource.url
                 homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
                 showHomeSources = homePlaying == null
-                homeLookupStatus = if (homePlaying == null) "All PenguPlay sources failed" else "Torrent failed — trying next PenguPlay source"
+                homeLookupStatus = if (homePlaying == null) "All Home provider sources failed" else "Torrent failed — trying next Home provider source"
             } else {
                 homePlaying = null
                 showHomeSources = true
@@ -551,7 +551,7 @@ fun App() {
         homeLookupStatus = ""
         selected = entry
         // Episode searches are explicit so the correct season/episode is always used.
-        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search PenguPlay for this title."
+        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search your Home provider for this title."
     }
     fun searchHomeStreams(entry: Entry) {
         homeLookupJob?.cancel()
@@ -562,20 +562,20 @@ fun App() {
         val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
-        homeLookupStatus = "Searching PenguPlay for TMDB ${entry.id}…"
+        homeLookupStatus = "Searching Home provider for TMDB ${entry.id}…"
         homeLookupJob = scope.launch {
             try {
                 val manifest = prefs.getString("pengu_manifest", null)?.takeIf { it.isNotBlank() }
                     ?: BuildConfig.PENGUPLAY_MANIFEST_URL
                 if (manifest.isBlank()) {
-                    homeLookupStatus = "PenguPlay is not configured. Check the GitHub PENGUPLAY_MANIFEST_URL secret and rebuild."
+                    homeLookupStatus = "Home provider is not configured. Add your manifest in API Configuration."
                     return@launch
                 }
                 val penguplay = try {
                     PenguPlay.lookup(manifest, entry, tmdbKey, season, episode)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                   catch (e: Exception) {
-                    homeLookupStatus = "PenguPlay lookup failed: ${e.message ?: e.javaClass.simpleName}"
+                    homeLookupStatus = "Home provider lookup failed: ${e.javaClass.simpleName}"
                     return@launch
                 }
                 val matches = penguplay.distinctBy { it.url }
@@ -604,8 +604,8 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (results.isEmpty()) "No PenguPlay direct streams found for this title."
-                    else "PenguPlay direct links: ${penguplay.size}"
+                homeLookupStatus = if (results.isEmpty()) "No Home provider direct streams found for this title."
+                    else "Home provider direct links: ${penguplay.size}"
 
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -866,7 +866,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home TMDB posters search PenguPlay only. Movies and TV Series tabs use IPTV.",color = Color.White)
+                                    Text("Home TMDB posters search your Home provider only. Movies and TV Series tabs use IPTV.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
@@ -1154,7 +1154,7 @@ fun App() {
                             FocusAction("Back to Settings") { section = "Settings" }
                         }
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
-                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
+                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("AIOStreams / PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save Home provider") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
                     }
                     if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && (loading || catalogueLoading)) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if(section in listOf("Home","Movies","TV Series") && tmdbStatus.isNotBlank()) Text(tmdbStatus,color = Color.White,fontSize=12.sp)
@@ -1240,7 +1240,7 @@ fun App() {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(networkReport)
                     val penguManifestConfigured = prefs.getString("pengu_manifest", null)?.isNotBlank() == true || BuildConfig.PENGUPLAY_MANIFEST_URL.isNotBlank()
-                    Text(if (penguManifestConfigured) "PenguPlay: manifest configured (stream availability not yet tested)" else "PenguPlay: manifest missing — check GitHub secret and rebuild")
+                    Text(if (penguManifestConfigured) "Home provider: manifest configured (stream availability not yet tested)" else "Home provider: manifest missing — add manifest in API Configuration")
                     Text("M-Lab NDT7 open-source speed test measures sustained download over one connection (about 10 seconds). Results may differ from multi-connection broadband tests. This does not test IPTV or PenguPlay servers.",fontSize=12.sp)
                     if (speedReport.isNotBlank()) Text(speedReport)
                     FocusAction("Test download speed", enabled = !speedRunning, onClick = ::testDownload)
