@@ -481,7 +481,7 @@ fun App() {
     }
     val lastWorkingLinks = remember { android.util.LruCache<String, String>(100) }
     var reuseLastLink by remember {
-        mutableStateOf(playbackPrefs(context).getBoolean("reuseLastLink", false))
+        mutableStateOf(playbackPrefs(context).getBoolean("reuseLastLink", true))
     }
     var homeLookupStatus by remember { mutableStateOf("") }
     var homeSeason by remember { mutableIntStateOf(1) }
@@ -595,8 +595,12 @@ fun App() {
                 )
                 homeStreams = ranked.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) } +
                     ranked.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
-                // Always start from the current quality ranking. A previously working
-                // link may be slower or lower quality than newly discovered sources.
+                // Prefer a link that actually sustained playback for this exact title/episode.
+                // Advertised quality alone cannot establish stream reliability.
+                if (reuseLastLink) {
+                    val proven = lastWorkingLinks.get(linkKey)
+                    if (proven != null) homeStreams = homeStreams.sortedByDescending { it.url == proven }
+                }
                 // Failed sources are excluded for the rest of this playback attempt.
                 if (autoSession) {
                     homePlaying = homeStreams.firstOrNull()
@@ -811,7 +815,7 @@ fun App() {
                         Text(homeLookupStatus.ifBlank { "Preparing torrent playback…" }, color=Color.White)
                     }
                 } else {
-                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onStablePlayback={
                         if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
                     }) }
                 }
@@ -848,7 +852,7 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null && !torrentPreparing && homePlaying?.url?.startsWith("magnet:?") != true) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onStablePlayback={
                                     if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
                                 }) }
                             } else {
@@ -1766,7 +1770,7 @@ private data class AudioTrackSwitch(
     val startedAt: Long
 )
 
-@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false,sharkMega:Boolean=false,onFirstFrame:()->Unit={}) {
+@Composable private fun SafePlayer(url:String,onExit:()->Unit={},onChannel:(Int)->Unit={},title:String="",liveStream:Boolean=false,onFailure:(Long)->Unit={},startupTimeoutMs:Long=0L,resumeMs:Long=0L,programmes:List<Program>?=null,inferFormat:Boolean=false,sharkMega:Boolean=false,onFirstFrame:()->Unit={},onStablePlayback:()->Unit={}) {
     val context=LocalContext.current
     var guideTime by remember(url) { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(url, liveStream) {
@@ -1840,6 +1844,21 @@ private data class AudioTrackSwitch(
     }
     val latestFailure by rememberUpdatedState(onFailure)
     val latestFirstFrame by rememberUpdatedState(onFirstFrame)
+    val latestStablePlayback by rememberUpdatedState(onStablePlayback)
+    LaunchedEffect(player, url) {
+        // Mark a link reliable only after 30 seconds of real playback progress.
+        var progressedMs = 0L
+        var previousPosition = player.currentPosition
+        while (progressedMs < 30_000L) {
+            delay(1000L)
+            val currentPosition = player.currentPosition
+            if (player.isPlaying && currentPosition > previousPosition) {
+                progressedMs += (currentPosition - previousPosition).coerceAtMost(1500L)
+            }
+            previousPosition = currentPosition
+        }
+        latestStablePlayback()
+    }
     var firstFrame by remember(url) { mutableStateOf(false) }
     var showPlayerBrand by remember(url) { mutableStateOf(false) }
     LaunchedEffect(url, firstFrame) {
