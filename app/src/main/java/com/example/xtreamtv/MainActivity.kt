@@ -1359,7 +1359,24 @@ fun App() {
     repeatPulse: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    Box(modifier.padding(2.dp).glassFrame(2.dp, if (focused || selected) Color.White else Color.Cyan, focused = focused, repeatPulse = repeatPulse)
+    val fireMotion = rememberInfiniteTransition(label = "Shark TV fire focus")
+    val firePhase by fireMotion.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+        label = "Yellow orange red focus pulse"
+    )
+    val fireColor = androidx.compose.ui.graphics.lerp(
+        Color(0xFFFFE747), Color(0xFFFF4920), firePhase
+    )
+    val frameColor = if (focused || selected) fireColor else Color(0xFF56BFFF)
+    val frameWidth = if (focused || selected) 3.3.dp else 2.dp
+    Box(modifier.padding(2.dp)
+        .graphicsLayer {
+            val focusScale = if (focused) 1.10f else 1f
+            scaleX = focusScale
+            scaleY = focusScale
+        }
+        .glassFrame(frameWidth, frameColor, focused = focused, repeatPulse = false)
         .padding(2.dp).clip(SharkFrameShape)) { content() }
 }
 
@@ -1411,13 +1428,16 @@ fun App() {
             LazyRow(modifier=Modifier.height((cardWidth*1.5f+5f).dp).clipToBounds(),horizontalArrangement=Arrangement.spacedBy(7.dp),contentPadding=PaddingValues(start=2.dp,end=6.dp,top=2.dp,bottom=3.dp)) {
                 itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
-
+                    val posterPulse = rememberInfiniteTransition(label = "Home poster fire")
+                    val posterFire by posterPulse.animateFloat(0f, 1f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "Home poster fire colour")
+                    val posterBorder = androidx.compose.ui.graphics.lerp(Color(0xFFFFE747), Color(0xFFFF4920), posterFire)
 
                     Box(Modifier.width(cardWidth.dp).onFocusChanged {
                         focused = it.isFocused
                         if (focused && index >= distinctEntries.lastIndex - 2) onNearEnd?.invoke()
                     }
-                        .glassFrame(2.5.dp, if (focused) SharkFocusGold else Color(0xFF56BFFF), focused = focused).clickable {onSelect(entry)}.padding(3.dp)) {
+                        .graphicsLayer { scaleX = if (focused) 1.10f else 1f; scaleY = if (focused) 1.10f else 1f }
+                        .glassFrame(if (focused) 3.3.dp else 2.5.dp, if (focused) posterBorder else Color(0xFF56BFFF), focused = focused, repeatPulse = false).clickable {onSelect(entry)}.padding(3.dp)) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
                             val posterUrl=entry.image.ifBlank { entry.backdrop }
                             AsyncImage(model=posterUrl,contentDescription=entry.title,
