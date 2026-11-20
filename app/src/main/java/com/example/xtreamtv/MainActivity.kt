@@ -884,7 +884,7 @@ fun App() {
                                     // Fit both TMDB rows within the TV viewport; preserve 2:3 artwork.
                                     // Use the available height for larger portrait posters.
                                     val horizontalWidth = ((maxWidth.value - 42f) / 5f).toInt()
-                                    val verticalWidth = ((maxHeight.value - 68f) / 3.0f).toInt()
+                                    val verticalWidth = ((maxHeight.value - 122f) / 3.0f).toInt()
                                     val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,220)
                                     Column(Modifier.fillMaxSize().padding(top=2.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
                                         HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth){openTitle(it)}
@@ -1486,7 +1486,7 @@ fun App() {
             Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
             val distinctEntries = entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" }
-            LazyRow(modifier=Modifier.height((cardWidth*1.5f+30f).dp),horizontalArrangement=Arrangement.spacedBy(15.dp),contentPadding=PaddingValues(start=16.dp,end=18.dp,top=12.dp,bottom=12.dp)) {
+            LazyRow(modifier=Modifier.height((cardWidth*1.5f+14f).dp),horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=12.dp,end=14.dp,top=6.dp,bottom=6.dp)) {
                 itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
                     val posterPulse = rememberInfiniteTransition(label = "Home poster fire")
