@@ -18,7 +18,7 @@ internal object PenguPlay {
     private const val CACHE_TTL_MS = 120_000L
     suspend fun lookup(manifest: String, entry: Entry, tmdbKey: String, season: Int = 1, episode: Int = 1): List<HomeStream> = withContext(Dispatchers.IO) {
         val base = URL(manifest)
-        require(base.protocol == "https" && base.host.equals("pengu.uk", ignoreCase = true)) { "Invalid PenguPlay manifest" }
+        require(base.protocol == "https" && base.host.lowercase(java.util.Locale.ROOT) in setOf("pengu.uk", "aiostreams.elfhosted.com")) { "Invalid supported Stremio manifest" }
         require(base.path.endsWith("/manifest.json")) { "Expected Stremio manifest URL" }
         val isSeries = entry.genre == "TV Series"
         val imdbId = entry.id.takeIf { it.startsWith("tt") } ?: run {
