@@ -837,7 +837,7 @@ fun App() {
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
                 val serviceCatalogue = selected == null && (section == "Shark Streaming" || section.endsWith(" Catalogue"))
-                Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
+                Column(Modifier.weight(1f).fillMaxWidth().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
                 if(selected!=null) {
                     val e=selected!!
                     Spacer(Modifier.height(16.dp))
@@ -1486,7 +1486,7 @@ fun App() {
             Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
             val distinctEntries = entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" }
-            LazyRow(modifier=Modifier.height((cardWidth*1.5f+5f).dp).clipToBounds(),horizontalArrangement=Arrangement.spacedBy(7.dp),contentPadding=PaddingValues(start=2.dp,end=6.dp,top=2.dp,bottom=3.dp)) {
+            LazyRow(modifier=Modifier.height((cardWidth*1.5f+30f).dp),horizontalArrangement=Arrangement.spacedBy(15.dp),contentPadding=PaddingValues(start=16.dp,end=18.dp,top=12.dp,bottom=12.dp)) {
                 itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
                     val posterPulse = rememberInfiniteTransition(label = "Home poster fire")
@@ -1497,7 +1497,8 @@ fun App() {
                         focused = it.isFocused
                         if (focused && index >= distinctEntries.lastIndex - 2) onNearEnd?.invoke()
                     }
-                        .graphicsLayer { scaleX = if (focused) 1.10f else 1f; scaleY = if (focused) 1.10f else 1f }
+                        .zIndex(if (focused) 2f else 0f)
+                        .graphicsLayer { scaleX = if (focused) 1.06f else 1f; scaleY = if (focused) 1.06f else 1f }
                         .glassFrame(if (focused) 3.3.dp else 2.5.dp, if (focused) posterBorder else Color(0xFF56BFFF), focused = focused, repeatPulse = false).clickable {onSelect(entry)}.padding(3.dp)) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
                             val posterUrl=entry.image.ifBlank { entry.backdrop }
