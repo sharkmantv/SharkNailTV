@@ -81,8 +81,8 @@ internal fun configuredPlayer(
         }
         // Shark Mega is a fast-start profile, not a larger memory allocation.
         // Preserve the user's chosen forward-buffer size for stability.
-        val startMs = if (sharkMega) 750 else 1_500
-        val rebufferMs = if (sharkMega) 1_500 else 3_000
+        val startMs = if (sharkMega) 1_000 else 1_500
+        val rebufferMs = if (sharkMega) 2_500 else 3_500
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(min, max, startMs, rebufferMs)
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -175,7 +175,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
             SettingsPanel("Playback",Modifier.weight(1f)) {
                 Text("One Source Player · automatic failover",color=Color.White)
                 PremiumButton(compact=true,onClick={smartAuto=!smartAuto;p.edit().putBoolean("smartAuto",smartAuto).apply()}) { Text("Try next source on failure: ${if(smartAuto) "On" else "Off"}") }
-                Text("Tries one link at a time; only switches after a playback error or startup timeout. Off lets you choose a source manually.",color=Color.LightGray,fontSize=12.sp)
+                Text("Tries one link at a time; switches on playback failure or sustained buffering. Source quality and server stability vary; no setting can guarantee buffer-free playback.",color=Color.LightGray,fontSize=12.sp)
                 SmartPlayback.modes.forEach { mode -> PremiumButton(compact=true,onClick={smartMode=mode;p.edit().putString("smartMode",mode).apply()},modifier=Modifier.fillMaxWidth()) { Text(if(smartMode==mode) "✓ $mode" else mode) } }
                 Text("Shark Player",color=Color.White)
                 Text("Built-in Media3 playback engine",color = Color.White,fontSize=14.sp)

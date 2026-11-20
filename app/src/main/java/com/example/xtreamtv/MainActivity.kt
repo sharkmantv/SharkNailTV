@@ -588,7 +588,11 @@ fun App() {
                 // Direct HTTP(S) streams start in Media3 without torrent buffering.
                 // Keep SmartPlayback's ordering within each group, but never select
                 // a magnet ahead of an available direct stream for automatic play.
-                val ranked = SmartPlayback.rank(results, rankingMode, kbps, context.resources.displayMetrics.heightPixels)
+                val ranked = SmartPlayback.rank(
+                    results, rankingMode, kbps,
+                    (context as? android.app.Activity)?.windowManager?.defaultDisplay?.mode?.physicalHeight
+                        ?: context.resources.displayMetrics.heightPixels
+                )
                 homeStreams = ranked.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) } +
                     ranked.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
                 // Always start from the current quality ranking. A previously working
