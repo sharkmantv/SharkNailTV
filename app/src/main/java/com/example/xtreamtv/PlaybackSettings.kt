@@ -54,7 +54,20 @@ internal fun configuredPlayer(
     sharkMega: Boolean = false
 ): ExoPlayer {
     val p=playbackPrefs(context)
-    val factory=DefaultRenderersFactory(context.applicationContext).setEnableDecoderFallback(p.getBoolean("fallback",true))
+    val factory=object : DefaultRenderersFactory(context.applicationContext) {
+        override fun getCodecAdapterFactory(): androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory {
+            val delegate = super.getCodecAdapterFactory()
+            return object : androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory by delegate {
+                override fun createAdapter(configuration: androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Configuration): androidx.media3.exoplayer.mediacodec.MediaCodecAdapter {
+                    if (android.os.Build.VERSION.SDK_INT >= 31 && p.getString("dynamicRange","Auto") == "Prefer SDR" &&
+                        configuration.format.sampleMimeType?.startsWith("video/") == true) {
+                        configuration.mediaFormat.setInteger(android.media.MediaFormat.KEY_COLOR_TRANSFER_REQUEST, android.media.MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
+                    }
+                    return delegate.createAdapter(configuration)
+                }
+            }
+        }
+    }.setEnableDecoderFallback(p.getBoolean("fallback",true))
     val decoder=p.getString("decoder","Hardware preferred")
     if(decoder!="Automatic") factory.setMediaCodecSelector(MediaCodecSelector { mime,secure,tunnel ->
         val all=MediaCodecSelector.DEFAULT.getDecoderInfos(mime,secure,tunnel)
@@ -156,7 +169,7 @@ private fun resolutionHeight(value:String)=when(value){"720p"->720;"1080p"->1080
                         Text((if(dynamicRange==v) "✓ " else "")+v)
                     }
                 }
-                Text("Auto follows the stream. SDR/HDR preferences are best-effort and require a compatible source and decoder; they cannot force the TV output format. Restart playback after changing.",color=Color.LightGray,fontSize=12.sp)
+                Text("Auto follows the stream. Prefer SDR requests decoder tone mapping on Android 12+ where supported. Unsupported decoders may still output HDR. Restart playback after changing.",color=Color.LightGray,fontSize=12.sp)
                 Text("Resolution",color=Color.White)
                 listOf("Automatic","720p","1080p","1440p","4K","8K").forEach { v ->
                     val supported=v=="Automatic" || modes.any { it.physicalHeight==resolutionHeight(v) }
