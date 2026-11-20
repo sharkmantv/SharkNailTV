@@ -1370,7 +1370,50 @@ fun App() {
 
         }
         }
-        Mascot(Modifier.weight(1.45f).height(136.dp),false)
+        @Composable fun TornSharkCorner(right:Boolean, modifier:Modifier = Modifier) {
+            Box(modifier.height(136.dp)) {
+                // The original shark logo is kept above the new ripped-corner effect.
+                Canvas(Modifier.fillMaxSize()) {
+                    val w=size.width
+                    val h=size.height
+                    val flip=if(right) -1f else 1f
+                    fun pt(x:Float,y:Float)=Offset(if(right) w-x*w else x*w,y*h)
+                    val dark=Color(0xFF010B1D)
+                    val electric=Color(0xFF44C9FF)
+                    for(i in 0..3) {
+                        val y=0.09f+i*0.20f
+                        val rip=androidx.compose.ui.graphics.Path().apply {
+                            val a=pt(0f,y)
+                            moveTo(a.x,a.y)
+                            for(j in 0..7) {
+                                val q=pt(0.12f+(j%2)*0.035f+j*0.018f,y+(j%2)*0.045f+j*0.009f)
+                                lineTo(q.x,q.y)
+                            }
+                            val edge=pt(0f,y+0.17f)
+                            lineTo(edge.x,edge.y)
+                            close()
+                        }
+                        drawPath(rip,dark.copy(alpha=0.85f))
+                        drawLine(electric.copy(alpha=0.7f),pt(0.02f,y+0.01f),pt(0.29f,y+0.085f),2.5.dp.toPx())
+                    }
+                    // Sharp talons reaching through the torn background.
+                    for(i in 0..2) {
+                        val x=0.06f+i*0.10f
+                        val claw=androidx.compose.ui.graphics.Path().apply {
+                            val a=pt(x,0.75f)
+                            moveTo(a.x,a.y)
+                            val b=pt(x+0.075f,0.90f)
+                            quadraticBezierTo(pt(x+0.06f,0.83f).x,pt(x+0.06f,0.83f).y,b.x,b.y)
+                            val tip=pt(x+0.095f,0.99f)
+                            lineTo(tip.x,tip.y)
+                        }
+                        drawPath(claw,Color(0xFFC7E9F9),style=androidx.compose.ui.graphics.drawscope.Stroke(width=4.dp.toPx(),cap=androidx.compose.ui.graphics.StrokeCap.Round))
+                    }
+                }
+                Mascot(Modifier.fillMaxSize(),right)
+            }
+        }
+        TornSharkCorner(false,Modifier.weight(1.45f))
         val skyMotion=rememberInfiniteTransition(label="sky diamond")
         val skyPulse = skyMotion.animateFloat(0.35f,1f,infiniteRepeatable(tween(1200),RepeatMode.Reverse),label="sky glow")
         val skySweep = skyMotion.animateFloat(0f,359.99f,infiniteRepeatable(tween(4200,easing=androidx.compose.animation.core.LinearEasing)),label="sky rainbow")
@@ -1388,7 +1431,7 @@ fun App() {
                 }
             }
         }
-        Mascot(Modifier.weight(1.45f).height(136.dp),true)
+        TornSharkCorner(true,Modifier.weight(1.45f))
         }
     }
 }
