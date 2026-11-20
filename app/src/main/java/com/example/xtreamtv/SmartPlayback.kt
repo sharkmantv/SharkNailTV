@@ -14,16 +14,21 @@ internal object SmartPlayback {
         }.getOrDefault(emptySet())
     }
 
+    private fun codecScore(stream: HomeStream, supported: Set<String>): Int {
+        if (supported.isEmpty()) return 1
+        val mime = codecNames.firstOrNull { it.first.containsMatchIn(stream.title) }?.second
+        return when (mime) {
+            null -> 1
+            in supported -> 2
+            else -> 0
+        }
+    }
+
     fun preferHardwareDecoders(streams: List<HomeStream>): List<HomeStream> {
         val supported = hardwareDecoders
         if (supported.isEmpty()) return streams
         return streams.sortedByDescending { stream ->
-            val mime = codecNames.firstOrNull { it.first.containsMatchIn(stream.title) }?.second
-            when (mime) {
-                null -> 1
-                in supported -> 2
-                else -> 0
-            }
+            codecScore(stream, supported)
         }
     }
 
@@ -51,8 +56,14 @@ internal object SmartPlayback {
             kbps in 1..5999 -> 720
             else -> 2160
         }.coerceAtMost(displayHeight)
+        // Favor direct streams and compatible hardware codecs before resolution.
+        val supported = hardwareDecoders
         return streams.distinctBy { it.url }.sortedWith(
             compareByDescending<HomeStream> { stream ->
+                stream.url.startsWith("https://", true) || stream.url.startsWith("http://", true)
+            }.thenByDescending { stream ->
+                codecScore(stream, supported)
+            }.thenByDescending { stream ->
                 val h=height(stream.title)
                 when {
                     h == 0 -> 0
