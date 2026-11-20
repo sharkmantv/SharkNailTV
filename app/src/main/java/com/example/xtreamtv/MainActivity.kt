@@ -844,7 +844,7 @@ fun App() {
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
                 val serviceCatalogue = selected == null && (section == "Shark Streaming" || section.endsWith(" Catalogue"))
-                Column(Modifier.weight(1f).fillMaxWidth().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
+                Column(Modifier.weight(1f).fillMaxWidth().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings","Shark Performance Hub"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
                 if(selected!=null) {
                     val e=selected!!
                     Spacer(Modifier.height(16.dp))
@@ -1093,6 +1093,8 @@ fun App() {
                         }
                         "Playback & Display" -> { PlaybackSettings { section="Settings" } }
                         "Shark Performance Hub" -> {
+                            var readingRefresh by remember { mutableStateOf(0) }
+                            val refreshSnapshot = readingRefresh
                             val activity = context as? android.app.Activity
                             val displayMode = activity?.windowManager?.defaultDisplay?.mode
                             val displayWidth = displayMode?.physicalWidth ?: 0
@@ -1102,15 +1104,15 @@ fun App() {
                             val usedHeap = runtime.totalMemory() - runtime.freeMemory()
                             val maxHeap = runtime.maxMemory()
                             val freeStorage = android.os.StatFs(context.cacheDir.absolutePath).availableBytes
-                            Text("Shark Performance Hub", color=Color.White, fontSize=26.sp)
-                            Text("4K Display Check", color=Color(0xFFFFD53D), fontSize=18.sp)
-                            Text(if(displayWidth>0 && displayHeight>0) "Active display mode: ${displayWidth} × ${displayHeight} at ${"%.1f".format(java.util.Locale.US,refreshRate)} Hz" else "Display mode unavailable", color=Color.White)
+                            Text("Shark Performance Hub", color=Color.White, fontSize=20.sp)
+                            Text("4K Display Check", color=Color(0xFFFFD53D), fontSize=14.sp)
+                            Text(if(displayWidth>0 && displayHeight>0) "Active display mode: ${displayWidth} × ${displayHeight} at ${"%.1f".format(java.util.Locale.US,refreshRate)} Hz" else "Display mode unavailable", color=Color.White, fontSize=12.sp)
                             Text("4K UHD reference: 3840 × 2160. Display mode does not guarantee artwork or video source resolution.", color=Color.LightGray, fontSize=12.sp)
-                            Text("Memory Monitor", color=Color(0xFFFFD53D), fontSize=18.sp)
-                            Text("App heap: ${formatBytes(usedHeap)} / ${formatBytes(maxHeap)}", color=Color.White)
-                            Text("Free app storage: ${formatBytes(freeStorage)}", color=Color.White)
-                            Text("Stream Health", color=Color(0xFFFFD53D), fontSize=18.sp)
-                            Text("Media3 playback · Profile: ${if(sharkMega) "Shark Mega" else "Standard"} · Stream format: ${playbackPrefs(context).getString("streamFormat","Auto")}", color=Color.White)
+                            Text("Memory Monitor", color=Color(0xFFFFD53D), fontSize=14.sp)
+                            Text("App heap: ${formatBytes(usedHeap)} / ${formatBytes(maxHeap)}", color=Color.White, fontSize=12.sp)
+                            Text("Free app storage: ${formatBytes(freeStorage)}", color=Color.White, fontSize=12.sp)
+                            Text("Stream Health", color=Color(0xFFFFD53D), fontSize=14.sp)
+                            Text("Media3 playback · Profile: ${if(sharkMega) "Shark Mega" else "Standard"} · Stream format: ${playbackPrefs(context).getString("streamFormat","Auto")}", color=Color.White, fontSize=12.sp)
                             Text("Live dropped-frame and buffering counters are not available on this screen yet.", color=Color.LightGray, fontSize=12.sp)
                             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                                 FocusAction("Shark Speed Test") { diagnostics=true; testRun++; section="Settings" }
@@ -1118,7 +1120,7 @@ fun App() {
                             }
                             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                                 FocusAction("Shark Optimiser · Clear Cache") { cleanAppCache() }
-                                FocusAction("Refresh Readings") { section="Settings"; section="Shark Performance Hub" }
+                                FocusAction("Refresh Readings") { readingRefresh++ }
                             }
                             FocusAction("Back to Settings") { section="Settings" }
                         }
