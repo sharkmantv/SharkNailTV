@@ -1534,7 +1534,7 @@ private object TmdbApi {
                     return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("iso_639_1")=="en" || !englishOnly }.sortedWith(compareByDescending<JSONObject>{it.optString("iso_639_1")=="en"}.thenByDescending{it.optDouble("vote_average",0.0)}).map { it.optString("file_path") }.firstOrNull { it.startsWith("/") }.orEmpty()
                 }
                 val logo=find("logos",true)
-                (if(logo.isNotBlank()) "https://image.tmdb.org/t/p/w300$logo" else "").also { if(artCache.size>=256) artCache.clear(); artCache[cacheKey]=it }
+                (if(logo.isNotBlank()) "https://image.tmdb.org/t/p/original$logo" else "").also { if(artCache.size>=256) artCache.clear(); artCache[cacheKey]=it }
             }
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "" } finally { artGate.release() }
     }
@@ -1573,8 +1573,8 @@ private object TmdbApi {
                         val match=exact.firstOrNull { year.isNotBlank() && it.optString(if(type=="tv") "first_air_date" else "release_date").startsWith(year) } ?: exact.singleOrNull() ?: exact.firstOrNull { year.isBlank() }
                         val path=match?.optString("poster_path").orEmpty()
                         val backdrop=match?.optString("backdrop_path").orEmpty()
-                        if(path.startsWith("/")) art="https://image.tmdb.org/t/p/w780$path"
-                        if(backdrop.startsWith("/")) backdropCache.put(cacheKey,"https://image.tmdb.org/t/p/w1280$backdrop")
+                        if(path.startsWith("/")) art="https://image.tmdb.org/t/p/original$path"
+                        if(backdrop.startsWith("/")) backdropCache.put(cacheKey,"https://image.tmdb.org/t/p/original$backdrop")
                     }
                 }
             }
@@ -1611,8 +1611,8 @@ private object TmdbApi {
                 val obj=array.optJSONObject(i) ?: return@mapNotNull null
                 val poster=obj.optString("poster_path"); val backdrop=obj.optString("backdrop_path")
                 Entry(obj.optString("id"),obj.optString(if(type=="tv") "name" else "title","Untitled"),
-                    if(poster.startsWith("/")) "https://image.tmdb.org/t/p/w780$poster" else "",
-                    kind="tmdb",backdrop=if(backdrop.startsWith("/")) "https://image.tmdb.org/t/p/w1280$backdrop" else "",
+                    if(poster.startsWith("/")) "https://image.tmdb.org/t/p/original$poster" else "",
+                    kind="tmdb",backdrop=if(backdrop.startsWith("/")) "https://image.tmdb.org/t/p/original$backdrop" else "",
                     year=obj.optString(if(type=="tv") "first_air_date" else "release_date").take(4),
                     rating=if(obj.optDouble("vote_average",0.0)>0) String.format(Locale.US,"%.1f",obj.optDouble("vote_average")) else "",
                     genre=if(type=="tv") "TV Series" else "Movie",overview=obj.optString("overview"))
@@ -1634,8 +1634,8 @@ private object TmdbApi {
             (0 until minOf(array.length(),20)).mapNotNull {i ->
                 val obj=array.optJSONObject(i)?:return@mapNotNull null
                 val poster=obj.optString("poster_path");val backdrop=obj.optString("backdrop_path")
-                val image=if(poster.startsWith("/")) "https://image.tmdb.org/t/p/w780$poster" else ""
-                Entry(obj.optString("id"),obj.optString(if(type=="tv")"name" else "title","Untitled"),image,kind="tmdb",backdrop=if(backdrop.startsWith("/"))"https://image.tmdb.org/t/p/w1280$backdrop" else image,
+                val image=if(poster.startsWith("/")) "https://image.tmdb.org/t/p/original$poster" else ""
+                Entry(obj.optString("id"),obj.optString(if(type=="tv")"name" else "title","Untitled"),image,kind="tmdb",backdrop=if(backdrop.startsWith("/"))"https://image.tmdb.org/t/p/original$backdrop" else image,
                     year=obj.optString(if(type=="tv")"first_air_date" else "release_date").take(4),
                     rating=if(obj.optDouble("vote_average",0.0)>0) String.format(Locale.US,"%.1f",obj.optDouble("vote_average")) else "",
                     genre=if(type=="tv")"TV Series" else "Movie", overview=obj.optString("overview"))
