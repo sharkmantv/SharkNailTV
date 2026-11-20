@@ -147,7 +147,7 @@ data class Program(val title:String,val start:String,val end:String)
 data class SportEvent(val channel:Entry,val program:Program,val startMillis:Long,val endMillis:Long)
 class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); SharkAppUpdater.check(this); setContent { App() } } }
 
-/** Dry cinematic steel intro, isolated from the home screen. */
+/** Original full-screen shark artwork with cinematic glass impact. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
     val emergence = remember { androidx.compose.animation.core.Animatable(0f) }
     val fade = remember { androidx.compose.animation.core.Animatable(1f) }
@@ -158,16 +158,19 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
         onFinished()
     }
     Box(Modifier.fillMaxSize().background(Color(0xFF080A10)), contentAlignment = Alignment.Center) {
+        Image(painterResource(R.drawable.shark_intro_claws_background),
+            "Original shark intro background",
+            Modifier.fillMaxSize().graphicsLayer {
+                scaleX = 1f + 0.04f * emergence.value
+                scaleY = scaleX
+                alpha = fade.value
+            }, contentScale = ContentScale.Crop)
         Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
             val w = size.width
             val h = size.height
             val p = emergence.value
             val center = Offset(w*0.5f,h*0.45f)
-            drawRect(Brush.radialGradient(listOf(Color(0xFF26354A),Color(0xFF090D17),Color(0xFF030407)),center=center,radius=w*0.65f))
-            for (i in -12..12) {
-                val x = w*0.5f+i*w*0.10f
-                drawLine(Color(0xFF8193A8),Offset(x-w*0.4f,0f),Offset(x+w*0.4f,h),strokeWidth=1f,alpha=0.12f)
-            }
+
             val impact = ((p-0.78f)/0.22f).coerceIn(0f,1f)
             for(i in 0 until 19) {
                 val angle = i*2.39996f
@@ -180,7 +183,7 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
             drawCircle(Color(0xFFDAAF66),radius=h*0.38f,center=center,alpha=0.12f,style=androidx.compose.ui.graphics.drawscope.Stroke(width=2f))
         }
         Image(painterResource(R.drawable.shark_brand), "Original SharkNailTV logo",
-            Modifier.fillMaxWidth(0.70f).fillMaxHeight(0.76f).graphicsLayer {
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.48f).fillMaxHeight(0.30f).graphicsLayer {
                 val p = emergence.value
                 scaleX = 0.72f + 0.28f*p
                 scaleY = scaleX
