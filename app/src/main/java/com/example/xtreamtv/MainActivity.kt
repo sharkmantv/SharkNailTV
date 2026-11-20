@@ -148,77 +148,73 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
 
 /** One-time cinematic shark breakthrough. The home screen remains unchanged afterwards. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
-    // Sharks emerge through an animated water surface; no sliding doors or torn curtain.
+    // Keep the original SharkNailTV artwork intact. The water is a light overlay,
+    // not a solid rectangle or a replacement background.
     val emergence = remember { androidx.compose.animation.core.Animatable(0f) }
     val fade = remember { androidx.compose.animation.core.Animatable(1f) }
-    val water = rememberInfiniteTransition(label = "Shark intro water")
-    val wavePhase by water.animateFloat(
-        0f, 6.28318f,
-        infiniteRepeatable(tween(2100, easing = androidx.compose.animation.core.LinearEasing)),
-        label = "Moving water"
-    )
     LaunchedEffect(Unit) {
-        emergence.animateTo(1f, tween(1250, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-        delay(1050)
-        fade.animateTo(0f, tween(450))
+        emergence.animateTo(1f, tween(1550, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        delay(750)
+        fade.animateTo(0f, tween(420))
         onFinished()
     }
     Box(Modifier.fillMaxSize().background(Color(0xFF03162C)), contentAlignment = Alignment.Center) {
-        Image(painterResource(R.drawable.shark_intro_claws_background),
-            "Sharks bursting out of ocean water",
+        Image(
+            painterResource(R.drawable.shark_intro_claws_background),
+            "Original SharkNailTV shark background",
             Modifier.fillMaxSize().graphicsLayer {
                 val p = emergence.value
-                scaleX = 0.92f + 0.13f * p
-                scaleY = 0.92f + 0.13f * p
-                translationY = (1f-p) * 44f
+                scaleX = 1.035f + p * 0.025f
+                scaleY = 1.035f + p * 0.025f
+                translationY = (1f-p) * 18f
                 alpha = fade.value
-            }, contentScale = ContentScale.Crop)
+            },
+            contentScale = ContentScale.Crop
+        )
+        // A short cinematic burst of transparent sea spray and foam around the
+        // shark artwork. No opaque water sheet obscures the original image.
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
-            val w = size.width
-            val h = size.height
             val p = emergence.value
-            val surfaceY = h * (0.69f + 0.17f * p)
-            val amplitude = h * (0.015f + 0.013f * (1f-p))
-            val surface = androidx.compose.ui.graphics.Path().apply {
-                moveTo(0f, h)
-                lineTo(0f, surfaceY)
-                for (step in 0..80) {
-                    val x = w * step / 80f
-                    val wave = kotlin.math.sin(step * 0.27f + wavePhase) * amplitude +
-                        kotlin.math.sin(step * 0.55f - wavePhase * 1.3f) * amplitude * 0.35f
-                    lineTo(x, surfaceY + wave)
-                }
-                lineTo(w,h)
-                close()
-            }
-            drawPath(surface, Brush.verticalGradient(
-                listOf(Color(0xB91AB7E8), Color(0xDE064B85), Color(0xF0031938)),
-                startY=surfaceY-amplitude, endY=h
-            ))
-            val foamAlpha = (0.45f + (1f-p)*0.45f).coerceIn(0f,1f)
-            for (step in 0..52) {
-                val x = w * step / 52f
-                val y = surfaceY + kotlin.math.sin(step * 0.27f + wavePhase) * amplitude +
-                    kotlin.math.sin(step * 0.55f - wavePhase * 1.3f) * amplitude * 0.35f
-                drawCircle(Color(0xFFD6F8FF), radius=1.6f + 2.5f*(1f-p), center=Offset(x,y), alpha=foamAlpha)
-            }
-            // Water droplets fly outward as the sharks break through the surface.
-            for (i in 0 until 34) {
-                val angle = (i * 2.39996f)
-                val distance = (0.06f + (i % 7) * 0.019f) * p
-                val x = w * (0.5f + kotlin.math.cos(angle) * distance)
-                val y = h * (0.69f - kotlin.math.abs(kotlin.math.sin(angle)) * distance * 1.6f)
+            val burst = (p / 0.72f).coerceIn(0f, 1f)
+            val visibility = (1f - ((p - 0.48f) / 0.52f).coerceIn(0f, 1f))
+            val cx = size.width * 0.50f
+            val cy = size.height * 0.58f
+            val spread = size.width * (0.055f + burst * 0.30f)
+            for (i in 0 until 64) {
+                val angle = i * 2.399963f
+                val horizontal = kotlin.math.cos(angle)
+                val vertical = kotlin.math.sin(angle)
+                val x = cx + horizontal * spread * (0.38f + (i % 9) / 12f)
+                val y = cy - kotlin.math.abs(vertical) * size.height * burst * (0.12f + (i % 7) * 0.013f)
+                val radius = (1.2f + (i % 5) * 0.8f) * density
                 drawCircle(
-                    color = if(i % 3 == 0) Color.White else Color(0xFF65DBFF),
-                    radius = (2f + i % 4) * (1f - p * 0.65f),
-                    center = Offset(x,y),
-                    alpha = (1f-p*0.75f).coerceIn(0f,1f)
+                    color = if (i % 5 == 0) Color.White else Color(0xFF86E7FF),
+                    radius = radius,
+                    center = Offset(x, y),
+                    alpha = visibility * (0.32f + (i % 4) * 0.12f)
+                )
+            }
+            // Two narrow, fading arcs suggest the surface breaking apart.
+            for (i in 0..1) {
+                drawArc(
+                    color = if (i == 0) Color(0xFFB8F5FF) else Color(0xFF2ABEEA),
+                    startAngle = 198f,
+                    sweepAngle = 144f,
+                    useCenter = false,
+                    topLeft = Offset(cx - spread * (0.75f + i * 0.25f), cy - size.height * 0.08f),
+                    size = Size(spread * (1.5f + i * 0.5f), size.height * (0.18f + i * 0.06f)),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = (2.3f-i*0.7f)*density),
+                    alpha = visibility * (0.60f - i*0.15f)
                 )
             }
         }
-        Image(painterResource(R.drawable.shark_brand), "Original SharkNailTV logo",
+        Image(
+            painterResource(R.drawable.shark_brand),
+            "Original SharkNailTV logo",
             Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.48f).fillMaxHeight(0.30f)
-                .graphicsLayer { alpha = fade.value }, contentScale = ContentScale.Fit)
+                .graphicsLayer { alpha = fade.value },
+            contentScale = ContentScale.Fit
+        )
     }
 }
 
