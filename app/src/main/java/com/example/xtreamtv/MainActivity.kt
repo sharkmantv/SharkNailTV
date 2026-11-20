@@ -542,6 +542,7 @@ fun App() {
         homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
         if(homePlaying==null) { showHomeSources=true; homeLookupStatus="All automatic sources failed" }
     }
+    var instantMovieRequest by remember { mutableStateOf(0) }
     fun openTitle(entry: Entry) {
         homeLookupJob?.cancel()
         homePlaying = null
@@ -550,6 +551,8 @@ fun App() {
         homeSeason = 1; homeEpisode = 1
         homeLookupStatus = ""
         selected = entry
+        // Movies start directly on OK; series retain explicit episode selection.
+        if (entry.kind == "tmdb" && entry.genre != "TV Series" && (section == "Home" || section.endsWith(" Catalogue")) && playbackPrefs(context).getBoolean("smartAuto",true)) instantMovieRequest++
         // Episode searches are explicit so the correct season/episode is always used.
         if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search your Home provider for this title."
     }
@@ -613,6 +616,9 @@ fun App() {
                 homeLookupStatus = "Source lookup failed: ${e.javaClass.simpleName}"
             }
         }
+    }
+    LaunchedEffect(instantMovieRequest) {
+        if (instantMovieRequest > 0) selected?.takeIf { it.kind == "tmdb" && it.genre != "TV Series" && (section == "Home" || section.endsWith(" Catalogue")) }?.let { searchHomeStreams(it) }
     }
     var cacheMessage by remember { mutableStateOf<String?>(null) }
     var cacheTitle by remember { mutableStateOf("Cache cleaner") }
