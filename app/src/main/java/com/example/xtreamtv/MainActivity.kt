@@ -540,7 +540,7 @@ fun App() {
         autoResumeMs = maxOf(autoResumeMs, resumeMs)
         failedUrls = failedUrls + stream.url
         homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
-        if(homePlaying==null) { showHomeSources=true; homeLookupStatus="All automatic sources failed" }
+        if(homePlaying==null) { showHomeSources=true; homeLookupStatus="All automatic sources stalled or failed. Try another source or lower quality." }
     }
     fun openTitle(entry: Entry) {
         homeLookupJob?.cancel()
@@ -811,7 +811,7 @@ fun App() {
                         Text(homeLookupStatus.ifBlank { "Preparing torrent playback…" }, color=Color.White)
                     }
                 } else {
-                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 20000L else 0L,sharkMega=sharkMega,onFirstFrame={
                         if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
                     }) }
                 }
@@ -1878,7 +1878,7 @@ private data class AudioTrackSwitch(
                     windowMs+=1000L
                     if(buffering) recentBufferMs+=1000L
                 }
-                if(stalledMs >= (if(firstFrame) 25000L else startupTimeoutMs) || recentBufferMs>=30000L) {
+                if(stalledMs >= (if(firstFrame) 45000L else startupTimeoutMs) || recentBufferMs>=45000L) {
                     playerError="Source too slow — switching link"
                     reportFailure()
                 }
