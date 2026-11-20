@@ -565,21 +565,27 @@ fun App() {
         val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
-        homeLookupStatus = "Searching Home provider for TMDB ${entry.id}…"
+        homeLookupStatus = "Searching Home providers for TMDB ${entry.id}…"
         homeLookupJob = scope.launch {
             try {
-                val manifest = prefs.getString("pengu_manifest", null)?.takeIf { it.isNotBlank() }
-                    ?: BuildConfig.PENGUPLAY_MANIFEST_URL
-                if (manifest.isBlank()) {
-                    homeLookupStatus = "Home provider is not configured. Add your manifest in API Configuration."
+                val manifests = listOf(
+                    prefs.getString("pengu_manifest", null)?.takeIf { it.isNotBlank() }
+                        ?: BuildConfig.PENGUPLAY_MANIFEST_URL,
+                    prefs.getString("aio_manifest", "").orEmpty()
+                ).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                if (manifests.isEmpty()) {
+                    homeLookupStatus = "Add a Home provider in API Configuration."
                     return@launch
                 }
-                val penguplay = try {
-                    PenguPlay.lookup(manifest, entry, tmdbKey, season, episode)
-                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                  catch (e: Exception) {
-                    homeLookupStatus = "Home provider lookup failed: ${e.javaClass.simpleName}"
-                    return@launch
+                val penguplay = coroutineScope {
+                    manifests.map { manifest ->
+                        async {
+                            try {
+                                PenguPlay.lookup(manifest, entry, tmdbKey, season, episode)
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                              catch (e: Exception) { emptyList<HomeStream>() }
+                        }
+                    }.awaitAll().flatten()
                 }
                 val matches = penguplay.distinctBy { it.url }
                 val results = if (sharkMega) withContext(Dispatchers.Default) {
@@ -1163,7 +1169,7 @@ fun App() {
                             FocusAction("Back to Settings") { section = "Settings" }
                         }
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
-                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("AIOStreams / PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save Home provider") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
+                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty()) }; var aioDraft by remember { mutableStateOf(prefs.getString("aio_manifest", "").orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("AIOStreams / PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); OutlinedTextField(aioDraft,{aioDraft=it},label={Text("Additional AIOStreams manifest")},singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save Home providers") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).putString("aio_manifest",aioDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
                     }
                     if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && (loading || catalogueLoading)) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if(section in listOf("Home","Movies","TV Series") && tmdbStatus.isNotBlank()) Text(tmdbStatus,color = Color.White,fontSize=12.sp)
