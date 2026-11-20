@@ -61,6 +61,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -177,7 +178,7 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
             val w = size.width
             val h = size.height
             val p = emergence.value
-            val surfaceY = h * (0.69f + 0.17f * p)
+            val surfaceY = h * (0.53f + 0.20f * p)
             val amplitude = h * (0.015f + 0.013f * (1f-p))
             val surface = androidx.compose.ui.graphics.Path().apply {
                 moveTo(0f, h)
@@ -207,7 +208,7 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
                 val angle = (i * 2.39996f)
                 val distance = (0.06f + (i % 7) * 0.019f) * p
                 val x = w * (0.5f + kotlin.math.cos(angle) * distance)
-                val y = h * (0.69f - kotlin.math.abs(kotlin.math.sin(angle)) * distance * 1.6f)
+                val y = h * (0.55f - kotlin.math.abs(kotlin.math.sin(angle)) * distance * 1.6f)
                 drawCircle(
                     color = if(i % 3 == 0) Color.White else Color(0xFF65DBFF),
                     radius = (2f + i % 4) * (1f - p * 0.65f),
@@ -1009,7 +1010,7 @@ fun App() {
                             val interfacePrefs = playbackPrefs(context)
                             val uniformBarHeight = interfacePrefs.getInt("uniformBarHeight",76).coerceIn(64,88).dp
                             var focusedSetting by remember { mutableStateOf<String?>(null) }
-                            Column(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                                 options.chunked(3).forEachIndexed { rowIndex, labels ->
                                     Row(
                                         Modifier.fillMaxWidth().height(uniformBarHeight)
@@ -1118,6 +1119,7 @@ fun App() {
                             val stat=android.os.StatFs(context.cacheDir.absolutePath)
                             val free=stat.availableBytes
                             Text("System Health · SHARK ${BuildConfig.VERSION_NAME}",color=Color.White,fontSize=22.sp)
+                            Text("Installed build: ${BuildConfig.VERSION_CODE} · Check Software Update for the latest published release",color=Color(0xFFFFD53D),fontSize=13.sp)
                             Text("App heap used: ${formatBytes(used)} / ${formatBytes(max)}",color=Color.White)
                             Text("Available app storage: ${formatBytes(free)}",color=Color.White)
                             Text("Built-in player: Media3",color=Color.White)
@@ -1422,6 +1424,16 @@ fun App() {
             scaleY = focusScale
         }
         .glassFrame(frameWidth, frameColor, focused = focused, repeatPulse = false)
+        .drawWithContent {
+            drawContent()
+            if (focused || selected) {
+                drawRoundRect(
+                    color = frameColor,
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(5.dp.toPx()),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.dp.toPx())
+                )
+            }
+        }
         .padding(2.dp).clip(SharkFrameShape)) { content() }
 }
 
