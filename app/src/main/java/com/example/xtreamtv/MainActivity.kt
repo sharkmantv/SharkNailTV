@@ -519,7 +519,7 @@ fun App() {
                 failedUrls = failedUrls + selectedSource.url
                 homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
                 showHomeSources = homePlaying == null
-                homeLookupStatus = if (homePlaying == null) "All PenguPlay sources failed" else "Torrent failed — trying next PenguPlay source"
+                homeLookupStatus = if (homePlaying == null) "All Home provider sources failed" else "Torrent failed — trying next Home provider source"
             } else {
                 homePlaying = null
                 showHomeSources = true
@@ -542,6 +542,7 @@ fun App() {
         homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
         if(homePlaying==null) { showHomeSources=true; homeLookupStatus="All automatic sources failed" }
     }
+    var instantMovieRequest by remember { mutableStateOf(0) }
     fun openTitle(entry: Entry) {
         homeLookupJob?.cancel()
         homePlaying = null
@@ -550,8 +551,10 @@ fun App() {
         homeSeason = 1; homeEpisode = 1
         homeLookupStatus = ""
         selected = entry
+        // Movies start directly on OK; series retain explicit episode selection.
+        if (entry.kind == "tmdb" && entry.genre != "TV Series" && (section == "Home" || section.endsWith(" Catalogue")) && playbackPrefs(context).getBoolean("smartAuto",true)) instantMovieRequest++
         // Episode searches are explicit so the correct season/episode is always used.
-        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search PenguPlay for this title."
+        if (entry.kind == "tmdb" && (section == "Home" || section.endsWith(" Catalogue"))) homeLookupStatus = "Press Play to search your Home provider for this title."
     }
     fun searchHomeStreams(entry: Entry) {
         homeLookupJob?.cancel()
@@ -562,20 +565,20 @@ fun App() {
         val linkKey = homeLinkKey(entry)
         val season = homeSeason
         val episode = homeEpisode
-        homeLookupStatus = "Searching PenguPlay for TMDB ${entry.id}…"
+        homeLookupStatus = "Searching Home provider for TMDB ${entry.id}…"
         homeLookupJob = scope.launch {
             try {
                 val manifest = prefs.getString("pengu_manifest", null)?.takeIf { it.isNotBlank() }
                     ?: BuildConfig.PENGUPLAY_MANIFEST_URL
                 if (manifest.isBlank()) {
-                    homeLookupStatus = "PenguPlay is not configured. Check the GitHub PENGUPLAY_MANIFEST_URL secret and rebuild."
+                    homeLookupStatus = "Home provider is not configured. Add your manifest in API Configuration."
                     return@launch
                 }
                 val penguplay = try {
                     PenguPlay.lookup(manifest, entry, tmdbKey, season, episode)
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                   catch (e: Exception) {
-                    homeLookupStatus = "PenguPlay lookup failed: ${e.message ?: e.javaClass.simpleName}"
+                    homeLookupStatus = "Home provider lookup failed: ${e.javaClass.simpleName}"
                     return@launch
                 }
                 val matches = penguplay.distinctBy { it.url }
@@ -591,7 +594,8 @@ fun App() {
                 val ranked = SmartPlayback.rank(
                     results, rankingMode, kbps,
                     (context as? android.app.Activity)?.windowManager?.defaultDisplay?.mode?.physicalHeight
-                        ?: context.resources.displayMetrics.heightPixels
+                        ?: context.resources.displayMetrics.heightPixels,
+                    playbackPrefs(context).getString("dynamicRange", "Auto").orEmpty()
                 )
                 homeStreams = ranked.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) } +
                     ranked.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
@@ -604,14 +608,17 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (results.isEmpty()) "No PenguPlay direct streams found for this title."
-                    else "PenguPlay direct links: ${penguplay.size}"
+                homeLookupStatus = if (results.isEmpty()) "No Home provider direct streams found for this title."
+                    else "Home provider direct links: ${penguplay.size}"
 
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 homeLookupStatus = "Source lookup failed: ${e.javaClass.simpleName}"
             }
         }
+    }
+    LaunchedEffect(instantMovieRequest) {
+        if (instantMovieRequest > 0) selected?.takeIf { it.kind == "tmdb" && it.genre != "TV Series" && (section == "Home" || section.endsWith(" Catalogue")) }?.let { searchHomeStreams(it) }
     }
     var cacheMessage by remember { mutableStateOf<String?>(null) }
     var cacheTitle by remember { mutableStateOf("Cache cleaner") }
@@ -866,7 +873,7 @@ fun App() {
                                         }
                                     }
                                     FocusAction(if (e.genre == "TV Series") "Play episode" else "Play movie") { searchHomeStreams(e) }
-                                    Text("Home TMDB posters search PenguPlay only. Movies and TV Series tabs use IPTV.",color = Color.White)
+                                    Text("Home TMDB posters search your Home provider only. Movies and TV Series tabs use IPTV.",color = Color.White)
                                     if(homeStreams.isNotEmpty()) { FocusAction(if(showHomeSources) "Hide sources" else "Choose source manually") {showHomeSources=!showHomeSources}; if(showHomeSources) homeStreams.forEach { stream -> FocusAction(stream.title){autoSession=false;homePlaying=stream} } }
                                     
                                 }
@@ -881,11 +888,10 @@ fun App() {
                         "Home", "Movies", "TV Series" -> {
                             if(section=="Home") {
                                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                    // Fit both TMDB rows within the TV viewport; preserve 2:3 artwork.
-                                    // Use the available height for larger portrait posters.
-                                    val horizontalWidth = ((maxWidth.value - 42f) / 5f).toInt()
-                                    val verticalWidth = ((maxHeight.value - 122f) / 3.0f).toInt()
-                                    val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,220)
+                                    // Fit both landscape TMDB rows inside the TV viewport.
+                                    val horizontalWidth = ((maxWidth.value - 64f) / 4f).toInt()
+                                    val verticalWidth = ((maxHeight.value - 90f) / 1.125f).toInt()
+                                    val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,340)
                                     Column(Modifier.fillMaxSize().padding(top=2.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
                                         HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth){openTitle(it)}
                                         HomeTmdbRow("TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth){openTitle(it)}
@@ -1155,7 +1161,7 @@ fun App() {
                             FocusAction("Back to Settings") { section = "Settings" }
                         }
                         "Connection Status" -> {Text(if(connected) "IPTV connected" else "IPTV not connected",color=Color.White);Text(fixtureStatus,color=Color.White);FocusAction("Back to Settings"){section="Settings"}}
-                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save PenguPlay") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
+                        "API Configuration" -> {var penguDraft by remember { mutableStateOf(prefs.getString("pengu_manifest", BuildConfig.PENGUPLAY_MANIFEST_URL).orEmpty()) }; OutlinedTextField(penguDraft,{penguDraft=it},label={Text("AIOStreams / PenguPlay manifest (Home playback)")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),singleLine=true,visualTransformation=PasswordVisualTransformation()); FocusAction("Save Home provider") { prefs.edit().putString("pengu_manifest",penguDraft.trim()).apply(); section="Home" }; OutlinedTextField(tmdbDraft,{tmdbDraft=it},label={Text("TMDB API key or read access token")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);OutlinedTextField(sportsKey,{sportsKey=it;prefs.edit().putString("sports_key",it).apply()},label={Text("Sports API key")},colors=OutlinedTextFieldDefaults.colors(focusedLabelColor=Color.White),visualTransformation=PasswordVisualTransformation(),singleLine=true);FocusAction("Save TMDB and refresh"){tmdbKey=tmdbDraft.trim();prefs.edit().putString("tmdb_key",tmdbKey).apply();posterRefresh++;section="Home"};FocusAction("Back to Settings"){section="Settings"}}
                     }
                     if(!serviceCatalogue && section!="Settings" && section!="Shark TV" && (loading || catalogueLoading)) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if(section in listOf("Home","Movies","TV Series") && tmdbStatus.isNotBlank()) Text(tmdbStatus,color = Color.White,fontSize=12.sp)
@@ -1241,7 +1247,7 @@ fun App() {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(networkReport)
                     val penguManifestConfigured = prefs.getString("pengu_manifest", null)?.isNotBlank() == true || BuildConfig.PENGUPLAY_MANIFEST_URL.isNotBlank()
-                    Text(if (penguManifestConfigured) "PenguPlay: manifest configured (stream availability not yet tested)" else "PenguPlay: manifest missing — check GitHub secret and rebuild")
+                    Text(if (penguManifestConfigured) "Home provider: manifest configured (stream availability not yet tested)" else "Home provider: manifest missing — add manifest in API Configuration")
                     Text("M-Lab NDT7 open-source speed test measures sustained download over one connection (about 10 seconds). Results may differ from multi-connection broadband tests. This does not test IPTV or PenguPlay servers.",fontSize=12.sp)
                     if (speedReport.isNotBlank()) Text(speedReport)
                     FocusAction("Test download speed", enabled = !speedRunning, onClick = ::testDownload)
@@ -1486,7 +1492,7 @@ fun App() {
             Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
             val distinctEntries = entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" }
-            LazyRow(modifier=Modifier.height((cardWidth*1.5f+14f).dp),horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=12.dp,end=14.dp,top=6.dp,bottom=6.dp)) {
+            LazyRow(modifier=Modifier.height((cardWidth*9f/16f+14f).dp),horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=12.dp,end=14.dp,top=6.dp,bottom=6.dp)) {
                 itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
                     val posterPulse = rememberInfiniteTransition(label = "Home poster fire")
@@ -1498,10 +1504,10 @@ fun App() {
                         if (focused && index >= distinctEntries.lastIndex - 2) onNearEnd?.invoke()
                     }
                         .zIndex(if (focused) 2f else 0f)
-                        .graphicsLayer { scaleX = if (focused) 1.06f else 1f; scaleY = if (focused) 1.06f else 1f }
+                        
                         .glassFrame(if (focused) 3.3.dp else 2.5.dp, if (focused) posterBorder else Color(0xFF56BFFF), focused = focused, repeatPulse = false).clickable {onSelect(entry)}.padding(3.dp)) {
-                        Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
-                            val posterUrl=entry.image.ifBlank { entry.backdrop }
+                        Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color(0xFF071424))) {
+                            val posterUrl=entry.backdrop.ifBlank { entry.image }
                             AsyncImage(model=posterUrl,contentDescription=entry.title,
                                 modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
                             if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))

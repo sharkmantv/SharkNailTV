@@ -46,7 +46,7 @@ internal object SmartPlayback {
      * throughput; never treat it as a guaranteed source-server bitrate.
      * Unknown-resolution links are retained for fallback after labelled sources.
      */
-    fun rank(streams:List<HomeStream>, mode:String, kbps:Int, screen:Int):List<HomeStream> {
+    fun rank(streams:List<HomeStream>, mode:String, kbps:Int, screen:Int, displayPreference:String = "Auto"):List<HomeStream> {
         val displayHeight=screen.coerceAtLeast(480)
         val cap = when {
             mode == "Shark Turbo" -> 1080
@@ -61,6 +61,14 @@ internal object SmartPlayback {
         return streams.distinctBy { it.url }.sortedWith(
             compareByDescending<HomeStream> { stream ->
                 stream.url.startsWith("https://", true) || stream.url.startsWith("http://", true)
+            }.thenByDescending { stream ->
+                val hdr = Regex("(?i)\\b(?:HDR10\\+?|HDR|HLG|Dolby[ ._-]?Vision|DV|DOVI)\\b").containsMatchIn(stream.title)
+                val sdr = Regex("(?i)\\bSDR\\b").containsMatchIn(stream.title)
+                when(displayPreference) {
+                    "Prefer SDR" -> if(hdr) 0 else if(sdr) 2 else 1
+                    "Prefer HDR" -> if(hdr) 2 else if(sdr) 0 else 1
+                    else -> 1
+                }
             }.thenByDescending { stream ->
                 codecScore(stream, supported)
             }.thenByDescending { stream ->
