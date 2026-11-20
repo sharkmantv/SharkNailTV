@@ -505,7 +505,10 @@ fun App() {
             val key = homeLinkKey(entry)
             if (lastWorkingLinks.get(key) == stream.url) lastWorkingLinks.remove(key)
         }
-        if (!autoSession) return
+        if (!autoSession) {
+            homePlaying=null; showHomeSources=true; homeLookupStatus="Source failed to start — choose another link"
+            return
+        }
         autoResumeMs = maxOf(autoResumeMs, resumeMs)
         failedUrls = failedUrls + stream.url
         homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
@@ -793,7 +796,7 @@ fun App() {
                         Text(homeLookupStatus.ifBlank { "Preparing torrent playback…" }, color=Color.White)
                     }
                 } else {
-                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=18000L,sharkMega=sharkMega,onFirstFrame={
                         if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
                     }) }
                 }
@@ -830,7 +833,7 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null && !torrentPreparing && homePlaying?.url?.startsWith("magnet:?") != true) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=if(autoSession) 12000L else 0L,sharkMega=sharkMega,onFirstFrame={
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=18000L,sharkMega=sharkMega,onFirstFrame={
                                     if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
                                 }) }
                             } else {
@@ -1860,13 +1863,13 @@ private data class AudioTrackSwitch(
             val pos=player.currentPosition
             val active=player.playWhenReady && player.playbackSuppressionReason==androidx.media3.common.Player.PLAYBACK_SUPPRESSION_REASON_NONE
             val state=player.playbackState
-            if(!active || state==androidx.media3.common.Player.STATE_ENDED) {
+            if((!active && firstFrame) || !player.playWhenReady || state==androidx.media3.common.Player.STATE_ENDED) {
                 stalledMs=0L; recentBufferMs=0L; windowMs=0L
             } else {
                 val buffering=state==androidx.media3.common.Player.STATE_BUFFERING
                 val progressing=pos>lastPosition+100L && player.isPlaying
                 // Only count genuine buffering or stalled playback, not a paused/ready player.
-                stalledMs=if(progressing || (!buffering && state!=androidx.media3.common.Player.STATE_READY)) 0L else if(buffering || (state==androidx.media3.common.Player.STATE_READY && !progressing)) stalledMs+1000L else 0L
+                stalledMs=if (!firstFrame) stalledMs+1000L else if(progressing || (!buffering && state!=androidx.media3.common.Player.STATE_READY)) 0L else if(buffering || (state==androidx.media3.common.Player.STATE_READY && !progressing)) stalledMs+1000L else 0L
                 if(firstFrame) {
                     windowMs+=1000L
                     if(buffering) recentBufferMs+=1000L
