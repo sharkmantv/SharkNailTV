@@ -147,9 +147,8 @@ data class Program(val title:String,val start:String,val end:String)
 data class SportEvent(val channel:Entry,val program:Program,val startMillis:Long,val endMillis:Long)
 class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); SharkAppUpdater.check(this); setContent { App() } } }
 
-/** One-time cinematic shark breakthrough. The home screen remains unchanged afterwards. */
+/** Dry cinematic steel intro, isolated from the home screen. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
-    // Cinematic shark artwork with subtle animated sea spray.
     val emergence = remember { androidx.compose.animation.core.Animatable(0f) }
     val fade = remember { androidx.compose.animation.core.Animatable(1f) }
     LaunchedEffect(Unit) {
@@ -158,36 +157,35 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
         fade.animateTo(0f, tween(450))
         onFinished()
     }
-    Box(Modifier.fillMaxSize().background(Color(0xFF03162C)), contentAlignment = Alignment.Center) {
-        Image(painterResource(R.drawable.shark_intro_claws_background),
-            "Sharks bursting out of ocean water",
-            Modifier.fillMaxSize().graphicsLayer {
-                val p = emergence.value
-                scaleX = 0.92f + 0.13f * p
-                scaleY = 0.92f + 0.13f * p
-                translationY = (1f-p) * 44f
-                alpha = fade.value
-            }, contentScale = ContentScale.Crop)
-        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF080A10)), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
             val w = size.width
             val h = size.height
             val p = emergence.value
-            // Preserve the detailed ocean in the original artwork rather than
-            // covering it with an opaque cartoon wave. Add fading sea spray.
-            drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xB3000918)), startY=h*0.55f,endY=h))
-            for (i in 0 until 90) {
-                val seed = i * 2.39996f
-                val spread = (0.08f + (i % 19) * 0.021f) * p
-                val x = w * (0.5f + kotlin.math.cos(seed) * spread)
-                val y = h * (0.82f - kotlin.math.abs(kotlin.math.sin(seed)) * spread * 1.5f + 0.10f*p*p)
-                val opacity = (kotlin.math.sin(p * 3.14159f) * (0.22f + (i%5)*0.09f)).coerceIn(0f,1f)
-                val radius = h * (0.0008f + (i%4)*0.00045f)
-                drawLine(Color(0xFFB9E9FF), Offset(x,y), Offset(x+(x-w*0.5f)*0.025f,y+radius*4f), strokeWidth=radius, alpha=opacity)
+            val center = Offset(w*0.5f,h*0.45f)
+            drawRect(Brush.radialGradient(listOf(Color(0xFF26354A),Color(0xFF090D17),Color(0xFF030407)),center=center,radius=w*0.65f))
+            for (i in -12..12) {
+                val x = w*0.5f+i*w*0.10f
+                drawLine(Color(0xFF8193A8),Offset(x-w*0.4f,0f),Offset(x+w*0.4f,h),strokeWidth=1f,alpha=0.12f)
             }
+            val impact = ((p-0.78f)/0.22f).coerceIn(0f,1f)
+            for(i in 0 until 19) {
+                val angle = i*2.39996f
+                val length = h*(0.22f+(i%7)*0.075f)*impact
+                val tip = Offset(center.x+kotlin.math.cos(angle)*length,center.y+kotlin.math.sin(angle)*length)
+                drawLine(Color(0xFFBBCFE4),center,tip,strokeWidth=1.5f,alpha=impact*0.45f)
+                val mid = Offset((center.x+tip.x)*0.5f,(center.y+tip.y)*0.5f)
+                drawLine(Color(0xFFBBCFE4),mid,Offset(tip.x+h*0.035f,tip.y-h*0.05f),strokeWidth=1f,alpha=impact*0.35f)
+            }
+            drawCircle(Color(0xFFDAAF66),radius=h*0.38f,center=center,alpha=0.12f,style=androidx.compose.ui.graphics.drawscope.Stroke(width=2f))
         }
         Image(painterResource(R.drawable.shark_brand), "Original SharkNailTV logo",
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth(0.48f).fillMaxHeight(0.30f)
-                .graphicsLayer { alpha = fade.value }, contentScale = ContentScale.Fit)
+            Modifier.fillMaxWidth(0.70f).fillMaxHeight(0.76f).graphicsLayer {
+                val p = emergence.value
+                scaleX = 0.72f + 0.28f*p
+                scaleY = scaleX
+                alpha = fade.value
+            }, contentScale = ContentScale.Fit)
     }
 }
 
