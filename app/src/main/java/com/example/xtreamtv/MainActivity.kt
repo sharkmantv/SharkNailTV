@@ -149,15 +149,9 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
 
 /** One-time cinematic shark breakthrough. The home screen remains unchanged afterwards. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
-    // Sharks emerge through an animated water surface; no sliding doors or torn curtain.
+    // Cinematic shark artwork with subtle animated sea spray.
     val emergence = remember { androidx.compose.animation.core.Animatable(0f) }
     val fade = remember { androidx.compose.animation.core.Animatable(1f) }
-    val water = rememberInfiniteTransition(label = "Shark intro water")
-    val wavePhase by water.animateFloat(
-        0f, 6.28318f,
-        infiniteRepeatable(tween(2100, easing = androidx.compose.animation.core.LinearEasing)),
-        label = "Moving water"
-    )
     LaunchedEffect(Unit) {
         emergence.animateTo(1f, tween(1250, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         delay(1050)
@@ -178,43 +172,17 @@ class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState
             val w = size.width
             val h = size.height
             val p = emergence.value
-            val surfaceY = h * (0.53f + 0.20f * p)
-            val amplitude = h * (0.015f + 0.013f * (1f-p))
-            val surface = androidx.compose.ui.graphics.Path().apply {
-                moveTo(0f, h)
-                lineTo(0f, surfaceY)
-                for (step in 0..80) {
-                    val x = w * step / 80f
-                    val wave = kotlin.math.sin(step * 0.27f + wavePhase) * amplitude +
-                        kotlin.math.sin(step * 0.55f - wavePhase * 1.3f) * amplitude * 0.35f
-                    lineTo(x, surfaceY + wave)
-                }
-                lineTo(w,h)
-                close()
-            }
-            drawPath(surface, Brush.verticalGradient(
-                listOf(Color(0xB91AB7E8), Color(0xDE064B85), Color(0xF0031938)),
-                startY=surfaceY-amplitude, endY=h
-            ))
-            val foamAlpha = (0.45f + (1f-p)*0.45f).coerceIn(0f,1f)
-            for (step in 0..52) {
-                val x = w * step / 52f
-                val y = surfaceY + kotlin.math.sin(step * 0.27f + wavePhase) * amplitude +
-                    kotlin.math.sin(step * 0.55f - wavePhase * 1.3f) * amplitude * 0.35f
-                drawCircle(Color(0xFFD6F8FF), radius=1.6f + 2.5f*(1f-p), center=Offset(x,y), alpha=foamAlpha)
-            }
-            // Water droplets fly outward as the sharks break through the surface.
-            for (i in 0 until 34) {
-                val angle = (i * 2.39996f)
-                val distance = (0.06f + (i % 7) * 0.019f) * p
-                val x = w * (0.5f + kotlin.math.cos(angle) * distance)
-                val y = h * (0.55f - kotlin.math.abs(kotlin.math.sin(angle)) * distance * 1.6f)
-                drawCircle(
-                    color = if(i % 3 == 0) Color.White else Color(0xFF65DBFF),
-                    radius = (2f + i % 4) * (1f - p * 0.65f),
-                    center = Offset(x,y),
-                    alpha = (1f-p*0.75f).coerceIn(0f,1f)
-                )
+            // Preserve the detailed ocean in the original artwork rather than
+            // covering it with an opaque cartoon wave. Add fading sea spray.
+            drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xB3000918)), startY=h*0.55f,endY=h))
+            for (i in 0 until 90) {
+                val seed = i * 2.39996f
+                val spread = (0.08f + (i % 19) * 0.021f) * p
+                val x = w * (0.5f + kotlin.math.cos(seed) * spread)
+                val y = h * (0.82f - kotlin.math.abs(kotlin.math.sin(seed)) * spread * 1.5f + 0.10f*p*p)
+                val opacity = (kotlin.math.sin(p * 3.14159f) * (0.22f + (i%5)*0.09f)).coerceIn(0f,1f)
+                val radius = h * (0.0008f + (i%4)*0.00045f)
+                drawLine(Color(0xFFB9E9FF), Offset(x,y), Offset(x+(x-w*0.5f)*0.025f,y+radius*4f), strokeWidth=radius, alpha=opacity)
             }
         }
         Image(painterResource(R.drawable.shark_brand), "Original SharkNailTV logo",
