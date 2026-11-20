@@ -22,6 +22,42 @@ internal object LibreSpeedProbe {
      * No upload test is performed.
      */
     fun publicDownloadReport(): String {
+        return try {
+            ndtDownloadReport()
+        } catch (e: Exception) {
+            if (e is InterruptedException || e is java.util.concurrent.CancellationException) throw e
+            httpsDownloadReport()
+        }
+    }
+
+    private fun httpsDownloadReport(): String {
+        val request = Request.Builder()
+            .url("https://speed.cloudflare.com/__down?bytes=25000000")
+            .header("Accept-Encoding", "identity")
+            .header("Cache-Control", "no-cache")
+            .build()
+        val fallback = client.newBuilder().followRedirects(true)
+            .callTimeout(25, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).build()
+        fallback.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("HTTPS test server returned ${response.code}")
+            val body = response.body ?: throw IOException("Empty HTTPS test response")
+            val buffer = ByteArray(64 * 1024)
+            val input = body.byteStream()
+            val start = SystemClock.elapsedRealtime()
+            var bytes = 0L
+            while (bytes < 25_000_000L && SystemClock.elapsedRealtime() - start < 8000L) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                bytes += count
+            }
+            if (bytes < 256_000L) throw IOException("Insufficient HTTPS download data")
+            val elapsed = (SystemClock.elapsedRealtime() - start).coerceAtLeast(1L)
+            return String.format(Locale.UK, "%.1f Mbps download · Cloudflare HTTPS (%.1f s)",
+                bytes * 8.0 / (elapsed * 1000.0), elapsed / 1000.0)
+        }
+    }
+
+    private fun ndtDownloadReport(): String {
         val locate = Request.Builder()
             .url("https://locate.measurementlab.net/v2/nearest/ndt/ndt7")
             .header("User-Agent", "SharkNailTV-NDT7/1.0")
@@ -64,6 +100,11 @@ internal object LibreSpeedProbe {
                 override fun onMessage(webSocket: okhttp3.WebSocket, text: String) {
                     // NDT7 sends JSON measurement messages as well as binary data.
                 }
+                override fun onClosing(webSocket: okhttp3.WebSocket, code: Int, reason: String) {
+                    finished.set(SystemClock.elapsedRealtime())
+                    webSocket.close(1000, null)
+                    done.countDown()
+                }
                 override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) {
                     finished.set(SystemClock.elapsedRealtime())
                     done.countDown()
@@ -75,7 +116,10 @@ internal object LibreSpeedProbe {
                 }
             })
         try {
-            if (!done.await(20, TimeUnit.SECONDS)) throw IOException("M-Lab speed test timed out")
+            if (!done.await(14, TimeUnit.SECONDS)) {
+                if (received.get() < 256_000L) throw IOException("M-Lab speed test timed out")
+                finished.set(SystemClock.elapsedRealtime())
+            }
             if (received.get() < 256_000L) throw IOException(failure.get() ?: "Insufficient download data")
             val elapsed = (finished.get() - started.get()).coerceAtLeast(1L)
             return String.format(Locale.UK,
