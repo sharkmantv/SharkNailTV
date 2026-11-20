@@ -832,7 +832,7 @@ fun App() {
                 if (section == "API Configuration") Spacer(Modifier.height(18.dp))
                 val featuredPage = selected == null && section in listOf("Home","Movies","TV Series")
                 val serviceCatalogue = selected == null && (section == "Shark Streaming" || section.endsWith(" Catalogue"))
-                Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
+                Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().then(if(featuredPage || serviceCatalogue || (selected==null && section in listOf("Shark TV","EPG / TV Guide","Sports Guide","Playback & Display","Settings","Shark Performance Hub","System Health"))) Modifier else Modifier.verticalScroll(rememberScrollState()))) {
                 if(selected!=null) {
                     val e=selected!!
                     Spacer(Modifier.height(16.dp))
