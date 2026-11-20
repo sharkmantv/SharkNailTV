@@ -899,8 +899,8 @@ fun App() {
                                     val verticalWidth = ((maxHeight.value - 90f) / 1.125f).toInt()
                                     val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,340)
                                     Column(Modifier.fillMaxSize().padding(top=2.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                                        HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth){openTitle(it)}
-                                        HomeTmdbRow("TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth){openTitle(it)}
+                                        HomeTmdbRow(tmdbKey,"Movies",trendingMovies.ifEmpty { popularMovies },cardWidth){openTitle(it)}
+                                        HomeTmdbRow(tmdbKey,"TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth){openTitle(it)}
                                     }
                                 }
                             } else {
@@ -968,7 +968,7 @@ fun App() {
                                 if (serviceEntries.isNotEmpty()) {
                                     key(section, serviceCategory, serviceGenre) {
                                         HomeTmdbRow(
-                                            "", serviceEntries, posterWidth,
+                                            tmdbKey, "", serviceEntries, posterWidth,
                                             onNearEnd = {
                                                 if (serviceHasMore && !serviceLoading && serviceError.isBlank()) servicePageRequest++
                                             },
@@ -1483,6 +1483,7 @@ fun App() {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun HomeTmdbRow(
+    tmdbKey: String,
     title: String,
     entries: List<Entry>,
     cardWidth: Int = 245,
@@ -1515,9 +1516,16 @@ fun App() {
                         
                         .glassFrame(if (focused) 3.3.dp else 2.5.dp, if (focused) posterBorder else Color(0xFF56BFFF), focused = focused, repeatPulse = false).clickable {onSelect(entry)}.padding(3.dp)) {
                         Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color(0xFF071424))) {
+                            val logo by produceState("",entry.id,entry.genre,tmdbKey) {
+                                if(entry.kind=="tmdb" && tmdbKey.isNotBlank()) value=TmdbApi.titleLogo(tmdbKey,entry)
+                            }
+                            var logoReady by remember(logo) { mutableStateOf(false) }
                             val posterUrl=entry.backdrop.ifBlank { entry.image }
                             AsyncImage(model=posterUrl,contentDescription=entry.title,
                                 modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+                            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height((cardWidth*0.24f).dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=0.85f)))))
+                            if(logo.isNotBlank()) AsyncImage(model=logo,contentDescription=entry.title,modifier=Modifier.align(Alignment.BottomStart).padding(7.dp).fillMaxWidth(0.82f).height((cardWidth*0.19f).dp),contentScale=ContentScale.Fit,alignment=Alignment.BottomStart,onSuccess={logoReady=true},onError={logoReady=false})
+                            if(!logoReady) Text(entry.title,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold,maxLines=2,overflow=TextOverflow.Ellipsis,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,2f),5f)),modifier=Modifier.align(Alignment.BottomStart).padding(8.dp))
                             if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))
                         }
                     }
