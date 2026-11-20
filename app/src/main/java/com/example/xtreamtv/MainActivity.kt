@@ -823,7 +823,23 @@ fun App() {
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
             } else HomeHeroBackground("", subdued=true)
-            selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(coil.size.Size.ORIGINAL).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(HudBackground.copy(alpha = .78f))) }
+            selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(coil.size.Size.ORIGINAL).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
+                0f to Color(0xE8031028),
+                0.36f to Color(0xC4071D3B),
+                0.72f to Color(0x7B0A2B4F),
+                1f to Color(0x85031229)
+            )))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                0f to Color(0xB2041632),
+                0.35f to Color(0x510F345A),
+                0.66f to Color(0x93061C3B),
+                1f to Color(0xE5031029)
+            )))
+            Box(Modifier.fillMaxSize().background(Brush.radialGradient(
+                0.0f to Color(0x352F6A98),
+                0.55f to Color(0x180B355A),
+                1.0f to Color.Transparent
+            ))) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color(0x10091A30),Color(0x55061538)))))
             Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
