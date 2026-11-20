@@ -591,7 +591,8 @@ fun App() {
                 val ranked = SmartPlayback.rank(
                     results, rankingMode, kbps,
                     (context as? android.app.Activity)?.windowManager?.defaultDisplay?.mode?.physicalHeight
-                        ?: context.resources.displayMetrics.heightPixels
+                        ?: context.resources.displayMetrics.heightPixels,
+                    playbackPrefs(context).getString("dynamicRange", "Auto").orEmpty()
                 )
                 homeStreams = ranked.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) } +
                     ranked.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
