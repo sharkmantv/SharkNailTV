@@ -1588,8 +1588,7 @@ private object TmdbApi {
                     }
                 }
             }
-            if(artCache.size>=1024) artCache.clear()
-            if(art.isNotBlank()) artCache[cacheKey]=art
+            if(art.isNotBlank()) artCache.put(cacheKey,art)
             art
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "" } finally { artGate.release() }
     }
