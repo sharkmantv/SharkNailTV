@@ -881,11 +881,10 @@ fun App() {
                         "Home", "Movies", "TV Series" -> {
                             if(section=="Home") {
                                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                                    // Fit both TMDB rows within the TV viewport; preserve 2:3 artwork.
-                                    // Use the available height for larger portrait posters.
-                                    val horizontalWidth = ((maxWidth.value - 42f) / 5f).toInt()
-                                    val verticalWidth = ((maxHeight.value - 122f) / 3.0f).toInt()
-                                    val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,220)
+                                    // Fit both landscape TMDB rows inside the TV viewport.
+                                    val horizontalWidth = ((maxWidth.value - 64f) / 4f).toInt()
+                                    val verticalWidth = ((maxHeight.value - 90f) / 1.125f).toInt()
+                                    val cardWidth = minOf(horizontalWidth, verticalWidth).coerceIn(1,340)
                                     Column(Modifier.fillMaxSize().padding(top=2.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
                                         HomeTmdbRow("Movies",trendingMovies.ifEmpty { popularMovies },cardWidth){openTitle(it)}
                                         HomeTmdbRow("TV Series",trendingSeries.ifEmpty { popularSeries },cardWidth){openTitle(it)}
@@ -1486,7 +1485,7 @@ fun App() {
             Box(Modifier.fillMaxWidth().height(42.dp).background(Color.Transparent,RoundedCornerShape(0.dp)),contentAlignment=Alignment.CenterStart){Text("Posters unavailable. Retry after checking the device network and date.",color = Color.White,fontSize=13.sp,modifier=Modifier.padding(16.dp))}
         } else CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
             val distinctEntries = entries.distinctBy { "${it.kind}:${it.genre}:${it.id}" }
-            LazyRow(modifier=Modifier.height((cardWidth*1.5f+14f).dp),horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=12.dp,end=14.dp,top=6.dp,bottom=6.dp)) {
+            LazyRow(modifier=Modifier.height((cardWidth*9f/16f+14f).dp),horizontalArrangement=Arrangement.spacedBy(11.dp),contentPadding=PaddingValues(start=12.dp,end=14.dp,top=6.dp,bottom=6.dp)) {
                 itemsIndexed(distinctEntries, key = { _, entry -> "${entry.kind}:${entry.genre}:${entry.id}" }) { index, entry ->
                     var focused by remember {mutableStateOf(false)}
                     val posterPulse = rememberInfiniteTransition(label = "Home poster fire")
@@ -1498,10 +1497,10 @@ fun App() {
                         if (focused && index >= distinctEntries.lastIndex - 2) onNearEnd?.invoke()
                     }
                         .zIndex(if (focused) 2f else 0f)
-                        .graphicsLayer { scaleX = if (focused) 1.06f else 1f; scaleY = if (focused) 1.06f else 1f }
+                        
                         .glassFrame(if (focused) 3.3.dp else 2.5.dp, if (focused) posterBorder else Color(0xFF56BFFF), focused = focused, repeatPulse = false).clickable {onSelect(entry)}.padding(3.dp)) {
-                        Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF071424))) {
-                            val posterUrl=entry.image.ifBlank { entry.backdrop }
+                        Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color(0xFF071424))) {
+                            val posterUrl=entry.backdrop.ifBlank { entry.image }
                             AsyncImage(model=posterUrl,contentDescription=entry.title,
                                 modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
                             if(entry.rating.isNotBlank()) Text("★ ${entry.rating}/10",color=gold,fontSize=10.sp,fontWeight=FontWeight.Bold,style=TextStyle(shadow=Shadow(Color.Black,Offset(1f,1f),4f)),modifier=Modifier.align(Alignment.TopEnd).padding(6.dp))
