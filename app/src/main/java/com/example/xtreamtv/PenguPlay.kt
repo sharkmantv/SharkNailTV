@@ -9,6 +9,13 @@ import java.net.URLEncoder
 
 /** Stremio addon stream resolver. The configured manifest is kept out of shipped source. */
 internal object PenguPlay {
+    // Avoid re-resolving the same title when the viewer backs out and presses Play.
+    // Keep signed stream URLs in memory only and expire them quickly.
+    private data class CachedStreams(val savedAtMs: Long, val streams: List<HomeStream>)
+    private val cache = object : LinkedHashMap<String, CachedStreams>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedStreams>?): Boolean = size > 32
+    }
+    private const val CACHE_TTL_MS = 120_000L
     suspend fun lookup(manifest: String, entry: Entry, tmdbKey: String, season: Int = 1, episode: Int = 1): List<HomeStream> = withContext(Dispatchers.IO) {
         val base = URL(manifest)
         require(base.protocol == "https" && base.host.equals("pengu.uk", ignoreCase = true)) { "Invalid PenguPlay manifest" }
@@ -28,18 +35,24 @@ internal object PenguPlay {
         }
         if (!imdbId.startsWith("tt")) return@withContext emptyList()
         val path = base.toString().removeSuffix("manifest.json") + "stream/${if(isSeries) "series" else "movie"}/" + URLEncoder.encode(if(isSeries) "$imdbId:$season:$episode" else imdbId,"UTF-8") + ".json"
+        val now = System.currentTimeMillis()
+        synchronized(cache) {
+            cache[path]?.takeIf { now - it.savedAtMs in 0 until CACHE_TTL_MS }?.let { return@withContext it.streams }
+        }
         val conn = URL(path).openConnection() as HttpURLConnection
         conn.connectTimeout = 10000; conn.readTimeout = 20000
         try {
             require(conn.responseCode == 200) { "Stream HTTP ${conn.responseCode}" }
             val payload = conn.inputStream.bufferedReader().use { it.readText().take(1_000_000) }
             val arr = JSONObject(payload).optJSONArray("streams") ?: return@withContext emptyList()
-            (0 until minOf(arr.length(), 80)).mapNotNull { i ->
+            val streams = (0 until minOf(arr.length(), 80)).mapNotNull { i ->
                 val item = arr.optJSONObject(i) ?: return@mapNotNull null
                 val link = item.optString("url")
                 if (!link.startsWith("https://") && !link.startsWith("http://")) return@mapNotNull null
                 HomeStream(listOf(item.optString("name"),item.optString("title")).filter { it.isNotBlank() }.joinToString(" · ").take(220), link)
             }
+            synchronized(cache) { cache[path] = CachedStreams(System.currentTimeMillis(), streams) }
+            streams
         } finally { conn.disconnect() }
     }
 }
