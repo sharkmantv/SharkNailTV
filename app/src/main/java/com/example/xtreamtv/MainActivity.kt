@@ -803,7 +803,7 @@ fun App() {
                 SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
         } else Box(Modifier.fillMaxSize()) {
-            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
+            BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health","Shark Performance Hub")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
@@ -990,7 +990,7 @@ fun App() {
                         "Xtream Codes" -> {Text("Xtream Codes",color=Color.White,fontSize=25.sp); FocusAction("Connect / Change IPTV Account"){if(password.isBlank()) password=readSavedPassword(context);showLogin=true}; FocusAction("Disconnect (keep login)"){api=null;connected=false}; Text(if(connected) "Connected" else "Not connected",color=Color.White); Text(credentialStatus,color=Color.White); FocusAction("Back to Settings"){section="Settings"}}
                         "Settings" -> {
                             Spacer(Modifier.height(4.dp))
-                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health")
+                            val options=listOf("Xtream Codes","Software Update","Refresh IPTV Catalogue","Refresh Posters","Refresh Sports","Connection Status","Clear Memory Cache","Playback & Display","Sharks Toolkit","Exit","System Health","Shark Performance Hub")
                             val interfacePrefs = playbackPrefs(context)
                             val uniformBarHeight = interfacePrefs.getInt("uniformBarHeight",76).coerceIn(64,88).dp
                             var focusedSetting by remember { mutableStateOf<String?>(null) }
@@ -1066,6 +1066,36 @@ fun App() {
                             }
                         }
                         "Playback & Display" -> { PlaybackSettings { section="Settings" } }
+                        "Shark Performance Hub" -> {
+                            val activity = context as? android.app.Activity
+                            val displayMode = activity?.windowManager?.defaultDisplay?.mode
+                            val displayWidth = displayMode?.physicalWidth ?: 0
+                            val displayHeight = displayMode?.physicalHeight ?: 0
+                            val refreshRate = displayMode?.refreshRate ?: 0f
+                            val runtime = Runtime.getRuntime()
+                            val usedHeap = runtime.totalMemory() - runtime.freeMemory()
+                            val maxHeap = runtime.maxMemory()
+                            val freeStorage = android.os.StatFs(context.cacheDir.absolutePath).availableBytes
+                            Text("Shark Performance Hub", color=Color.White, fontSize=26.sp)
+                            Text("4K Display Check", color=Color(0xFFFFD53D), fontSize=18.sp)
+                            Text(if(displayWidth>0 && displayHeight>0) "Active display mode: ${displayWidth} × ${displayHeight} at ${"%.1f".format(java.util.Locale.US,refreshRate)} Hz" else "Display mode unavailable", color=Color.White)
+                            Text("4K UHD reference: 3840 × 2160. Display mode does not guarantee artwork or video source resolution.", color=Color.LightGray, fontSize=12.sp)
+                            Text("Memory Monitor", color=Color(0xFFFFD53D), fontSize=18.sp)
+                            Text("App heap: ${formatBytes(usedHeap)} / ${formatBytes(maxHeap)}", color=Color.White)
+                            Text("Free app storage: ${formatBytes(freeStorage)}", color=Color.White)
+                            Text("Stream Health", color=Color(0xFFFFD53D), fontSize=18.sp)
+                            Text("Media3 playback · Profile: ${if(sharkMega) "Shark Mega" else "Standard"} · Stream format: ${playbackPrefs(context).getString("streamFormat","Auto")}", color=Color.White)
+                            Text("Live dropped-frame and buffering counters are not available on this screen yet.", color=Color.LightGray, fontSize=12.sp)
+                            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                                FocusAction("Shark Speed Test") { diagnostics=true; testRun++; section="Settings" }
+                                FocusAction("Playback Settings") { section="Playback & Display" }
+                            }
+                            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                                FocusAction("Shark Optimiser · Clear Cache") { cleanAppCache() }
+                                FocusAction("Refresh Readings") { section="Settings"; section="Shark Performance Hub" }
+                            }
+                            FocusAction("Back to Settings") { section="Settings" }
+                        }
                         "System Health" -> {
                             val runtime=Runtime.getRuntime()
                             val used=runtime.totalMemory()-runtime.freeMemory()
