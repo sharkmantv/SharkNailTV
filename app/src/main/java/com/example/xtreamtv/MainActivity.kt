@@ -553,7 +553,7 @@ fun App() {
                     manifests.map { manifest ->
                         async {
                             try {
-                                PenguPlay.lookup(manifest, entry, tmdbKey, season, episode)
+                                kotlinx.coroutines.withTimeoutOrNull(8_000L) { PenguPlay.lookup(manifest, entry, tmdbKey, season, episode) } ?: emptyList<HomeStream>()
                             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                               catch (e: Exception) { emptyList<HomeStream>() }
                         }
@@ -575,10 +575,14 @@ fun App() {
                         ?: context.resources.displayMetrics.heightPixels,
                     playbackPrefs(context).getString("dynamicRange", "Auto").orEmpty()
                 )
-                homeStreams = ranked.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) } +
-                    ranked.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
-                // Always start from the current quality ranking. A previously working
-                // link may be slower or lower quality than newly discovered sources.
+                val preferSdr = playbackPrefs(context).getString("dynamicRange", "Auto") == "Prefer SDR"
+                val hdrLabel = Regex("""(?i)\b(?:HDR10\+?|HDR|HLG|Dolby[ ._-]?Vision|DV|DOVI)\b""")
+                val eligible = if (preferSdr) ranked.filterNot { hdrLabel.containsMatchIn(it.title) } else ranked
+                val direct = eligible.filter { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
+                val remembered = if (reuseLastLink) direct.firstOrNull { it.url == lastWorkingLinks.get(linkKey) } else null
+                homeStreams = listOfNotNull(remembered) + direct.filterNot { it.url == remembered?.url } +
+                    eligible.filterNot { it.url.startsWith("https://", true) || it.url.startsWith("http://", true) }
+                // Reuse a successful direct link only if it is still returned and eligible.
                 // Failed sources are excluded for the rest of this playback attempt.
                 if (autoSession) {
                     homePlaying = homeStreams.firstOrNull()
@@ -586,7 +590,7 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (results.isEmpty()) "No Home provider direct streams found for this title."
+                homeLookupStatus = if (homeStreams.isEmpty()) "No compatible Home sources found for this title."
                     else "Home provider direct links: ${penguplay.size}"
 
             } catch (e: Exception) {
