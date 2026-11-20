@@ -1512,7 +1512,7 @@ fun App() {
 
 private object TmdbApi {
     private val backdropCache=android.util.LruCache<String,String>(512)
-    private val artCache=java.util.concurrent.ConcurrentHashMap<String,String>()
+    private val artCache=android.util.LruCache<String,String>(256)
     private val artGate=kotlinx.coroutines.sync.Semaphore(3)
     suspend fun titleLogo(key:String,entry:Entry):String = withContext(Dispatchers.IO) {
         val type=if(entry.genre=="TV Series") "tv" else "movie"
@@ -1534,7 +1534,7 @@ private object TmdbApi {
                     return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("iso_639_1")=="en" || !englishOnly }.sortedWith(compareByDescending<JSONObject>{it.optString("iso_639_1")=="en"}.thenByDescending{it.optDouble("vote_average",0.0)}).map { it.optString("file_path") }.firstOrNull { it.startsWith("/") }.orEmpty()
                 }
                 val logo=find("logos",true)
-                (if(logo.isNotBlank()) "https://image.tmdb.org/t/p/original$logo" else "").also { if(artCache.size>=256) artCache.clear(); artCache[cacheKey]=it }
+                (if(logo.isNotBlank()) "https://image.tmdb.org/t/p/original$logo" else "").also { artCache.put(cacheKey,it) }
             }
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "" } finally { artGate.release() }
     }
@@ -1588,8 +1588,7 @@ private object TmdbApi {
                     }
                 }
             }
-            if(artCache.size>=1024) artCache.clear()
-            if(art.isNotBlank()) artCache[cacheKey]=art
+            if(art.isNotBlank()) artCache.put(cacheKey,art)
             art
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; "" } finally { artGate.release() }
     }
@@ -1721,7 +1720,7 @@ private data class AudioTrackSwitch(
     var playing by remember(url) { mutableStateOf(false) }
     val rootFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
-    val player=remember { configuredPlayer(context, sharkMega = sharkMega) }
+    val player=remember(context, sharkMega) { configuredPlayer(context, sharkMega = sharkMega) }
     var audioSwitch by remember(player, url) { mutableStateOf<AudioTrackSwitch?>(null) }
     var trackNotice by remember(url) { mutableStateOf("") }
     var tracks by remember(player, url) { mutableStateOf(Tracks.EMPTY) }
@@ -1791,7 +1790,8 @@ private data class AudioTrackSwitch(
             } else {
                 val buffering=state==androidx.media3.common.Player.STATE_BUFFERING
                 val progressing=pos>lastPosition+100L && player.isPlaying
-                stalledMs=if(progressing) 0L else stalledMs+1000L
+                // Only count genuine buffering or stalled playback, not a paused/ready player.
+                stalledMs=if(progressing || (!buffering && state!=androidx.media3.common.Player.STATE_READY)) 0L else if(buffering || (state==androidx.media3.common.Player.STATE_READY && !progressing)) stalledMs+1000L else 0L
                 if(firstFrame) {
                     windowMs+=1000L
                     if(buffering) recentBufferMs+=1000L
