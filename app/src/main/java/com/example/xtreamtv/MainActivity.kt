@@ -808,7 +808,7 @@ fun App() {
             if (section in listOf("Home","Movies","TV Series") && selected == null) {
                 HomeHeroBackground(if(section=="Home") remember(section) { heroArtworks.getOrNull(0).orEmpty().ifBlank { defaultArtwork } } else "")
             } else HomeHeroBackground("", subdued=true)
-            selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(1280,720).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(HudBackground.copy(alpha = .78f))) }
+            selected?.takeIf { it.kind=="tmdb" && it.backdrop.isNotBlank() }?.let { entry -> AsyncImage(model=remember(entry.backdrop,context) { coil.request.ImageRequest.Builder(context).data(entry.backdrop).size(coil.size.Size.ORIGINAL).build() },contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop); Box(Modifier.fillMaxSize().background(HudBackground.copy(alpha = .78f))) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color(0x10091A30),Color(0x55061538)))))
             Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
@@ -2434,7 +2434,7 @@ private fun guideClock(context:android.content.Context,time:Long):String = Simpl
         Crossfade(targetState=artwork, animationSpec=tween(120), label="homeHero") { url ->
             Box(Modifier.fillMaxSize()) {
                 if(url.isNotBlank()) {
-                    AsyncImage(model=remember(url,context) { coil.request.ImageRequest.Builder(context).data(url).size(1280,720).build() },
+                    AsyncImage(model=remember(url,context) { coil.request.ImageRequest.Builder(context).data(url).size(coil.size.Size.ORIGINAL).build() },
                         contentDescription=null, modifier=Modifier.align(Alignment.TopEnd).fillMaxWidth(0.88f).fillMaxHeight(0.85f).graphicsLayer { alpha=if(subdued) 0.22f else 1f },
                         contentScale=ContentScale.Crop, alignment=Alignment.TopEnd)
                     Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to base, 0.28f to base, 0.48f to base.copy(alpha=0.85f), 0.76f to base.copy(alpha=0.40f), 1f to base.copy(alpha=0.24f))))
