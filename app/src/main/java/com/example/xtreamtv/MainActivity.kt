@@ -506,13 +506,23 @@ fun App() {
             if (lastWorkingLinks.get(key) == stream.url) lastWorkingLinks.remove(key)
         }
         if (!autoSession) {
-            homePlaying=null; showHomeSources=true; homeLookupStatus="Source failed to start — choose another link"
+            // Keep the failed player visible with its error; do not jump back to Home.
+            // The viewer can press Back to choose another link.
+            showHomeSources = true
+            homeLookupStatus = "Source failed to start — press Back to choose another link"
             return
         }
         autoResumeMs = maxOf(autoResumeMs, resumeMs)
         failedUrls = failedUrls + stream.url
-        homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
-        if(homePlaying==null) { showHomeSources=true; homeLookupStatus="All automatic sources failed" }
+        val nextSource = homeStreams.firstOrNull { it.url !in failedUrls }
+        if (nextSource != null) {
+            homePlaying = nextSource
+            homeLookupStatus = "Trying another Home stream"
+        } else {
+            // Preserve player and failure details instead of silently dismissing playback.
+            showHomeSources = true
+            homeLookupStatus = "All streams failed — press Back to choose another source"
+        }
     }
     var instantMovieRequest by remember { mutableStateOf(0) }
     fun openTitle(entry: Entry) {
@@ -819,7 +829,7 @@ fun App() {
                         Text(homeLookupStatus.ifBlank { "Preparing torrent playback…" }, color=Color.White)
                     }
                 } else {
-                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=18000L,sharkMega=sharkMega,onFirstFrame={
+                    key(stream.url) { SafePlayer(stream.url,onExit={homePlaying=null},title=selected?.title.orEmpty(),onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=18000L,inferFormat=true,sharkMega=sharkMega,onFirstFrame={
                         if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
                     }) }
                 }
@@ -856,7 +866,7 @@ fun App() {
                         "tmdb" -> {
                             if ((section == "Home" || section.endsWith(" Catalogue")) && homePlaying != null && !torrentPreparing && homePlaying?.url?.startsWith("magnet:?") != true) {
                                 val stream = homePlaying!!
-                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=18000L,sharkMega=sharkMega,onFirstFrame={
+                                key(stream.url) { SafePlayer(stream.url,  onExit={homePlaying=null}, title=e.title,onFailure={fallbackHome(stream,it)},resumeMs=if(autoSession) autoResumeMs else 0L,startupTimeoutMs=18000L,inferFormat=true,sharkMega=sharkMega,onFirstFrame={
                                     if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
                                 }) }
                             } else {
@@ -1821,7 +1831,26 @@ private data class AudioTrackSwitch(
     var playing by remember(url) { mutableStateOf(false) }
     val rootFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
-    val player=remember(context, sharkMega) { configuredPlayer(context, sharkMega = sharkMega) }
+    // Player creation can throw on devices with unsupported decoder/display
+    // configurations. Keep the app alive and offer a way back to the title.
+    val playerResult = remember(context, sharkMega) {
+        try { Result.success(configuredPlayer(context, sharkMega = sharkMega)) }
+        catch (error: Exception) {
+            android.util.Log.e("SharkPlayback", "Player initialisation failed", error)
+            Result.failure<ExoPlayer>(error)
+        }
+    }
+    val player = playerResult.getOrNull()
+    if (player == null) {
+        Column(Modifier.fillMaxSize().background(Color.Black).padding(24.dp),
+            verticalArrangement = Arrangement.Center) {
+            Text("Could not start the video player", color = Color.White, fontSize = 22.sp)
+            Text(playerResult.exceptionOrNull()?.javaClass?.simpleName ?: "Player unavailable",
+                color = Color.LightGray, fontSize = 15.sp)
+            FocusAction("Back to sources", onClick = onExit)
+        }
+        return
+    }
     var audioSwitch by remember(player, url) { mutableStateOf<AudioTrackSwitch?>(null) }
     var trackNotice by remember(url) { mutableStateOf("") }
     var tracks by remember(player, url) { mutableStateOf(Tracks.EMPTY) }
