@@ -549,17 +549,31 @@ fun App() {
                     homeLookupStatus = "Add a Home provider in API Configuration."
                     return@launch
                 }
-                val penguplay = coroutineScope {
-                    manifests.map { manifest ->
+                // Give the configured add-ons enough time for slow metadata and stream
+                // responses. Keep independent failures visible instead of silently
+                // converting every timeout/network error into "no sources".
+                val addonResults = coroutineScope {
+                    manifests.mapIndexed { index, manifest ->
                         async {
+                            val providerName = if (index == 0) "Home add-on 1" else "Home add-on ${index + 1}"
                             try {
-                                kotlinx.coroutines.withTimeoutOrNull(8_000L) { PenguPlay.lookup(manifest, entry, tmdbKey, season, episode) } ?: emptyList<HomeStream>()
-                            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-                              catch (e: Exception) { emptyList<HomeStream>() }
+                                val streams = kotlinx.coroutines.withTimeout(40_000L) {
+                                    PenguPlay.lookup(manifest, entry, tmdbKey, season, episode)
+                                }
+                                Pair(streams, null as String?)
+                            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                                Pair(emptyList<HomeStream>(), "$providerName timed out")
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                val reason = e.message?.take(100) ?: e.javaClass.simpleName
+                                Pair(emptyList<HomeStream>(), "$providerName: $reason")
+                            }
                         }
-                    }.awaitAll().flatten()
+                    }.awaitAll()
                 }
-                val matches = penguplay.distinctBy { it.url }
+                val addonFailures = addonResults.mapNotNull { it.second }
+                val matches = addonResults.flatMap { it.first }.distinctBy { it.url }
                 val results = if (sharkMega) withContext(Dispatchers.Default) {
                     SmartPlayback.preferHardwareDecoders(matches)
                 } else matches
@@ -590,8 +604,13 @@ fun App() {
                 } else {
                     showHomeSources = true
                 }
-                homeLookupStatus = if (homeStreams.isEmpty()) "No compatible Home sources found for this title."
-                    else "Home provider direct links: ${penguplay.size}"
+                homeLookupStatus = if (homeStreams.isEmpty()) {
+                    if (addonFailures.isEmpty()) "No compatible direct streams found for this title."
+                    else "Home add-ons unavailable: ${addonFailures.joinToString(" • ")}"
+                } else {
+                    "Found ${homeStreams.size} playable streams" +
+                        (if (addonFailures.isEmpty()) "" else " • ${addonFailures.joinToString(" • ")}")
+                }
 
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
