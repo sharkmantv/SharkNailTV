@@ -9,6 +9,10 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.ViewGroup;
+import android.util.Base64;
+import androidx.media3.common.Player;
+import androidx.media3.common.PlaybackException;
 import android.widget.*;
 import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -25,12 +29,20 @@ public final class MainActivity extends Activity {
   private String server="",user="",pass="",currentKind="live",currentCategory="";
   private ExoPlayer player;
   private ValueAnimator pulse;
+  private LinearLayout liveCategories,liveChannels;
+  private PlayerView liveView;
+  private TextView epgTextView,previewStatus,previewTitle;
+  private String liveId="",liveName="",liveExt="ts",liveCat="";
+  private boolean inLive=false,fullScreenLive=false;
+  private int liveRequest=0;
+  private final java.util.Map<String,JSONArray> liveCached=new java.util.HashMap<>();
   private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
   private GradientDrawable bg(int c,int edge){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setStroke(dp(2),edge);d.setCornerRadius(dp(2));return d;}
   private TextView label(String value,int size,int color){TextView t=new TextView(this);t.setText(value);t.setTextColor(color);t.setTextSize(size);t.setGravity(Gravity.CENTER);t.setTypeface(null,1);return t;}
   private void screen(String title){
     if(pulse!=null){pulse.cancel();pulse=null;}
     if(player!=null){player.release();player=null;}
+    inLive=false;fullScreenLive=false;liveRequest++;
     root=new LinearLayout(this);root.setPadding(dp(18),dp(12),dp(18),dp(12));root.setOrientation(1);root.setBackgroundColor(NAVY);
     setContentView(root);
     TextView h=label("IBO SKY RETRO     •     "+title,25,GOLD);
@@ -68,10 +80,10 @@ public final class MainActivity extends Activity {
     }
     pulse=ValueAnimator.ofInt(135,255);pulse.setRepeatCount(ValueAnimator.INFINITE);pulse.setRepeatMode(ValueAnimator.REVERSE);pulse.setDuration(900);
     pulse.addUpdateListener(v->{int a=(int)v.getAnimatedValue();for(int i=0;i<tiles.getChildCount();i++){LinearLayout row=(LinearLayout)tiles.getChildAt(i);for(int j=0;j<row.getChildCount();j++){View c=row.getChildAt(j);if(!c.isFocused())((GradientDrawable)c.getBackground()).setStroke(dp(2),Color.argb(a,255,214,36));}}});pulse.start();
-    TextView tip=label("OK to open  •  BACK to return   |   Test build: no copyrighted IBO code",13,0xffa7c9fa);root.addView(tip,new LinearLayout.LayoutParams(-1,dp(30)));
+    TextView tip=label("OK to open  •  SKY RETRO  •  MEDIA3 PLAYBACK",13,0xffa7c9fa);root.addView(tip,new LinearLayout.LayoutParams(-1,dp(30)));
   }
   private void route(String t){
-    if(t.equals("LIVE TV"))categories("live");
+    if(t.equals("LIVE TV"))liveTv();
     else if(t.equals("MOVIES"))categories("vod");
     else if(t.equals("SERIES"))categories("series");
     else if(t.equals("SPORTS"))listing("live","","sport");
@@ -97,7 +109,8 @@ public final class MainActivity extends Activity {
       if(base.isEmpty()||usr.isEmpty()||pw.isEmpty()){msg.setText("Fill in server, username and password.");return;}
       server=base;user=usr;pass=pw;msg.setText("Connecting...");
       api("",obj->{
-        if(!(obj instanceof JSONObject) || !((JSONObject)obj).optJSONObject("user_info").optString("auth","0").equals("1")){msg.setText("Xtream login refused. Check your details.");return;}
+        JSONObject info=obj instanceof JSONObject?((JSONObject)obj).optJSONObject("user_info"):null;
+        if(info==null || !info.optString("auth","0").equals("1")){msg.setText("Xtream login refused. Check your details.");return;}
         getSharedPreferences("xtream",0).edit().putString("server",server).putString("user",user).putString("pass",pass).apply();home();
       },err->msg.setText(err));
     });
@@ -121,6 +134,166 @@ public final class MainActivity extends Activity {
     });
   }
   private static String enc(String v){try{return java.net.URLEncoder.encode(v,"UTF-8");}catch(Exception e){return v;}}
+
+  // Original three-column layout informed by IBO TV navigation, not extracted proprietary code.
+  private LinearLayout column(LinearLayout parent,String name,int weight) {
+    LinearLayout column=new LinearLayout(this);column.setOrientation(1);
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,weight);
+    lp.setMargins(dp(3),dp(2),dp(3),dp(2));parent.addView(column,lp);
+    TextView title=label(name,17,GOLD);title.setBackground(bg(BLUE,GOLD));
+    column.addView(title,new LinearLayout.LayoutParams(-1,dp(43)));
+    return column;
+  }
+  private LinearLayout.LayoutParams guideRowParams() {
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(49));
+    lp.setMargins(dp(2),dp(2),dp(2),dp(2));return lp;
+  }
+  private Button guideButton(String text,Runnable action) {
+    Button b=button(text,action);b.setTextSize(14);
+    b.setGravity(Gravity.CENTER_VERTICAL|Gravity.LEFT);b.setPadding(dp(10),0,dp(6),0);
+    b.setSingleLine(true);b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    return b;
+  }
+  private void liveTv() {
+    screen("LIVE TV");
+    inLive=true;fullScreenLive=false;
+    root.setPadding(dp(9),dp(7),dp(9),dp(5));
+    final int session=liveRequest;
+    LinearLayout content=new LinearLayout(this);content.setOrientation(0);
+    root.addView(content,new LinearLayout.LayoutParams(-1,0,1));
+    LinearLayout categories=column(content,"CATEGORIES",25);
+    LinearLayout channels=column(content,"CHANNELS",36);
+    LinearLayout preview=column(content,"PREVIEW & TV GUIDE",39);
+    ScrollView cScroll=new ScrollView(this);
+    liveCategories=new LinearLayout(this);liveCategories.setOrientation(1);cScroll.addView(liveCategories);
+    categories.addView(cScroll,new LinearLayout.LayoutParams(-1,0,1));
+    ScrollView chScroll=new ScrollView(this);
+    liveChannels=new LinearLayout(this);liveChannels.setOrientation(1);chScroll.addView(liveChannels);
+    channels.addView(chScroll,new LinearLayout.LayoutParams(-1,0,1));
+    previewTitle=label("Select channel • OK to preview",16,WHITE);
+    preview.addView(previewTitle,new LinearLayout.LayoutParams(-1,dp(38)));
+    FrameLayout video=new FrameLayout(this);video.setBackground(bg(Color.BLACK,GOLD));
+    LinearLayout.LayoutParams vParams=new LinearLayout.LayoutParams(-1,0,6);
+    vParams.setMargins(dp(3),dp(2),dp(3),dp(2));preview.addView(video,vParams);
+    liveView=new PlayerView(this);liveView.setUseController(false);liveView.setFocusable(false);
+    video.addView(liveView,new FrameLayout.LayoutParams(-1,-1));
+    previewStatus=label("Autoplay OFF — press OK to play",13,0xffb9d4ff);
+    preview.addView(previewStatus,new LinearLayout.LayoutParams(-1,dp(28)));
+    epgTextView=label("EPG\nSelect a channel to load programme data",14,WHITE);
+    epgTextView.setGravity(Gravity.TOP|Gravity.LEFT);epgTextView.setPadding(dp(8),dp(8),dp(5),0);
+    epgTextView.setBackground(bg(0xff0a2147,BLUE));
+    preview.addView(epgTextView,new LinearLayout.LayoutParams(-1,0,3));
+    LinearLayout controls=new LinearLayout(this);
+    preview.addView(controls,new LinearLayout.LayoutParams(-1,dp(45)));
+    Button full=button("FULL SCREEN",this::expandLive);full.setTextSize(12);
+    controls.addView(full,new LinearLayout.LayoutParams(0,-1,2));
+    Button stop=button("STOP",()->{if(player!=null)player.stop();previewStatus.setText("Stopped");});
+    stop.setTextSize(12);controls.addView(stop,new LinearLayout.LayoutParams(0,-1,1));
+    root.addView(label("D-PAD categories / channels    •    OK opens preview    •    FULL SCREEN expands    •    BACK returns Home",12,0xffb6d7ff),
+       new LinearLayout.LayoutParams(-1,dp(30)));
+    liveCategories.addView(label("Loading categories...",15,GOLD));
+    liveChannels.addView(label("Loading channels...",15,GOLD));
+    api("&action=get_live_categories",obj->{
+      if(!inLive || session!=liveRequest)return;
+      liveCategories.removeAllViews();
+      Button all=guideButton("ALL CHANNELS",()->chooseLiveCategory(""));
+      liveCategories.addView(all,guideRowParams());
+      if(obj instanceof JSONArray){
+        JSONArray arr=(JSONArray)obj;
+        for(int i=0;i<arr.length();i++){
+          JSONObject c=arr.optJSONObject(i);if(c==null)continue;
+          final String id=c.optString("category_id"),name=c.optString("category_name","Category");
+          liveCategories.addView(guideButton(name,()->chooseLiveCategory(id)),guideRowParams());
+        }
+      }
+      chooseLiveCategory("");all.requestFocus();
+    },err->{
+      if(!inLive || session!=liveRequest)return;
+      liveCategories.removeAllViews();
+      liveCategories.addView(label("Categories unavailable",14,GOLD));
+      chooseLiveCategory("");
+    });
+  }
+  private void chooseLiveCategory(String id) {
+    liveCat=id;currentCategory=id;currentKind="live";
+    int requested=++liveRequest;
+    liveChannels.removeAllViews();liveChannels.addView(label("Loading channels...",15,GOLD));
+    JSONArray cache=liveCached.get(id);
+    if(cache!=null){populateLive(cache,requested);return;}
+    api("&action=get_live_streams"+(id.isEmpty()?"":"&category_id="+enc(id)),obj->{
+      if(!inLive || liveRequest!=requested)return;
+      if(obj instanceof JSONArray){JSONArray channels=(JSONArray)obj;liveCached.put(id,channels);populateLive(channels,requested);}
+      else{liveChannels.removeAllViews();liveChannels.addView(label("No channel data",15,GOLD));}
+    },err->{
+      if(!inLive || liveRequest!=requested)return;
+      liveChannels.removeAllViews();liveChannels.addView(label("Channel loading error",15,GOLD));
+    });
+  }
+  private void populateLive(JSONArray channels,int requested) {
+    if(!inLive || liveRequest!=requested)return;
+    liveChannels.removeAllViews();int count=0;
+    for(int i=0;i<channels.length() && count<2500;i++){
+      JSONObject c=channels.optJSONObject(i);if(c==null)continue;
+      final String id=c.optString("stream_id"),name=c.optString("name","Channel"),ext=c.optString("container_extension","ts");
+      if(id.isEmpty())continue;
+      liveChannels.addView(guideButton(String.format(java.util.Locale.ROOT,"%03d  %s",++count,name),
+          ()->startLivePreview(id,name,ext)),guideRowParams());
+    }
+    if(count==0)liveChannels.addView(label("No channels in category",14,GOLD));
+  }
+  private void startLivePreview(String id,String name,String ext) {
+    if(!inLive)return;
+    liveId=id;liveName=name;liveExt=ext;previewTitle.setText(name);
+    previewStatus.setText("Opening stream...");epgTextView.setText("EPG\nLoading...");
+    if(player!=null){liveView.setPlayer(null);player.release();player=null;}
+    String path=server+"/live/"+enc(user)+"/"+enc(pass)+"/"+enc(id)+"."+(ext.isEmpty()?"ts":ext);
+    try{
+      player=new ExoPlayer.Builder(this).build();
+      player.addListener(new Player.Listener(){
+        @Override public void onPlaybackStateChanged(int state){
+          if(inLive && id.equals(liveId) && previewStatus!=null){
+            if(state==Player.STATE_READY)previewStatus.setText("Playing");
+            else if(state==Player.STATE_BUFFERING)previewStatus.setText("Buffering...");
+          }
+        }
+        @Override public void onPlayerError(PlaybackException error){
+          if(inLive && id.equals(liveId) && previewStatus!=null)
+            previewStatus.setText("Playback error: "+error.getErrorCodeName());
+        }
+      });
+      liveView.setPlayer(player);player.setMediaItem(MediaItem.fromUri(path));player.prepare();player.play();
+    }catch(Exception e){previewStatus.setText("Unable to play: "+e.getMessage());}
+    api("&action=get_short_epg&stream_id="+enc(id)+"&limit=2",obj->{
+      if(!inLive || !id.equals(liveId) || epgTextView==null)return;
+      JSONArray entries=obj instanceof JSONObject?((JSONObject)obj).optJSONArray("epg_listings"):null;
+      if(entries==null || entries.length()==0){epgTextView.setText("EPG\nProgramme information unavailable");return;}
+      StringBuilder result=new StringBuilder("TV GUIDE\n");
+      for(int i=0;i<Math.min(2,entries.length());i++){
+        JSONObject e=entries.optJSONObject(i);if(e==null)continue;
+        result.append(i==0?"NOW: ":"NEXT: ").append(decodeEpg(e.optString("title",""))).append("\n");
+        if(i==0)result.append(decodeEpg(e.optString("description",""))).append("\n");
+      }
+      epgTextView.setText(result.toString());
+    },err->{if(inLive && id.equals(liveId) && epgTextView!=null)epgTextView.setText("EPG\nNo guide supplied");});
+  }
+  private static String decodeEpg(String s) {
+    if(s==null || s.isEmpty())return "";
+    try {
+      String decoded=new String(Base64.decode(s,Base64.DEFAULT),java.nio.charset.StandardCharsets.UTF_8);
+      if(!decoded.isEmpty() && !decoded.contains("\uFFFD")
+          && decoded.chars().filter(c->c<32 && c!=9 && c!=10 && c!=13).count()==0)
+        return decoded;
+    }catch(Exception ignored){}
+    return s;
+  }
+  private void expandLive() {
+    if(!inLive || player==null || liveId.isEmpty())return;
+    fullScreenLive=true;
+    ViewGroup parent=(ViewGroup)liveView.getParent();if(parent!=null)parent.removeView(liveView);
+    root.removeAllViews();root.setPadding(0,0,0,0);
+    root.addView(liveView,new LinearLayout.LayoutParams(-1,-1));
+    liveView.setUseController(true);liveView.setFocusable(true);liveView.requestFocus();
+  }
   private void loading(String title){screen(title);root.addView(label("Loading...",23,GOLD),new LinearLayout.LayoutParams(-1,0,1));}
   private void categories(String kind){
     currentKind=kind;loading(kind.toUpperCase()+" CATEGORIES");
@@ -179,6 +352,6 @@ public final class MainActivity extends Activity {
     catch(Exception e){Toast.makeText(this,"Playback error: "+e.getMessage(),Toast.LENGTH_LONG).show();}
     add(root,"Back to channels",()->listing(currentKind,currentCategory,""));
   }
-  @Override public void onBackPressed(){home();}
+  @Override public void onBackPressed(){if(inLive && fullScreenLive){liveTv();return;}home();}
   @Override protected void onDestroy(){if(player!=null)player.release();if(pulse!=null)pulse.cancel();worker.shutdownNow();super.onDestroy();}
 }
