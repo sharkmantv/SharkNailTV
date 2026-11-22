@@ -43,6 +43,7 @@ res = root / "app/src/main/res/values"
 res.mkdir(parents=True,exist_ok=True)
 (res/"sky_brand.xml").write_text('''<?xml version="1.0" encoding="utf-8"?>
 <resources>
+  <string name="app_name">IBO SKY RETRO</string>
   <string name="sky_retro_live">LIVE TV</string>
   <string name="sky_retro_movies">MOVIES</string>
   <string name="sky_retro_series">SERIES</string>
