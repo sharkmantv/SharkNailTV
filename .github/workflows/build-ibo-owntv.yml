@@ -20,7 +20,7 @@ jobs:
         run: |
           git clone --filter=blob:none https://github.com/ahXN00/OwnTV.git own-source
           cd own-source
-          git checkout --detach 88e5440625fdf671dde28c785f803bd1b1c16f23
+          git checkout --detach 4205733704dcf6b06eed5f0cd88da3f26d86b5fd
           echo "Using pinned OwnTV source:"
           git log -1 --oneline
       - name: Add SKY RETRO UI to complete OwnTV source
