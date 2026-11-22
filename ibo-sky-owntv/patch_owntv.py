@@ -31,8 +31,9 @@ replacement = """                        selectedSection == MainSection.HOME -> 
 # Use a new dedicated context value to avoid relying on another alias.
 replacement = replacement.replace("(context as? android.app.Activity)?.recreate()", "(skyContext as? android.app.Activity)?.recreate()")
 src=src[:start]+replacement+src[end:]
-src=src.replace("    val colors = OwnTVTheme.colors\n", 
-                "    val skyContext = androidx.compose.ui.platform.LocalContext.current\n    val colors = OwnTVTheme.colors\n",1)
+assert "    val noSourceLabel = stringResource(R.string.shell_no_source)\n" in src
+src=src.replace("    val noSourceLabel = stringResource(R.string.shell_no_source)\n",
+                "    val skyContext = androidx.compose.ui.platform.LocalContext.current\n    val noSourceLabel = stringResource(R.string.shell_no_source)\n",1)
 shell.write_text(src,encoding="utf-8")
 build = root / "app/build.gradle.kts"
 b = build.read_text(encoding="utf-8")
