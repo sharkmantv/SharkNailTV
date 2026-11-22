@@ -41,6 +41,23 @@ build.write_text(b.replace('applicationId = "tv.own.owntv"','applicationId = "tv
 res = root / "app/src/main/res/values"
 res.mkdir(parents=True,exist_ok=True)
 (res/"sky_brand.xml").write_text('''<?xml version="1.0" encoding="utf-8"?>
-<resources><string name="app_name">IBO SKY RETRO</string></resources>
+<resources>
+  <string name="sky_retro_live">LIVE TV</string>
+  <string name="sky_retro_movies">MOVIES</string>
+  <string name="sky_retro_series">SERIES</string>
+  <string name="sky_retro_playlists">PLAYLISTS</string>
+  <string name="sky_retro_settings">SETTINGS</string>
+  <string name="sky_retro_reload">RELOAD</string>
+  <string name="sky_retro_account">ACCOUNT</string>
+  <string name="sky_retro_exit">EXIT</string>
+  <string name="sky_retro_icon_live">★</string>
+  <string name="sky_retro_icon_movies">▶</string>
+  <string name="sky_retro_icon_series">♛</string>
+  <string name="sky_retro_icon_playlists">▣</string>
+  <string name="sky_retro_icon_settings">⚙</string>
+  <string name="sky_retro_icon_reload">↻</string>
+  <string name="sky_retro_icon_account">●</string>
+  <string name="sky_retro_icon_exit">⇥</string>
+</resources>
 ''', encoding="utf-8")
 print("Applied IBO SKY RETRO Home overlay to OwnTV.")
