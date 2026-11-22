@@ -28,6 +28,8 @@ jobs:
         run: |
           mkdir -p own-source/app/src/main/java/tv/own/owntv/features/shell
           cp ibo-sky-owntv/SkyRetroLanding.kt own-source/app/src/main/java/tv/own/owntv/features/shell/
+          mkdir -p own-source/app/src/main/res/drawable-nodpi
+          cp ibo-sky-owntv/assets/sky_retro_4_0_cards.webp own-source/app/src/main/res/drawable-nodpi/sky_retro_cards.webp
           python3 ibo-sky-owntv/patch_owntv.py
       - name: Set up JDK 21
         uses: actions/setup-java@v4
