@@ -116,11 +116,11 @@ private fun SkyRetroTile(
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val infinite = rememberInfiniteTransition(label = "")
+    val infinite = rememberInfiniteTransition(label = data.title)
     val alpha by infinite.animateFloat(
         initialValue = .65f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
-        label = "",
+        label = data.title,
     )
     val edge = if (focused) Color.White else SkyGold.copy(alpha = alpha)
     Column(
