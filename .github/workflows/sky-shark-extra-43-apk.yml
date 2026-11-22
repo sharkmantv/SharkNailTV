@@ -1,0 +1,50 @@
+name: Sky Shark Extra 4.3 Test APK
+
+on:
+  push:
+    branches:
+      - sky-shark-extra-4-3-test
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Sky Shark Extra source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK 37
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo 'Android SDK manager not found'
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Assemble debug test APK
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Upload independent APK for TV testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sky-Shark-Extra-4.3-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
