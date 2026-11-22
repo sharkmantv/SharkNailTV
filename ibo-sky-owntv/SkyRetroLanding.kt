@@ -62,9 +62,7 @@ fun SkyRetroLanding(
     // Entire poster (including its blue title bar) is rendered within the card: no separate overlays.
     val posterBitmaps: List<ImageBitmap> = remember(context) {
         val sheet = BitmapFactory.decodeResource(context.resources, R.drawable.sky_retro_cards)
-        require(sheet.width == 1680 && sheet.height == 588) {
-            "SKY RETRO poster atlas has unexpected dimensions"
-        }
+        require(sheet.width == 1680 && sheet.height == 588)
         List(8) { i ->
             Bitmap.createBitmap(sheet, (i % 4) * 420, (i / 4) * 294, 420, 294).asImageBitmap()
         }.also { sheet.recycle() }
