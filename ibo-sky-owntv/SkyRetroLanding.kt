@@ -23,7 +23,6 @@ import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +40,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import tv.own.owntv.R
 
 private val SkyGold = Color(0xFFFFD83B)
 private val SkyNavy = Color(0xFF030C28)
@@ -66,18 +67,16 @@ fun SkyRetroLanding(
     contentStart: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val tiles = remember {
-        listOf(
-            SkyTileData("LIVE TV", "★", Color(0xFF0058AE), Color(0xFF010925)),
-            SkyTileData("MOVIES", "▶", Color(0xFF6E3D48), Color(0xFF031A3E)),
-            SkyTileData("SERIES", "♛", Color(0xFF293F75), Color(0xFF071331)),
-            SkyTileData("PLAYLISTS", "▣", Color(0xFF2357BA), Color(0xFF070A32)),
-            SkyTileData("SETTINGS", "⚙", Color(0xFF545D6A), Color(0xFF1D2545)),
-            SkyTileData("RELOAD", "↻", Color(0xFF073A83), Color(0xFF020B35)),
-            SkyTileData("ACCOUNT", "●", Color(0xFF064A8A), Color(0xFF2F1259)),
-            SkyTileData("EXIT", "⇥", Color(0xFF331659), Color(0xFF05083A)),
+    val tiles = listOf(
+            SkyTileData(stringResource(R.string.sky_retro_live), stringResource(R.string.sky_retro_icon_live), Color(0xFF0058AE), Color(0xFF010925)),
+            SkyTileData(stringResource(R.string.sky_retro_movies), stringResource(R.string.sky_retro_icon_movies), Color(0xFF6E3D48), Color(0xFF031A3E)),
+            SkyTileData(stringResource(R.string.sky_retro_series), stringResource(R.string.sky_retro_icon_series), Color(0xFF293F75), Color(0xFF071331)),
+            SkyTileData(stringResource(R.string.sky_retro_playlists), stringResource(R.string.sky_retro_icon_playlists), Color(0xFF2357BA), Color(0xFF070A32)),
+            SkyTileData(stringResource(R.string.sky_retro_settings), stringResource(R.string.sky_retro_icon_settings), Color(0xFF545D6A), Color(0xFF1D2545)),
+            SkyTileData(stringResource(R.string.sky_retro_reload), stringResource(R.string.sky_retro_icon_reload), Color(0xFF073A83), Color(0xFF020B35)),
+            SkyTileData(stringResource(R.string.sky_retro_account), stringResource(R.string.sky_retro_icon_account), Color(0xFF064A8A), Color(0xFF2F1259)),
+            SkyTileData(stringResource(R.string.sky_retro_exit), stringResource(R.string.sky_retro_icon_exit), Color(0xFF331659), Color(0xFF05083A)),
         )
-    }
     val routes = listOf(onLive, onMovies, onSeries, onPlaylists, onSettings, onReload, onAccount, onExit)
     Box(modifier.fillMaxSize().background(SkyNavy)) {
         Canvas(Modifier.fillMaxSize()) {
@@ -117,11 +116,11 @@ private fun SkyRetroTile(
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val infinite = rememberInfiniteTransition(label = "yellow-border")
+    val infinite = rememberInfiniteTransition(label = "")
     val alpha by infinite.animateFloat(
         initialValue = .65f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
-        label = "glow",
+        label = "",
     )
     val edge = if (focused) Color.White else SkyGold.copy(alpha = alpha)
     Column(
