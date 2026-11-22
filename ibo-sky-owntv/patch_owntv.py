@@ -28,7 +28,6 @@ replacement = """                        selectedSection == MainSection.HOME -> 
                         )
 
 """
-assert "val context =" in src or "LocalContext.current" in src
 # Use a new dedicated context value to avoid relying on another alias.
 replacement = replacement.replace("(context as? android.app.Activity)?.recreate()", "(skyContext as? android.app.Activity)?.recreate()")
 src=src[:start]+replacement+src[end:]
