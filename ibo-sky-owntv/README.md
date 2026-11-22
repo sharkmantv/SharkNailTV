@@ -2,7 +2,7 @@
 
 This is the real open-source OwnTV Android TV application with a SKY RETRO-style 8-card Home surface, **not** an IBO Pro APK or a fork of proprietary IBO code.
 
-Source base: https://github.com/ahXN00/OwnTV at pinned commit 88e5440625fdf671dde28c785f803bd1b1c16f23 (22 Nov 2026).
+Source base: https://github.com/ahXN00/OwnTV at pinned commit 4205733704dcf6b06eed5f0cd88da3f26d86b5fd (v5.2.2 release, 9 Nov 2026).
 Shared core/Media3 and mpv engine are provided by https://github.com/ahXN00/OwnTV_Core.
 License: GPL-3.0 (OwnTV). This patch and the build scripts are distributed under GPL-3.0.
 
