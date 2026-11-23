@@ -39,6 +39,9 @@ assert "version = release(37)" in s
 s=s.replace("version = release(37)", "version = release(36)", 1)
 assert "targetSdk = 37" in s
 s=s.replace("targetSdk = 37","targetSdk = 36",1)
+# Compose 1.12.1 requires API 37. Keep native Media3 unchanged and use SDK36-safe Compose 1.11.
+assert 'compose-bom:2026.09.00' in s
+s=s.replace('compose-bom:2026.09.00','compose-bom:2026.06.00',1)
 assert 'applicationId = "com.ipvio.stream"' in s
 s=s.replace('applicationId = "com.ipvio.stream"','applicationId = "tv.sharknail.skyretro.ipvio"',1)
 s=s.replace('manifestPlaceholders["appLabel"] = "IPVIO Stream"','manifestPlaceholders["appLabel"] = "SKY RETRO IPVIO"')
