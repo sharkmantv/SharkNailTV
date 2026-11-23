@@ -35,4 +35,25 @@ replacement='''    val ctx = LocalContext.current
     val allRaw = PlaylistStore.channels'''
 s=s.replace(anchor,replacement,1)
 home.write_text(s)
-print("Home + Live TV IBO-style categories/channel table/live video preview/EPG + Movies + Series + Settings all wired")
+# Match native full-screen player menus to the same SKY palette without replacing ExoPlayer.
+player=root/"PlayerTheme.kt"
+p=player.read_text()
+for old,new in [
+    ("val PanelBg = Color(0xF2111320)", "val PanelBg = Color(0xF2071B3E)"),
+    ("val PanelBorder = DS.Overlay1", "val PanelBorder = Color(0xFF1683FF)"),
+    ("val BtnBg = Color(0x24FFFFFF)", "val BtnBg = Color(0xA60A3573)"),
+    ("val PanelRadius = 24.dp", "val PanelRadius = 2.dp")
+]:
+    assert old in p, old
+    p=p.replace(old,new,1)
+player.write_text(p)
+
+# Settings tile colours are uniform SKY electric-blue/gold instead of rainbow.
+settings=root/"SettingsHub.kt"
+p=settings.read_text()
+old='''    val h = (i * 360f / CATS.size + 18f) % 360f
+    return Triple(Color.hsv(h, 0.62f, 0.34f), Color.hsv(h, 0.70f, 0.14f), Color.hsv(h, 0.45f, 1f))'''
+new='''    return Triple(Color(0xFF0B3678), Color(0xFF061731), Color(0xFFFFD329))'''
+assert old in p
+settings.write_text(p.replace(old,new,1))
+print("Home, IBO Live switcher/preview/EPG, VOD, Settings, and full-screen player chrome restyled")
