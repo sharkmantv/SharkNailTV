@@ -73,7 +73,7 @@ fun SkyRetroHome(onTab: (Int) -> Unit, onAdd: () -> Unit) {
     BackHandler { (context as? Activity)?.moveTaskToBack(true) }
     BoxWithConstraints(Modifier.fillMaxSize().background(navy), contentAlignment=Alignment.Center) {
         val gap=14.dp
-        val cardWidth=(maxWidth-72.dp-3*gap)/4
+        val cardWidth=(maxWidth-72.dp-gap*3)/4
         val desired=cardWidth * (294f/420f)
         val cardHeight=minOf(desired,(maxHeight-64.dp-gap)/2)
         Column(
