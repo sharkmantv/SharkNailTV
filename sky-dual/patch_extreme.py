@@ -46,7 +46,7 @@ s=s.replace(needle,needle+'''  @JavascriptInterface
 ''',1)
 p.write_text(s)
 # Test installation side by side with Extreme InfiniTV.
-p=r/"src-tauri/tauri.conf.json";s=p.read_text().replace('"productName": "Extreme InfiniTV"','"productName": "SKY RETRO Extreme"').replace('"identifier": "com.infinitel8p.xtream"','"identifier": "tv.sharknail.skyretro.extreme"');p.write_text(s)
+p=r/"src-tauri/tauri.conf.json";s=p.read_text().replace('"productName": "Extreme InfiniTV"','"productName": "SKY RETRO Extreme"');p.write_text(s)
 p=r/"src-tauri/gen/android/app/build.gradle.kts";s=p.read_text().replace('applicationId = "com.infinitel8p.xtream"','applicationId = "tv.sharknail.skyretro.extreme"',1);p.write_text(s)
 css=r/"src/styles/tv.css"
 css.write_text(css.read_text()+'''
