@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   ipvio:
-    name: Native IPVIO FULL SKY IBO style test APK
+    name: Native IPVIO Media3 external player companion APK
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
@@ -33,6 +33,7 @@ jobs:
           python3 sky-dual/patch_ipvio.py
           cp sky-dual/SkyIboScreens.kt ipvio/app/src/main/java/com/ipvio/stream/SkyIboScreens.kt
           python3 sky-dual/patch_ipvio_full.py
+          python3 sky-dual/patch_ipvio_external_player.py
       - name: Java 21
         uses: actions/setup-java@v4
         with:
@@ -58,7 +59,7 @@ jobs:
       - name: Upload IPVIO test APK
         uses: actions/upload-artifact@v4
         with:
-          name: SKY-RETRO-IPVIO-IBO-ALL-SCREENS-TEST-APK
+          name: SKY-RETRO-IPVIO-MEDIA3-EXTERNAL-PLAYER-APK
           path: ipvio/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
