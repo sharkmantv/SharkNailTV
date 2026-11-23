@@ -1,0 +1,128 @@
+name: SKY RETRO dual IPTV Android TV test builds
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sky-dual/**'
+      - '.github/workflows/build-sky-dual.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ipvio:
+    name: Native IPVIO Media3 SKY test APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - name: Checkout SKY skin
+        uses: actions/checkout@v4
+      - name: Checkout pinned IPVIO open source
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/Emrodev/IPVIO-Stream.git ipvio
+          cd ipvio
+          git checkout --detach 90775c67897c5768436ffa735f0db0f6b3105d30
+      - name: Apply SKY RETRO skin, original player unchanged
+        shell: bash
+        run: |
+          mkdir -p ipvio/app/src/main/res/drawable-nodpi
+          curl -fL --retry 3 -o ipvio/app/src/main/res/drawable-nodpi/sky_retro_cards.webp https://raw.githubusercontent.com/sharkmantv/SharkNailTV/ibo-sky-owntv-full-player/ibo-sky-owntv/assets/sky_retro_4_0_cards.webp
+          cp sky-dual/SkyRetroHome.kt ipvio/app/src/main/java/com/ipvio/stream/SkyRetroHome.kt
+          python3 sky-dual/patch_ipvio.py
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Android SDK 37
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;37.0.0" "platform-tools"
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build IPVIO SKY test
+        working-directory: ipvio
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify IPVIO APK exists
+        shell: bash
+        run: |
+          test -s ipvio/app/build/outputs/apk/debug/app-debug.apk
+          unzip -t ipvio/app/build/outputs/apk/debug/app-debug.apk | tail -1
+      - name: Upload IPVIO test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SKY-RETRO-IPVIO-NATIVE-MEDIA3-TEST-APK
+          path: ipvio/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  extreme:
+    name: Extreme InfiniTV 1.9 SKY test APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout SKY skin
+        uses: actions/checkout@v4
+      - name: Checkout Extreme source v1.9.0
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/infinitel8p/Extreme-InfiniTV.git extreme
+          cd extreme
+          git checkout --detach v1.9.0
+      - name: Apply SKY RETRO source and artwork
+        shell: bash
+        run: |
+          cp sky-dual/sky-home.ts extreme/src/scripts/tv/views/sky-home.ts
+          mkdir -p extreme/public/sky-retro
+          curl -fL --retry 3 -o extreme/public/sky-retro/cards.webp https://raw.githubusercontent.com/sharkmantv/SharkNailTV/ibo-sky-owntv-full-player/ibo-sky-owntv/assets/sky_retro_4_0_cards.webp
+          python3 sky-dual/patch_extreme.py
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: extreme/pnpm-lock.yaml
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;29.0.13846066"
+      - name: Rust Android ARM64
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Install node dependencies
+        working-directory: extreme
+        run: pnpm install --frozen-lockfile
+      - name: Build Tauri Android SKY debug APK
+        working-directory: extreme
+        shell: bash
+        env:
+          XT_SKIP_FFMPEG_SIDECAR: '1'
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/29.0.13846066"
+          pnpm tauri android build --debug --apk --target aarch64
+      - name: Verify Extreme APK exists
+        shell: bash
+        run: |
+          find extreme/src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -size +1M
+          test "$(find extreme/src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -size +1M | wc -l)" -ge 1
+      - name: Upload Extreme test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SKY-RETRO-EXTREME-1_9-MEDIA3-TEST-APK
+          path: extreme/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
