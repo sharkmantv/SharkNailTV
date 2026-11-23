@@ -36,13 +36,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
       - name: Android SDK 37
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;37.0.0" "platform-tools"
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-37 build-tools;37.0.0"
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Build IPVIO SKY test
@@ -85,6 +82,8 @@ jobs:
           python3 sky-dual/patch_extreme.py
       - name: pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: '10.31.0'
       - name: Node 22
         uses: actions/setup-node@v4
         with:
