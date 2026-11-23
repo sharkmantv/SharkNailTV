@@ -34,6 +34,11 @@ for a,b in [('val RadiusXs = 8.dp','val RadiusXs = 2.dp'),('val RadiusS = 12.dp'
   s=s.replace(a,b,1)
 ui.write_text(s)
 grad=root/"app/build.gradle.kts";s=grad.read_text()
+# Test build uses stable Android 36 SDK while leaving the Media3 player source unmodified.
+assert "version = release(37)" in s
+s=s.replace("version = release(37)", "version = release(36)", 1)
+assert "targetSdk = 37" in s
+s=s.replace("targetSdk = 37","targetSdk = 36",1)
 assert 'applicationId = "com.ipvio.stream"' in s
 s=s.replace('applicationId = "com.ipvio.stream"','applicationId = "tv.sharknail.skyretro.ipvio"',1)
 s=s.replace('manifestPlaceholders["appLabel"] = "IPVIO Stream"','manifestPlaceholders["appLabel"] = "SKY RETRO IPVIO"')
