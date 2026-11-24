@@ -116,6 +116,41 @@ s=swap(s,'''BrowserRow((if(channel.id in favouriteIds) "★ " else "")+channel.t
                             if(previewEnabled && api!=null && preview?.id!=channel.id) preview=channel
                             else onPlay(channel)
                         })''')
+
+# Retire the old remembered-source setting and its session URL cache.
+# Fresh Xtream lookups and in-session recovery remain available.
+s=swap(s,'''    val lastWorkingLinks = remember { android.util.LruCache<String, String>(100) }
+    var reuseLastLink by remember {
+        mutableStateOf(playbackPrefs(context).getBoolean("reuseLastLink", false))
+    }
+''','')
+a=s.index('    fun homeLinkKey(entry: Entry): String =')
+b=s.index('    var homeStreams by remember',a)
+s=s[:a]+s[b:]
+s=swap(s,'''        selected?.let { entry ->
+            val key = homeLinkKey(entry)
+            if (lastWorkingLinks.get(key) == stream.url) lastWorkingLinks.remove(key)
+        }
+''','')
+s=swap(s,'        val linkKey = homeLinkKey(entry)\n','')
+s=swap(s,'''                val remembered = if (reuseLastLink) direct.firstOrNull { it.url == lastWorkingLinks.get(linkKey) } else null
+                homeStreams = listOfNotNull(remembered) + direct.filterNot { it.url == remembered?.url }
+                // Reuse a successful direct link only if it is still returned and eligible.
+''','''                homeStreams = direct
+''')
+s=swap(s,'        lastWorkingLinks.evictAll()\n','')
+s=swap(s,'            val linkKey = homeLinkKey(checkNotNull(selected))\n','')
+s=swap(s,'''onFirstFrame={
+                        if (reuseLastLink) lastWorkingLinks.put(linkKey, stream.url)
+                    }''','onFirstFrame={}')
+s=swap(s,'''onFirstFrame={
+                                    if (reuseLastLink) lastWorkingLinks.put(homeLinkKey(e), stream.url)
+                                }''','onFirstFrame={}')
+a=s.index('                            Text("Stream selection", color = Color.White, fontSize = 18.sp)')
+b=s.index('                            FocusAction("Back to Settings")',a)
+assert 'Reuse Last Link' in s[a:b] and 'Auto-play the last working link' in s[a:b]
+s=s[:a]+s[b:]
+assert not any(x in s for x in ("reuseLastLink","lastWorkingLinks","homeLinkKey","Reuse Last Link"))
 p.write_text(s)
 
 p=root/"HomePlayback.kt"
