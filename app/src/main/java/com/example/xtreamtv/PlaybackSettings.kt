@@ -51,7 +51,8 @@ internal fun playbackPrefs(context:Context)=context.getSharedPreferences("playba
 internal fun configuredPlayer(
     context: Context,
     preview: Boolean = false,
-    sharkMega: Boolean = false
+    sharkMega: Boolean = false,
+    liveStream: Boolean = false
 ): ExoPlayer {
     val p=playbackPrefs(context)
     val factory=object : DefaultRenderersFactory(context.applicationContext) {
@@ -101,7 +102,7 @@ internal fun configuredPlayer(
         }
         // Shark Mega is a fast-start profile, not a larger memory allocation.
         // Preserve the user's chosen forward-buffer size for stability.
-        val startMs = if (sharkMega) 1_000 else 1_500
+        val startMs = when { liveStream -> 750; sharkMega -> 1_000; else -> 1_500 }
         val rebufferMs = if (sharkMega) 2_500 else 3_500
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(min, max, startMs, rebufferMs)
