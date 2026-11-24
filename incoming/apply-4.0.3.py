@@ -30,6 +30,8 @@ s=s[:a]+'''                        "Time" -> {
                         }
 '''+s[b:]
 s=s.replace('"Sharks Toolkit"','"Time"')
+# Allow the moved controls to scroll within Performance Hub.
+s=swap(s,'"Sports Guide","Playback & Display","Settings","Shark Performance Hub"','"Sports Guide","Playback & Display","Settings"')
 # Enable the user's fast-start setting in ordinary IPTV playback too.
 s=swap(s,'liveStream=entry.kind=="live", programmes=epg, inferFormat=true,','liveStream=entry.kind=="live", programmes=epg, inferFormat=true, sharkMega=sharkMega,')
 s=swap(s,'remember(context, sharkMega) { configuredPlayer(context, sharkMega = sharkMega) }','remember(context, sharkMega, liveStream) { configuredPlayer(context, sharkMega = sharkMega, live = liveStream) }')
