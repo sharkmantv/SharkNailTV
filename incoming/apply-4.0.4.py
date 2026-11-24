@@ -161,13 +161,13 @@ s=p.read_text()
 s=swap(s,'orElse("40003")','orElse("40004")')
 s=swap(s,'orElse("4.0.3")','orElse("4.0.4")')
 s=swap(s,'    implementation("androidx.media3:media3-ui:'+chr(36)+'media3Version")','''    implementation("androidx.media3:media3-ui:'''+chr(36)+'''media3Version")
-    implementation("io.put:media3-ffmpeg-decoder:1.11.1+1")''')
+    implementation(files("libs/flowvid-media3-ffmpeg.aar"))''')
 p.write_text(s)
 assets=main/"assets"
 assets.mkdir(exist_ok=True)
-(assets/"ffmpeg-source-notice.txt").write_text("""SharkNailTV includes Media3's FFmpeg audio decoder extension via io.put:media3-ffmpeg-decoder:1.11.1+1.
+(assets/"ffmpeg-source-notice.txt").write_text("""SharkNailTV includes Media3's FFmpeg audio decoder extension via FlowVid Media3 FFmpeg v1.11.1-1 (API 24, four ABIs).
 Media3 wrapper: Apache License 2.0. FFmpeg: LGPL-2.1-or-later.
-Source, patches, license notices and build instructions: https://github.com/putdotio/media3-ffmpeg-decoder
+Source, patches, license notices and build instructions: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1
 Media3 source: https://github.com/androidx/media/tree/1.11.1
 FFmpeg source: https://github.com/FFmpeg/FFmpeg
 Users may modify or replace the LGPL component for their own use.
