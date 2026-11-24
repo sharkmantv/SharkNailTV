@@ -1,11 +1,10 @@
-name: Build SharkNailTV ZIP (artifact only)
+name: Build SharkNailTV ZIP and publish OTA on upload
 
 on:
   push:
     branches: [main]
     paths:
       - 'incoming/SharkNailTV.zip'
-      - '.github/workflows/build-zip.yml'
   workflow_dispatch:
     inputs:
       source:
@@ -15,7 +14,7 @@ on:
         default: repository
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: sharknailtv-release
@@ -25,7 +24,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      PENGUPLAY_MANIFEST_URL: ${{ secrets.PENGUPLAY_MANIFEST_URL }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -104,8 +102,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          floor=30000
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
-            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([30000] + [a*10000+b*100+c for a,b,c in versions]) + 1)')
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
           version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
           printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
           if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
@@ -122,9 +122,16 @@ jobs:
           SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
           SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
           SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           set -euo pipefail
           cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
           if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
           if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
             export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
@@ -148,6 +155,7 @@ jobs:
           fi
           unset SHARK_SIGNING_BUNDLE
           if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then echo "::error::Permanent signing key missing"; exit 1; fi
             gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
             cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
             exit 0
@@ -163,6 +171,10 @@ jobs:
           "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
           "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
           "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
           badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
           [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
       - uses: actions/upload-artifact@v4
@@ -170,3 +182,20 @@ jobs:
           name: SharkNailTV-APK
           path: SharkNailTV*.apk
           if-no-files-found: error
+
+      - name: Publish signed ZIP OTA
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -f SharkNailTV.apk
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = "v" + os.environ["VERSION_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
+          PY
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
