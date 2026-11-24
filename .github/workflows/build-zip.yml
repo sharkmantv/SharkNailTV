@@ -78,7 +78,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.0.4 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.0.5 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -115,6 +115,8 @@ jobs:
             echo '358bb85ae901d4245bb666becc1059a3ee8be138e16db9d3f6f19f5fde002c2c  app/libs/flowvid-media3-ffmpeg.aar' | sha256sum -c -
             unzip -tq app/libs/flowvid-media3-ffmpeg.aar
             grep -F 'orElse("4.0.4")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/preview-stability-next.py"
+            grep -F 'orElse("4.0.5")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -217,11 +219,11 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.0.4 package and FFmpeg fallback
+      - name: Verify complete 4.0.5 package and FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          test "$VERSION_NAME" = "4.0.4"
+          test "$VERSION_NAME" = "4.0.5"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
           grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
@@ -302,4 +304,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated performance and stability update. Media3 1.11.1 with LGPL FFmpeg audio fallback, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Preview stability update preserving all 4.0.4 improvements. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. Media3 1.11.1 with LGPL FFmpeg audio fallback, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
