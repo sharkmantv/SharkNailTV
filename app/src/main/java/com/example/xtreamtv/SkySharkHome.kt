@@ -7,6 +7,8 @@ import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.os.Build
 import android.widget.ImageView
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -44,7 +46,8 @@ private val legacyArt=mapOf(
     "reload" to LegacyArt("xX.png","fcb7d7e80b66b4f52f1f6f594ea62c643fd9951e56459bbfd1d41c6066d378d8"),
     "exit" to LegacyArt("yB.png","095702f448171de3cd8a1e4edb44e8b9d0f32f23cd6a6f6eac73d30750338cc4"),
     "premium" to LegacyArt("sky_home_logo40.gif","273f68664cfb5ad0ad253ce2b9bb0ba7d5ccdef7394f7bb65893e524dcb17b80"),
-    "intro" to LegacyArt("sky_intro_fullcolor40.png","bcb54ed266f709e3bc12be906782ca350c599986136a839074980b369767e6eb")
+    "intro" to LegacyArt("sky_intro_fullcolor40.png","bcb54ed266f709e3bc12be906782ca350c599986136a839074980b369767e6eb"),
+    "intro39" to LegacyArt("sky_shark_intro37.gif","c28800383f56487a4c83ba4b888182c5f4d4534724b3a2a3d04484951fdcc1fd")
 )
 private fun sha256(file:File):String {
     val md=MessageDigest.getInstance("SHA-256")
@@ -120,7 +123,14 @@ private fun importArt(context:Context):Map<String,File> {
         val w=maxWidth
         val h=maxHeight
         SkyArtImage(art?.get("background"),Modifier.fillMaxSize(),fill=true)
-        SkyArtImage(art?.get("premium"),Modifier.offset(w*.045f,h*.045f).size(w*.115f,h*.10f))
+        if(art?.get("premium")!=null) {
+            SkyArtImage(art["premium"],Modifier.offset(w*.045f,h*.045f).size(w*.115f,h*.10f))
+        } else {
+            val pulse=rememberInfiniteTransition(label="Sky Premium glow").animateFloat(
+                .72f,1f,infiniteRepeatable(tween(850),RepeatMode.Reverse),label="Logo pulse")
+            SkyArtImage(art?.get("live"),Modifier.offset(w*.045f,h*.045f).size(w*.115f,h*.10f)
+                .graphicsLayer { alpha=pulse.value })
+        }
         SkyArtImage(art?.get("shark"),Modifier.align(Alignment.TopCenter).offset(y=h*.055f).size(w*.27f,h*.27f))
         Text(accountLine,color=Color.White,fontSize=15.sp,maxLines=1,overflow=TextOverflow.Ellipsis,
             modifier=Modifier.align(Alignment.TopEnd).padding(end=w*.045f,top=h*.06f))
@@ -141,8 +151,8 @@ private fun importArt(context:Context):Map<String,File> {
                 SkyHomeTile("EXIT",art?.get("exit"),Modifier.weight(1f).fillMaxWidth(),true,onAction)
             }
         }
-        if(art!=null && art.size<legacyArt.size) Text(
-            "Original v4.0 artwork unavailable. Keep Sky Shark v4.0 installed for the test.",
+        if(art!=null && listOf("background","shark","live","movies","series","account","playlist","settings","reload","exit").any { it !in art }) Text(
+            "Original artwork unavailable. Keep your Sky Shark v3.9 or v4.0 installed.",
             color=Color.White,fontSize=12.sp,modifier=Modifier.align(Alignment.BottomCenter).padding(12.dp))
     }
 }
