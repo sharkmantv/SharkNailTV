@@ -24,7 +24,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - name: Select build source
@@ -78,7 +78,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.0.3 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.0.4 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -106,6 +106,9 @@ jobs:
             grep -F 'orElse("4.0.2")' app/build.gradle.kts >/dev/null
             python "$GITHUB_WORKSPACE/incoming/apply-4.0.3.py"
             grep -F 'orElse("4.0.3")' app/build.gradle.kts >/dev/null
+            python -m py_compile "$GITHUB_WORKSPACE/incoming/apply-4.0.4.py"
+            python "$GITHUB_WORKSPACE/incoming/apply-4.0.4.py"
+            grep -F 'orElse("4.0.4")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -208,6 +211,59 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
+      - name: Verify complete 4.0.4 package and FFmpeg fallback
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          test "$VERSION_NAME" = "4.0.4"
+          test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
+          grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
+          grep -F 'io.put:media3-ffmpeg-decoder:1.11.1+1' "$SOURCE_DIR/app/build.gradle.kts"
+          python - <<'PY'
+          import os
+          from zipfile import ZipFile
+          with ZipFile(os.path.join(os.environ['GITHUB_WORKSPACE'],'SharkNailTV.apk')) as apk:
+              assert apk.testzip() is None, "APK ZIP integrity failure"
+              files = set(apk.namelist())
+              for abi in ('arm64-v8a','armeabi-v7a','x86','x86_64'):
+                  assert 'lib/'+abi+'/libffmpegJNI.so' in files, "Missing FFmpeg for "+abi
+              assert 'assets/ffmpeg-source-notice.txt' in files
+              assert any(b'FfmpegAudioRenderer' in apk.read(f) for f in files if f.startswith('classes') and f.endswith('.dex')), "FFmpeg renderer missing from DEX"
+          print('FFmpeg native ABIs, DEX, licensing notice and APK integrity verified')
+          PY
+      - name: Install and launch signed APK on Android emulator
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          "$sdkmanager" "emulator" "platform-tools" "system-images;android-35;google_apis;x86_64"
+          avdmanager="$(find "$ANDROID_HOME/cmdline-tools" -name avdmanager -type f -print -quit)"
+          echo no | "$avdmanager" create avd --force -n shark-smoke -k "system-images;android-35;google_apis;x86_64"
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
+          "$ANDROID_HOME/emulator/emulator" -avd shark-smoke -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emu_pid=$!
+          trap 'kill "$emu_pid" 2>/dev/null || true' EXIT
+          adb="$ANDROID_HOME/platform-tools/adb"
+          timeout 240 "$adb" wait-for-device
+          for i in $(seq 1 120); do
+            [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && break
+            sleep 2
+          done
+          test "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          "$adb" shell input keyevent 82
+          "$adb" install -r "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          "$adb" logcat -c
+          "$adb" shell am start -W -n com.example.xtreamtv/.MainActivity
+          sleep 12
+          "$adb" shell pidof com.example.xtreamtv
+          "$adb" shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.example.xtreamtv'
+          "$adb" logcat -d -b crash > "$RUNNER_TEMP/shark-crash.log"
+          if grep -F 'Process: com.example.xtreamtv' "$RUNNER_TEMP/shark-crash.log"; then
+            cat "$RUNNER_TEMP/shark-crash.log"
+            exit 1
+          fi
+          echo 'Signed APK installed and launched without a detected application crash.'
       - name: Publish signed ZIP OTA
         if: github.event_name == 'push'
         env:
@@ -225,4 +281,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated performance and stability update. Media3 1.11.1 with LGPL FFmpeg audio fallback, bounded memory caches, transient live reconnect, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/putdotio/media3-ffmpeg-decoder . TV playback and performance require device testing." --latest
