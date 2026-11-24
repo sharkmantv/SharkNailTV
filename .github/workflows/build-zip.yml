@@ -78,7 +78,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.0.6 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.0.7 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -120,6 +120,8 @@ jobs:
             # Validate unified player source, including all SafePlayer call sites.
             python "$GITHUB_WORKSPACE/incoming/automatic-playback-4.0.6.py"
             grep -F 'orElse("4.0.6")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/native-buffer-4.0.7.py"
+            grep -F 'orElse("4.0.7")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -222,11 +224,11 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.0.6 package and FFmpeg fallback
+      - name: Verify complete 4.0.7 package and FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          test "$VERSION_NAME" = "4.0.6"
+          test "$VERSION_NAME" = "4.0.7"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
           grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
@@ -307,4 +309,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Automatic IPTV buffer policy replaces legacy Shark Mega and Shark Turbo playback profiles, preserving prior preview and SDR improvements. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. Media3 1.11.1 with LGPL FFmpeg audio fallback, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. Media3 1.11.1 with LGPL FFmpeg audio fallback, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
