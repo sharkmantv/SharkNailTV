@@ -851,9 +851,9 @@ fun App() {
         surfaceVariant = Color(0xFF17294B), outline = Color(0xFF6989BB), onSurface = Color.White, onSurfaceVariant = Color.White)) {
         if (!introFinished) {
             if(skyArt==null) Box(Modifier.fillMaxSize().background(Color(0xFF061125)))
-            else if(skyArt["intro"]!=null) {
+            else if(skyArt["intro"]!=null || skyArt["intro39"]!=null) {
                 LaunchedEffect(Unit) { delay(2500);introFinished=true }
-                SkyArtImage(skyArt["intro"],Modifier.fillMaxSize(),fill=true)
+                SkyArtImage(skyArt["intro"] ?: skyArt["intro39"],Modifier.fillMaxSize(),fill=true)
             } else SharkIntro { introFinished=true }
         } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
