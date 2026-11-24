@@ -145,7 +145,7 @@ private enum class ServiceGenre(val label: String, val movieId: Int, val seriesI
 
 data class Program(val title:String,val start:String,val end:String)
 data class SportEvent(val channel:Entry,val program:Program,val startMillis:Long,val endMillis:Long)
-class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); SharkAppUpdater.check(this); setContent { App() } } }
+class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); setContent { App() } } }
 
 /** Original full-screen shark artwork with cinematic glass impact. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
@@ -254,11 +254,14 @@ class XtreamApi(private val server:String,private val user:String,private val pa
     }
 
     @Volatile private var liveFormats = emptySet<String>()
+    var expiryText:String = ""
+        private set
 
     suspend fun authenticate(): Boolean {
         val data = json("") as? JSONObject ?: return false
         val info = data.optJSONObject("user_info") ?: return false
         if (info.optString("auth") !in listOf("1", "true") || !info.optString("status", "Active").equals("Active", true)) return false
+        expiryText=info.optString("exp_date").toLongOrNull()?.takeIf { it>0L && it<Long.MAX_VALUE/1000L }?.let { SimpleDateFormat("yyyy-MM-dd",Locale.UK).format(Date(it*1000L)) }.orEmpty()
         liveFormats = info.optJSONArray("allowed_output_formats")?.let { formats ->
             (0 until formats.length()).map { formats.optString(it).trim().lowercase(Locale.ROOT) }.toSet()
         }.orEmpty()
@@ -395,6 +398,7 @@ fun App() {
     val prefs = remember { context.getSharedPreferences("shark_settings", 0) }
     var exitPrompt by remember { mutableStateOf(false) }
     var introFinished by remember { mutableStateOf(false) }
+    val skyArt=rememberSkyArt()
     var server by remember { mutableStateOf(prefs.getString("server", "") ?: "") }
     var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
     var password by remember { mutableStateOf(readSavedPassword(context)) }
@@ -845,7 +849,13 @@ fun App() {
         large = SharkFrameShape, extraLarge = SharkFrameShape
     ), colorScheme = darkColorScheme(primary = HudAccent, background = HudBackground, surface = HudSurface,
         surfaceVariant = Color(0xFF17294B), outline = Color(0xFF6989BB), onSurface = Color.White, onSurfaceVariant = Color.White)) {
-        if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
+        if (!introFinished) {
+            if(skyArt==null) Box(Modifier.fillMaxSize().background(Color(0xFF061125)))
+            else if(skyArt["intro"]!=null) {
+                LaunchedEffect(Unit) { delay(2500);introFinished=true }
+                SkyArtImage(skyArt["intro"],Modifier.fillMaxSize(),fill=true)
+            } else SharkIntro { introFinished=true }
+        } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
             val linkKey = homeLinkKey(checkNotNull(selected))
             BackHandler { homePlaying=null }
@@ -870,6 +880,31 @@ fun App() {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
+        } else if(section=="Home" && selected==null) {
+            BackHandler { exitPrompt=true }
+            SkySharkHome(skyArt,if(connected) api?.expiryText?.takeIf { it.isNotBlank() }?.let { "Current playlist expires: $it" } ?: "Playlist connected" else "Connect your playlist") { action ->
+                when(action) {
+                    "Live" -> if(connected) section="Shark TV" else showLogin=true
+                    "Movies" -> if(connected) section="Movies" else showLogin=true
+                    "Series" -> if(connected) section="TV Series" else showLogin=true
+                    "Account" -> section="Xtream Codes"
+                    "Change Playlist" -> showLogin=true
+                    "Settings" -> section="Settings"
+                    "Reload" -> if(!loading) {
+                        val provider=api
+                        if(provider==null) showLogin=true else {
+                            loading=true
+                            scope.launch {
+                                try { provider.refreshProviderCategories(); catalogueRetry++; posterRefresh++; refreshNotice="Playlist refreshed." }
+                                catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; refreshNotice="Refresh failed. Saved playlist unchanged." }
+                                finally { loading=false }
+                            }
+                        }
+                    }
+                    "EXIT" -> exitPrompt=true
+                }
+            }
+            if(loading) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.BottomCenter) { CircularProgressIndicator(Modifier.padding(18.dp)) }
         } else Box(Modifier.fillMaxSize()) {
             BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health","Shark Performance Hub")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
@@ -1094,7 +1129,7 @@ fun App() {
                                                     }
                                                     .clickable {
                                                         when(label) {
-                                                            "Software Update" -> SharkAppUpdater.check(context as android.app.Activity, manual = true)
+                                                            "Software Update" -> refreshNotice="This isolated test build does not install production updates."
                                                             "Exit" -> exitPrompt=true
                                                             "Change Playlist" -> showLogin=true
                                                             "Refresh IPTV Catalogue" -> if(!loading) { loading=true; scope.launch {
