@@ -8,7 +8,7 @@ def swap(s,a,b):
 
 p=root/"PlaybackSettings.kt"
 s=p.read_text()
-assert 'app' not in '' and 'R.layout.shark_sdr_player' in s
+assert 'R.layout.shark_sdr_player' in s
 # The same-version FFmpeg extension is an audio fallback only.
 s=swap(s,'    }.setEnableDecoderFallback(p.getBoolean("fallback",true))','''    }.setEnableDecoderFallback(p.getBoolean("fallback",true))
     factory.setExtensionRendererMode(
@@ -58,9 +58,6 @@ s=swap(s,'    private companion object { val sharedClient=OkHttpClient.Builder()
 assert s.count('.size(coil.size.Size.ORIGINAL)')==2
 s=s.replace('.size(coil.size.Size.ORIGINAL)','') # Coil decodes to the actual display/view bounds.
 # Cancel stale callbacks on channel changes, and retry only transient network errors.
-s=swap(s,'    DisposableEffect(player,url) {\n        val handler = android.os.Handler(player.applicationLooper)\n        val started=', '''    DisposableEffect(player,url) {
-        val handler = android.os.Handler(player.applicationLooper)
-        val started=''') if False else s
 s=swap(s,'''                }else {playerError="Playback failed ('''+chr(36)+'''{error.errorCodeName})";reportFailure()}''','''                } else if(liveStream && player.playWhenReady && recoveryCount<3 &&
                     (error.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
                      error.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)) {
