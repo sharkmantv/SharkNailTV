@@ -117,6 +117,7 @@ jobs:
             grep -F 'orElse("4.0.4")' app/build.gradle.kts >/dev/null
             python "$GITHUB_WORKSPACE/incoming/preview-stability-next.py"
             grep -F 'orElse("4.0.5")' app/build.gradle.kts >/dev/null
+            # Validate unified player source, including all SafePlayer call sites.
             python "$GITHUB_WORKSPACE/incoming/automatic-playback-4.0.6.py"
             grep -F 'orElse("4.0.6")' app/build.gradle.kts >/dev/null
           fi
