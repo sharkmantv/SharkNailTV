@@ -108,6 +108,12 @@ jobs:
             grep -F 'orElse("4.0.3")' app/build.gradle.kts >/dev/null
             python -m py_compile "$GITHUB_WORKSPACE/incoming/apply-4.0.4.py"
             python "$GITHUB_WORKSPACE/incoming/apply-4.0.4.py"
+            python "$GITHUB_WORKSPACE/incoming/catalogue-4.0.4.py"
+            python "$GITHUB_WORKSPACE/incoming/design-4.0.4.py"
+            mkdir -p app/libs
+            curl --fail --location --retry 3 --silent --show-error 'https://github.com/flow-vid/flowvid-ffmpeg-android/releases/download/v1.11.1-1/flowvid-media3-ffmpeg-v1.11.1-1.aar' -o app/libs/flowvid-media3-ffmpeg.aar
+            echo '358bb85ae901d4245bb666becc1059a3ee8be138e16db9d3f6f19f5fde002c2c  app/libs/flowvid-media3-ffmpeg.aar' | sha256sum -c -
+            unzip -tq app/libs/flowvid-media3-ffmpeg.aar
             grep -F 'orElse("4.0.4")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
@@ -218,7 +224,7 @@ jobs:
           test "$VERSION_NAME" = "4.0.4"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
-          grep -F 'io.put:media3-ffmpeg-decoder:1.11.1+1' "$SOURCE_DIR/app/build.gradle.kts"
+          grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
           python - <<'PY'
           import os
           from zipfile import ZipFile
@@ -281,4 +287,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated performance and stability update. Media3 1.11.1 with LGPL FFmpeg audio fallback, bounded memory caches, transient live reconnect, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/putdotio/media3-ffmpeg-decoder . TV playback and performance require device testing." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated performance and stability update. Media3 1.11.1 with LGPL FFmpeg audio fallback, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
