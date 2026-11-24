@@ -292,21 +292,21 @@ class XtreamApi(private val server:String,private val user:String,private val pa
                 while(reader.hasNext()) {
                     requestContext.ensureActive()
                     if(reader.peek()!=android.util.JsonToken.BEGIN_OBJECT) { reader.skipValue(); continue }
-                    var id=""; var name="Untitled"; var image=""; var category=""; var extension="mp4"
+                    var id=""; var name="Untitled"; var image=""; var category=""; var extension="mp4"; var year=""
                     reader.beginObject()
                     while(reader.hasNext()) {
                         val field=reader.nextName()
                         val textField = when (field) {
-                            "stream_id", "series_id", "name", "stream_icon", "cover", "category_id", "container_extension" -> true
+                            "stream_id", "series_id", "name", "stream_icon", "cover", "category_id", "container_extension", "year", "releaseDate", "release_date" -> true
                             else -> false
                         }
                         if (textField && (reader.peek() == android.util.JsonToken.STRING || reader.peek() == android.util.JsonToken.NUMBER)) {
                             val value=reader.nextString()
-                            when(field) { "stream_id","series_id" -> id=value; "name" -> name=value; "stream_icon","cover" -> image=value; "category_id" -> category=value; "container_extension" -> extension=value }
+                            when(field) { "stream_id","series_id" -> id=value; "name" -> name=value; "stream_icon","cover" -> image=value; "category_id" -> category=value; "container_extension" -> extension=value; "year","releaseDate","release_date" -> if(year.isBlank() && (value.take(4).toIntOrNull() ?: 0) in 1900..2100) year=value.take(4) }
                         } else reader.skipValue()
                     }
                     reader.endObject()
-                    if(id.isNotBlank() && (titleFilter==null || titleFilter(name)) && seen.add(id)) result.add(Entry(id,name,image.takeIf { it.startsWith("https://") || it.startsWith("http://") }.orEmpty(),category,kind,extension))
+                    if(id.isNotBlank() && (titleFilter==null || titleFilter(name)) && seen.add(id)) result.add(Entry(id,name,image.takeIf { it.startsWith("https://") || it.startsWith("http://") }.orEmpty(),category,kind,extension,year=year))
                     if(result.size >= (if(titleFilter==null) 10000 else 100000)) break
                 }
             }
@@ -324,7 +324,37 @@ class XtreamApi(private val server:String,private val user:String,private val pa
             for(i in 0 until arr.length()) { val e=arr.optJSONObject(i) ?: continue; val eid=e.optString("id"); if(eid.isNotBlank()) result.add(Entry(eid,"S$season E${e.optString("episode_num",(i+1).toString())} · ${e.optString("title","Episode")}",kind="episode",container=e.optString("container_extension","mp4"))) }
         }; result
     }
-    suspend fun epg(streamId:String):List<Program>{ programmeCache.get(streamId)?.takeIf { System.currentTimeMillis()-it.first<120000L }?.let { return it.second }; val o=json("get_short_epg","&stream_id=${encoded(streamId)}&limit=${XtreamIntegrationConfig.epgLimit}") as? JSONObject?:return emptyList();val arr=o.optJSONArray("epg_listings")?:return emptyList();return (0 until arr.length()).mapNotNull { i-> val p=arr.optJSONObject(i)?:return@mapNotNull null;Program(decode(p.optString("title")),p.optString("start_timestamp").takeIf { it.toLongOrNull()?.let { n -> n>0 } == true } ?: p.optString("start"),p.optString("stop_timestamp").takeIf { it.toLongOrNull()?.let { n -> n>0 } == true } ?: p.optString("end")) }.also { programmeCache.put(streamId,System.currentTimeMillis() to it) } }
+    suspend fun epg(streamId:String):List<Program> {
+        programmeCache.get(streamId)?.takeIf { System.currentTimeMillis()-it.first<120000L }?.let { return it.second }
+        suspend fun read(action:String, extra:String):List<Program> {
+            return try {
+                val obj=json(action,extra) as? JSONObject ?: return emptyList()
+                val arr=obj.optJSONArray("epg_listings") ?: return emptyList()
+                (0 until arr.length()).mapNotNull { i ->
+                    val p=arr.optJSONObject(i) ?: return@mapNotNull null
+                    val title=decode(p.optString("title"))
+                    val start=p.optString("start_timestamp").takeIf { (it.toLongOrNull() ?: 0L)>0L } ?: p.optString("start")
+                    val end=p.optString("stop_timestamp").takeIf { (it.toLongOrNull() ?: 0L)>0L } ?: p.optString("end")
+                    val a=parseEpgTime(start); val b=parseEpgTime(end)
+                    if(title.isBlank() || a==null || b==null || b<=a) null else Program(title,start,end)
+                }
+            } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; emptyList() }
+        }
+        val args="&stream_id=${encoded(streamId)}"
+        val primary=read("get_short_epg",args+"&limit=${XtreamIntegrationConfig.epgLimit}")
+        val now=System.currentTimeMillis()
+        val hasNow=primary.any { (parseEpgTime(it.start) ?: Long.MAX_VALUE)<=now && (parseEpgTime(it.end) ?: 0L)>now }
+        val hasNext=primary.any { (parseEpgTime(it.start) ?: 0L)>now }
+        val merged=primary.toMutableList()
+        if(!hasNow || !hasNext || primary.size<2) {
+            read("get_simple_data_table",args).forEach { candidate ->
+                val a=parseEpgTime(candidate.start) ?: return@forEach
+                val b=parseEpgTime(candidate.end) ?: return@forEach
+                if(merged.none { a<(parseEpgTime(it.end) ?: 0L) && b>(parseEpgTime(it.start) ?: Long.MAX_VALUE) }) merged.add(candidate)
+            }
+        }
+        return merged.sortedBy { parseEpgTime(it.start) ?: Long.MAX_VALUE }.also { programmeCache.put(streamId,System.currentTimeMillis() to it) }
+    }
     private fun decode(s:String):String {
         // Xtream EPG titles may be Base64, but some providers return plain text.
         // Only decode canonical Base64 strings to avoid corrupting normal titles.
@@ -678,7 +708,7 @@ fun App() {
             }
         }
     }
-    val livePreviewEnabled = playbackPrefs(context).getBoolean("livePreviewEnabled", true)
+    val livePreviewEnabled = playbackPrefs(context).getBoolean("livePreviewEnabled", false)
     var diagnostics by remember { mutableStateOf(false) }
     var testRun by remember { mutableIntStateOf(0) }
     var speedServer by remember { mutableStateOf(prefs.getString("libreSpeedServer", "").orEmpty()) }
@@ -1430,35 +1460,10 @@ fun App() {
     repeatPulse: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val fireMotion = rememberInfiniteTransition(label = "Shark TV fire focus")
-    val firePhase by fireMotion.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
-        label = "Yellow orange red focus pulse"
-    )
-    val fireColor = androidx.compose.ui.graphics.lerp(
-        Color(0xFFFFE747), Color(0xFFFF4920), firePhase
-    )
-    val frameColor = if (focused || selected) fireColor else Color(0xFF56BFFF)
-    val frameWidth = if (focused || selected) 3.3.dp else 2.dp
     Box(modifier.padding(2.dp)
-        .graphicsLayer {
-            val focusScale = if (focused) 1.10f else 1f
-            scaleX = focusScale
-            scaleY = focusScale
-        }
-        .glassFrame(frameWidth, frameColor, focused = focused, repeatPulse = false)
-        .drawWithContent {
-            drawContent()
-            if (focused || selected) {
-                drawRoundRect(
-                    color = frameColor,
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(5.dp.toPx()),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.dp.toPx())
-                )
-            }
-        }
-        .padding(2.dp).clip(SharkFrameShape)) { content() }
+        .glassFrame(2.dp, if (focused) SharkFocusGold else Color(0xFF56BFFF),
+            shape = shape, focused = focused, repeatPulse = true)
+        .padding(2.dp).clip(shape)) { content() }
 }
 
 @Composable private fun StreamingBrandCard(
@@ -1623,7 +1628,7 @@ fun App() {
 
 private object TmdbApi {
     private val backdropCache=android.util.LruCache<String,String>(512)
-    private val artCache=android.util.LruCache<String,String>(256)
+    private val artCache=android.util.LruCache<String,String>(2048)
     private val artGate=kotlinx.coroutines.sync.Semaphore(3)
     suspend fun titleLogo(key:String,entry:Entry):String = withContext(Dispatchers.IO) {
         val type=if(entry.genre=="TV Series") "tv" else "movie"
@@ -1657,12 +1662,12 @@ private object TmdbApi {
         .replace(Regex("""(?i)\s*[\[(]?(?:2160p|1080p|720p|4K|UHD|FHD|HD|HDR|HEVC|H265|MULTI|DUAL)[\])]?\s*$"""), "")
         .replace(Regex("""\s*[\[(]?(?:19|20)\d{2}[\])]?\s*$"""), "").trim(' ', '|', '-', ':')
     private fun normalizedTitle(value:String)=value.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
-    private fun catalogueKey(key:String,entry:Entry)="catalogue:${entry.kind}:${entry.title}:${key.hashCode()}"
+    private fun catalogueKey(key:String,entry:Entry)="catalogue:${entry.kind}:${entry.title}:${entry.year}:${key.hashCode()}"
     fun catalogueBackdrop(key:String,entry:Entry):String=backdropCache.get(catalogueKey(key,entry)).orEmpty()
     suspend fun catalogueArt(key:String,entry:Entry):String = withContext(Dispatchers.IO) {
         val type=if(entry.kind=="series") "tv" else "movie"
         val title=cleanTitle(entry).ifBlank { entry.title }
-        val year=Regex("\\(((?:19|20)\\d{2})\\)\\s*$").find(entry.title)?.groupValues?.get(1).orEmpty()
+        val year=entry.year.takeIf { it.matches(Regex("[0-9]{4}")) }.orEmpty().ifBlank { Regex("\\(((?:19|20)\\d{2})\\)\\s*$").find(entry.title)?.groupValues?.get(1).orEmpty() }
         val cacheKey=catalogueKey(key,entry)
         artCache[cacheKey]?.let { return@withContext it }
         artGate.acquire()
@@ -1681,10 +1686,10 @@ private object TmdbApi {
                         val arr=JSONObject(response.body?.string().orEmpty()).optJSONArray("results") ?: JSONArray()
                         val candidates=(0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("poster_path").startsWith("/") }
                         val exact=candidates.filter { candidate -> listOf(candidate.optString(if(type=="tv") "name" else "title"),candidate.optString(if(type=="tv") "original_name" else "original_title")).any { normalizedTitle(it)==normalizedTitle(title) } }
-                        val match=exact.firstOrNull { year.isNotBlank() && it.optString(if(type=="tv") "first_air_date" else "release_date").startsWith(year) } ?: exact.singleOrNull() ?: exact.firstOrNull { year.isBlank() }
+                        val match=if(year.isNotBlank()) exact.filter { it.optString(if(type=="tv") "first_air_date" else "release_date").startsWith(year) }.singleOrNull() else exact.singleOrNull()
                         val path=match?.optString("poster_path").orEmpty()
                         val backdrop=match?.optString("backdrop_path").orEmpty()
-                        if(path.startsWith("/")) art="https://image.tmdb.org/t/p/original$path"
+                        if(path.startsWith("/")) art="https://image.tmdb.org/t/p/w780$path"
                         if(backdrop.startsWith("/")) backdropCache.put(cacheKey,"https://image.tmdb.org/t/p/original$backdrop")
                     }
                 }
@@ -1834,7 +1839,7 @@ private data class AudioTrackSwitch(
     // Player creation can throw on devices with unsupported decoder/display
     // configurations. Keep the app alive and offer a way back to the title.
     val playerResult = remember(context, sharkMega) {
-        try { Result.success(configuredPlayer(context, sharkMega = sharkMega)) }
+        try { Result.success(configuredPlayer(context, sharkMega = sharkMega, liveStream = liveStream)) }
         catch (error: Exception) {
             android.util.Log.e("SharkPlayback", "Player initialisation failed", error)
             Result.failure<ExoPlayer>(error)
