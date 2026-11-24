@@ -39,5 +39,22 @@ s=s[:a]+'''@Composable private fun GlassChannelWord() {
 }
 '''+s[b:]
 swap('.hudSurface(active).glassFrame(2.5.dp,if(focused)SharkFocusGold else Color(0xFF304564),shape, focused = focused, repeatPulse = true)', '.background(Brush.verticalGradient(if(active) listOf(Color(0xFF133671),Color(0xFF091F4D),Color(0xFF04112F)) else listOf(Color(0xFF0C2455),Color(0xFF06183C),Color(0xFF030D29))),shape).glassFrame(2.dp,if(focused)SharkFocusGold else Color(0xFF489BFF),shape, focused = focused, repeatPulse = true)')
+# Only animate the currently focused Settings tile rather than all nine.
+swap('''    val fireMotion = rememberInfiniteTransition(label = "Shark TV fire focus")
+    val firePhase by fireMotion.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+        label = "Yellow orange red focus pulse"
+    )''','''    val firePhase = if (focused || selected) {
+        val fireMotion = rememberInfiniteTransition(label = "Shark TV fire focus")
+        fireMotion.animateFloat(
+            initialValue = 0f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+            label = "Yellow orange red focus pulse"
+        ).value
+    } else 0f''')
+# The common frame intentionally dims blue; overlay a clear electric-blue edge
+# only for these channel/category rows, leaving the focus pulse visible.
+swap('.glassFrame(2.dp,if(focused)SharkFocusGold else Color(0xFF489BFF),shape, focused = focused, repeatPulse = true).clickable(onClick=onClick)', '.glassFrame(2.dp,if(focused)SharkFocusGold else Color(0xFF489BFF),shape, focused = focused, repeatPulse = true).then(if(focused) Modifier else Modifier.border(1.dp,Brush.verticalGradient(listOf(Color(0xFF67B8FF),Color(0xFF2456A8))),shape)).clickable(onClick=onClick)')
 p.write_text(s)
 print("Design 2 channel styling and evenly spaced Settings grid applied; Home artwork untouched.")
