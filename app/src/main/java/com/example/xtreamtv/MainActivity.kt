@@ -1838,7 +1838,7 @@ private data class AudioTrackSwitch(
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     // Player creation can throw on devices with unsupported decoder/display
     // configurations. Keep the app alive and offer a way back to the title.
-    val playerResult = remember(context, sharkMega) {
+    val playerResult = remember(context, sharkMega, liveStream) {
         try { Result.success(configuredPlayer(context, sharkMega = sharkMega, liveStream = liveStream)) }
         catch (error: Exception) {
             android.util.Log.e("SharkPlayback", "Player initialisation failed", error)
@@ -1963,9 +1963,24 @@ private data class AudioTrackSwitch(
                     return
                 }
                 if(now-lastRecovery>60000L) recoveryCount=0
-                if(liveStream && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && recoveryCount<3){
-                    recoveryCount++;lastRecovery=now;playerError=""
-                    player.seekToDefaultPosition();player.prepare();player.playWhenReady=true
+                val behindWindow=error.errorCode==PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                val transientIo=error.errorCode in setOf(
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                    PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+                )
+                if(liveStream && (behindWindow || transientIo) && recoveryCount<3){
+                    recoveryCount++;lastRecovery=now
+                    playerError="Reconnecting…"
+                    val retryDelay=if(behindWindow) 0L else 500L*recoveryCount
+                    handler.postDelayed({
+                        if(player.playerError != null) {
+                            playerError=""
+                            player.seekToDefaultPosition()
+                            player.prepare()
+                            player.playWhenReady=true
+                        }
+                    },retryDelay)
                 }else {playerError="Playback failed (${error.errorCodeName})";reportFailure()}
             }
             override fun onTracksChanged(current: Tracks) { tracks = current }
