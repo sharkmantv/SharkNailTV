@@ -102,25 +102,9 @@ jobs:
           PY
             grep -F 'orElse("4.0.1")' app/build.gradle.kts >/dev/null
             test -f app/src/main/java/com/example/xtreamtv/ProviderCache.kt
-            # Apply 4.0.2 fixes on top of the successful 4.0.1 source.
-            python - <<'PY402'
-          from pathlib import Path
-          root = Path("app/src/main/java/com/example/xtreamtv")
-          def swap(s, old, new):
-              assert s.count(old) == 1, "Unexpected source: " + old[:100]
-              return s.replace(old, new, 1)
-          p = root / "MainActivity.kt"
-          s = p.read_text()
-          s = swap(s, '''            Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.End, verticalAlignment=Alignment.CenterVertically) {
-                          Box(Modifier.size(8.dp).background(if(connected) Color(0xFF55DE91) else Color(0xFFFFC66D), RoundedCornerShape(50)))
-                          Spacer(Modifier.width(6.dp))
-                          Text(if(loading) "Connecting…" else if(connected) "Connected" else "IPTV not connected", color=Color.White,fontSize=12.sp)
-                      }''', '''            Spacer(Modifier.height(16.dp))''')
-          s = swap(s, '''                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                              Box(Modifier.fillMaxWidth().height(previewHeight)''', '''                Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                              Box(Modifier.fillMaxWidth().height(previewHeight)''')
-          s = swap(s, 'Text(current?.title.orEmpty(),modifier=Modifier.heightIn(min=22.dp)', 'Text(current?.title.orEmpty(),modifier=Modifier.height(36.dp)')
-          s = swap(s, '''                    upcoming.take(2).forEach { programme -> Text("'''+ '          fi
+            python "$GITHUB_WORKSPACE/incoming/apply-4.0.2.py"
+            grep -F 'orElse("4.0.2")' app/build.gradle.kts >/dev/null
+          fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
