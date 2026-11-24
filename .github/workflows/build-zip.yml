@@ -90,6 +90,16 @@ jobs:
             cd "$SOURCE_DIR"
             patch -p1 --batch --forward --fuzz=0 --dry-run < "$RUNNER_TEMP/shark401.patch"
             patch -p1 --batch --forward --fuzz=0 < "$RUNNER_TEMP/shark401.patch"
+            # Restore full-screen recovery handler removed by the performance patch.
+            python - <<'PY'
+          from pathlib import Path
+          p = Path("app/src/main/java/com/example/xtreamtv/MainActivity.kt")
+          s = p.read_text()
+          old = "    DisposableEffect(player,url) {\n        val started=android.os.SystemClock.elapsedRealtime()\n        var recoveryCount=0"
+          new = "    DisposableEffect(player,url) {\n        val handler = android.os.Handler(player.applicationLooper)\n        val started=android.os.SystemClock.elapsedRealtime()\n        var recoveryCount=0"
+          assert s.count(old) == 1, "Unexpected full-screen recovery code"
+          p.write_text(s.replace(old, new, 1))
+          PY
             grep -F 'orElse("4.0.1")' app/build.gradle.kts >/dev/null
             test -f app/src/main/java/com/example/xtreamtv/ProviderCache.kt
           fi
