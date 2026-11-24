@@ -1,0 +1,285 @@
+name: SharkNailTV Media3 beta side-by-side test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/media3-beta-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sharknailtv-media3-beta-test
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v4.0.7
+      - name: Select stable source archive
+        run: |
+          test -f incoming/SharkNailTV.zip
+          printf 'SOURCE_ZIP=%s\n' "$GITHUB_WORKSPACE/incoming/SharkNailTV.zip" >> "$GITHUB_ENV"
+      - name: Extract Android project
+        if: env.SOURCE_ZIP != ''
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+
+          with ZipFile(os.environ['SOURCE_ZIP']) as archive:
+              files = archive.infolist()
+              if sum(item.file_size for item in files) > 2 * 1024**3:
+                  raise SystemExit('Expanded ZIP exceeds 2 GiB')
+              for item in files:
+                  path = PurePosixPath(item.filename)
+                  if path.is_absolute() or '..' in path.parts or '\\' in item.filename or '.git' in path.parts:
+                      raise SystemExit(f'Unsafe archive path: {item.filename!r}')
+              archive.extractall('zip-build')
+
+          candidates = [path.parent for path in Path('zip-build').rglob('settings.gradle.kts')
+                        if (path.parent / 'app/build.gradle.kts').is_file()]
+          if len(candidates) != 1:
+              raise SystemExit('Expected one Android project with settings.gradle.kts and app/build.gradle.kts')
+          project = candidates[0].resolve()
+          with Path(os.environ['GITHUB_ENV']).open('a') as env:
+              print(f'SOURCE_DIR={project}', file=env)
+          PY
+      - name: Apply reviewed 4.0.1 through 4.0.7 fixes to the original archive
+        if: env.SOURCE_ZIP != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_sha=$(git hash-object "$SOURCE_ZIP")
+          if [[ "$archive_sha" == "0ad470e7127d7cf3c97e4da31dd1e4a5915caf25" ]]; then
+            base64 -d "$GITHUB_WORKSPACE/incoming/4.0.1.patch.gz.b64" | gzip -d > "$RUNNER_TEMP/shark401.patch"
+            echo '4ed767fc9fabd22bb49ace0219257a4c6853e4b48a17535f71f852ce6f828cf1  '"$RUNNER_TEMP/shark401.patch" | sha256sum -c -
+            cd "$SOURCE_DIR"
+            patch -p1 --batch --forward --fuzz=0 --dry-run < "$RUNNER_TEMP/shark401.patch"
+            patch -p1 --batch --forward --fuzz=0 < "$RUNNER_TEMP/shark401.patch"
+            # Restore full-screen recovery handler removed by the performance patch.
+            python - <<'PY'
+          from pathlib import Path
+          p = Path("app/src/main/java/com/example/xtreamtv/MainActivity.kt")
+          s = p.read_text()
+          old = "    DisposableEffect(player,url) {\n        val started=android.os.SystemClock.elapsedRealtime()\n        var recoveryCount=0"
+          new = "    DisposableEffect(player,url) {\n        val handler = android.os.Handler(player.applicationLooper)\n        val started=android.os.SystemClock.elapsedRealtime()\n        var recoveryCount=0"
+          assert s.count(old) == 1, "Unexpected full-screen recovery code"
+          p.write_text(s.replace(old, new, 1))
+          PY
+            grep -F 'orElse("4.0.1")' app/build.gradle.kts >/dev/null
+            test -f app/src/main/java/com/example/xtreamtv/ProviderCache.kt
+            python "$GITHUB_WORKSPACE/incoming/apply-4.0.2.py"
+            grep -F 'orElse("4.0.2")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/apply-4.0.3.py"
+            grep -F 'orElse("4.0.3")' app/build.gradle.kts >/dev/null
+            python -m py_compile "$GITHUB_WORKSPACE/incoming/apply-4.0.4.py"
+            python "$GITHUB_WORKSPACE/incoming/apply-4.0.4.py"
+            python "$GITHUB_WORKSPACE/incoming/catalogue-4.0.4.py"
+            python "$GITHUB_WORKSPACE/incoming/design-4.0.4.py"
+            mkdir -p app/libs
+            curl --fail --location --retry 3 --silent --show-error 'https://github.com/flow-vid/flowvid-ffmpeg-android/releases/download/v1.11.1-1/flowvid-media3-ffmpeg-v1.11.1-1.aar' -o app/libs/flowvid-media3-ffmpeg.aar
+            echo '358bb85ae901d4245bb666becc1059a3ee8be138e16db9d3f6f19f5fde002c2c  app/libs/flowvid-media3-ffmpeg.aar' | sha256sum -c -
+            unzip -tq app/libs/flowvid-media3-ffmpeg.aar
+            grep -F 'orElse("4.0.4")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/preview-stability-next.py"
+            grep -F 'orElse("4.0.5")' app/build.gradle.kts >/dev/null
+            # Validate unified player source, including all SafePlayer call sites.
+            python "$GITHUB_WORKSPACE/incoming/automatic-playback-4.0.6.py"
+            grep -F 'orElse("4.0.6")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/native-buffer-4.0.7.py"
+            grep -F 'orElse("4.0.7")' app/build.gradle.kts >/dev/null
+          fi
+      - name: Isolate test app and upgrade all Media3 modules
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import xml.etree.ElementTree as ET
+          p=Path("app/build.gradle.kts")
+          s=p.read_text()
+          s,n=re.subn(r'(\bmedia3Version\s*=\s*)"1\.11\.1"',r'\g<1>"1.12.0-beta01"',s)
+          assert n==1, "Stable Media3 version declaration not found"
+          s,n=re.subn(r'(\bapplicationId\s*=\s*)"com\.example\.xtreamtv"',r'\g<1>"com.example.xtreamtv.beta"',s)
+          assert n==1, "Application ID declaration not found"
+          p.write_text(s)
+          p=Path("app/src/main/AndroidManifest.xml")
+          s=p.read_text()
+          s,n=re.subn(r'(<application\b[^>]*\bandroid:label\s*=\s*)"[^"]+"',r'\g<1>"SharkNailTV Beta"',s,flags=re.S)
+          assert n==1, "App label declaration not found"
+          s=s.replace('android:authorities="com.example.xtreamtv.', 'android:authorities="com.example.xtreamtv.beta.')
+          p.write_text(s)
+          print("Media3 beta and isolated app ID configured")
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf 'VERSION_CODE=40007\nVERSION_NAME=4.0.7-beta01\n' >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            echo "::error::Permanent signing key missing"; exit 1
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if true; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv.beta' versionCode='$VERSION_CODE'"* ]]
+      - name: Verify experimental package and FFmpeg fallback
+        run: |
+          set -euo pipefail
+          test "$VERSION_NAME" = "4.0.7-beta01"
+          test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
+          grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
+          grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
+          python - <<'PY'
+          import os
+          from zipfile import ZipFile
+          with ZipFile(os.path.join(os.environ['GITHUB_WORKSPACE'],'SharkNailTV.apk')) as apk:
+              assert apk.testzip() is None, "APK ZIP integrity failure"
+              files = set(apk.namelist())
+              for abi in ('arm64-v8a','armeabi-v7a','x86','x86_64'):
+                  assert 'lib/'+abi+'/libffmpegJNI.so' in files, "Missing FFmpeg for "+abi
+              assert 'assets/ffmpeg-source-notice.txt' in files
+              assert any(b'FfmpegAudioRenderer' in apk.read(f) for f in files if f.startswith('classes') and f.endswith('.dex')), "FFmpeg renderer missing from DEX"
+          print('FFmpeg native ABIs, DEX, licensing notice and APK integrity verified')
+          PY
+      - name: Install and launch signed APK on Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          "$sdkmanager" "emulator" "platform-tools" "system-images;android-35;google_apis;x86_64"
+          avdmanager="$(find "$ANDROID_HOME/cmdline-tools" -name avdmanager -type f -print -quit)"
+          export ANDROID_USER_HOME="$RUNNER_TEMP/shark-android"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | "$avdmanager" create avd --force -n shark-smoke -p "$ANDROID_AVD_HOME/shark-smoke.avd" -k "system-images;android-35;google_apis;x86_64"
+          test -s "$ANDROID_AVD_HOME/shark-smoke.avd/config.ini"
+          # Explicitly write the discovery record, independent of avdmanager's user-home selection.
+          printf 'avd.ini.encoding=UTF-8\npath=%s\npath.rel=avd/shark-smoke.avd\ntarget=android-35\n' "$ANDROID_AVD_HOME/shark-smoke.avd" > "$ANDROID_AVD_HOME/shark-smoke.ini"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fx shark-smoke
+          if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
+          adb="$ANDROID_HOME/platform-tools/adb"
+          emulator="$ANDROID_HOME/emulator/emulator"
+          "$adb" start-server
+          "$emulator" -accel-check || true
+          accel=off
+          if [[ -r /dev/kvm && -w /dev/kvm ]] && "$emulator" -accel-check >/dev/null 2>&1; then accel=on; fi
+          echo "Emulator acceleration: $accel"
+          "$emulator" -avd shark-smoke -port 5554 -accel "$accel" -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -verbose > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emu_pid=$!
+          trap 'result=$?; tail -100 "$RUNNER_TEMP/emulator.log" || true; kill "$emu_pid" 2>/dev/null || true; exit "$result"' EXIT
+          export ANDROID_SERIAL=emulator-5554
+          ready=false
+          for i in $(seq 1 180); do
+            if ! kill -0 "$emu_pid" 2>/dev/null; then echo "::error::Emulator process exited before boot"; exit 1; fi
+            if [[ "$(timeout 8 "$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" == "1" ]]; then ready=true; break; fi
+            sleep 5
+          done
+          test "$ready" = true || { echo "::error::Emulator boot timed out"; exit 1; }
+          "$adb" shell input keyevent 82
+          "$adb" install -r "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          "$adb" logcat -c
+          "$adb" shell am start -W -n com.example.xtreamtv.beta/com.example.xtreamtv.MainActivity
+          sleep 12
+          "$adb" shell pidof com.example.xtreamtv.beta
+          "$adb" shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.example.xtreamtv.beta'
+          "$adb" logcat -d -b crash > "$RUNNER_TEMP/shark-crash.log"
+          if grep -F 'Process: com.example.xtreamtv.beta' "$RUNNER_TEMP/shark-crash.log"; then
+            cat "$RUNNER_TEMP/shark-crash.log"
+            exit 1
+          fi
+          echo 'Signed APK installed and launched without a detected application crash.'
+      - name: Upload test APK only after verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-4.0.7-Media3-1.12.0-beta01
+          path: SharkNailTV.apk
+          if-no-files-found: error
