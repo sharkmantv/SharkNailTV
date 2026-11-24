@@ -105,6 +105,17 @@ s=swap(s,'''                }else failed=true
                 if(state==androidx.media3.common.Player.STATE_READY) failed=false
             }
         };player.addListener(listener);onDispose {handler.removeCallbacksAndMessages(null);player.removeListener(listener)}''')
+
+# Live TV browsing must never start or retune playback just by moving focus.
+s=swap(s,'''    val preview by produceState(current, current) {
+        delay(350)
+        value = current
+    }''','''    var preview by remember(api) { mutableStateOf<Entry?>(null) }''')
+s=swap(s,'''BrowserRow((if(channel.id in favouriteIds) "★ " else "")+channel.title,current?.id==channel.id,"sky",{current=channel},{onPlay(channel)})''','''BrowserRow((if(channel.id in favouriteIds) "★ " else "")+channel.title,current?.id==channel.id,"sky",{current=channel},{
+                            current=channel
+                            if(previewEnabled && api!=null && preview?.id!=channel.id) preview=channel
+                            else onPlay(channel)
+                        })''')
 p.write_text(s)
 
 p=root/"HomePlayback.kt"
