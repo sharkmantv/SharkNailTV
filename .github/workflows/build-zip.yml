@@ -78,7 +78,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 patch to the original 4.0.0 archive
+      - name: Apply reviewed 4.0.1 and 4.0.2 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -102,6 +102,795 @@ jobs:
           PY
             grep -F 'orElse("4.0.1")' app/build.gradle.kts >/dev/null
             test -f app/src/main/java/com/example/xtreamtv/ProviderCache.kt
+            # Apply 4.0.2 fixes on top of the successful 4.0.1 source.
+            python - <<'PY402'
+          from pathlib import Path
+          root = Path("app/src/main/java/com/example/xtreamtv")
+          def swap(s, old, new):
+              assert s.count(old) == 1, "Unexpected source: " + old[:100]
+              return s.replace(old, new, 1)
+          p = root / "MainActivity.kt"
+          s = p.read_text()
+          s = swap(s, '''            Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.End, verticalAlignment=Alignment.CenterVertically) {
+                          Box(Modifier.size(8.dp).background(if(connected) Color(0xFF55DE91) else Color(0xFFFFC66D), RoundedCornerShape(50)))
+                          Spacer(Modifier.width(6.dp))
+                          Text(if(loading) "Connecting…" else if(connected) "Connected" else "IPTV not connected", color=Color.White,fontSize=12.sp)
+                      }''', '''            Spacer(Modifier.height(16.dp))''')
+          s = swap(s, '''                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                              Box(Modifier.fillMaxWidth().height(previewHeight)''', '''                Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                              Box(Modifier.fillMaxWidth().height(previewHeight)''')
+          s = swap(s, 'Text(current?.title.orEmpty(),modifier=Modifier.heightIn(min=22.dp)', 'Text(current?.title.orEmpty(),modifier=Modifier.height(36.dp)')
+          s = swap(s, '''                    upcoming.take(2).forEach { programme -> Text("'''+ '          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          floor=30000
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then echo "::error::Permanent signing key missing"; exit 1; fi
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-APK
+          path: SharkNailTV*.apk
+          if-no-files-found: error
+
+      - name: Publish signed ZIP OTA
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -f SharkNailTV.apk
+          test -n "${SOURCE_ZIP:-}"
+          test "${VERSION_CODE:?}" -ge 40000
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = "v" + os.environ["VERSION_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
+          PY
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
+ +'''{parseEpgTime(programme.start)?.let { guideClock(context,it) }.orEmpty()}  '''+ '          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          floor=30000
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then echo "::error::Permanent signing key missing"; exit 1; fi
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-APK
+          path: SharkNailTV*.apk
+          if-no-files-found: error
+
+      - name: Publish signed ZIP OTA
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -f SharkNailTV.apk
+          test -n "${SOURCE_ZIP:-}"
+          test "${VERSION_CODE:?}" -ge 40000
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = "v" + os.environ["VERSION_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
+          PY
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
+ +'''{programme.title}",color=Color.White,fontSize=12.sp,maxLines=2) }''', '''                    Column(Modifier.weight(1f).fillMaxWidth().clipToBounds().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                                  upcoming.forEach { programme -> Text("'''+ '          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          floor=30000
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then echo "::error::Permanent signing key missing"; exit 1; fi
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-APK
+          path: SharkNailTV*.apk
+          if-no-files-found: error
+
+      - name: Publish signed ZIP OTA
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -f SharkNailTV.apk
+          test -n "${SOURCE_ZIP:-}"
+          test "${VERSION_CODE:?}" -ge 40000
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = "v" + os.environ["VERSION_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
+          PY
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
+ +'''{parseEpgTime(programme.start)?.let { guideClock(context,it) }.orEmpty()}  '''+ '          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          floor=30000
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then echo "::error::Permanent signing key missing"; exit 1; fi
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-APK
+          path: SharkNailTV*.apk
+          if-no-files-found: error
+
+      - name: Publish signed ZIP OTA
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -f SharkNailTV.apk
+          test -n "${SOURCE_ZIP:-}"
+          test "${VERSION_CODE:?}" -ge 40000
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = "v" + os.environ["VERSION_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
+          PY
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
+ +'''{programme.title}",color=Color.White,fontSize=12.sp,maxLines=2) }
+                              }''')
+          s = swap(s, '''                    upcoming.drop(2).forEach { programme -> Text("'''+ '          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          floor=30000
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then echo "::error::Permanent signing key missing"; exit 1; fi
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-APK
+          path: SharkNailTV*.apk
+          if-no-files-found: error
+
+      - name: Publish signed ZIP OTA
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -f SharkNailTV.apk
+          test -n "${SOURCE_ZIP:-}"
+          test "${VERSION_CODE:?}" -ge 40000
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = "v" + os.environ["VERSION_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
+          PY
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
+ +'''{parseEpgTime(programme.start)?.let { guideClock(context,it) }.orEmpty()}  '''+ '          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Prepare version and optional signing
+        env:
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          floor=30000
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
+            python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
+          version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
+          printf 'VERSION_CODE=%s\nVERSION_NAME=%s\n' "$code" "$version" >> "$GITHUB_ENV"
+          if [[ -n "$SHARK_KEYSTORE_B64" ]]; then
+            umask 077
+            printf '%s' "$SHARK_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/shark-updates.jks"
+            printf 'SHARK_KEYSTORE_PATH=%s\n' "$RUNNER_TEMP/shark-updates.jks" >> "$GITHUB_ENV"
+          elif [[ -z "$SHARK_SIGNING_BUNDLE" ]]; then
+            echo 'OTA signing key is unavailable. This run will produce a debug APK.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build installable APK
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_DIR"
+          if [[ -n "$TMDB_API_KEY" ]]; then
+            printf 'TMDB_API_KEY=%s\n' "$TMDB_API_KEY" > tmdb.properties
+          elif [[ ! -f tmdb.properties && -f "$GITHUB_WORKSPACE/tmdb.properties" ]]; then
+            cp "$GITHUB_WORKSPACE/tmdb.properties" tmdb.properties
+          fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then test -s tmdb.properties; fi
+          if [[ -n "$SPORTS_API_KEY" ]]; then printf 'SPORTS_API_KEY=%s\n' "$SPORTS_API_KEY" > sports.properties; fi
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            export SHARK_KEYSTORE_PATH="$RUNNER_TEMP/sharknailtv.p12"
+            umask 077
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ['SHARK_SIGNING_BUNDLE'].strip(), strict=False)
+          key = ''.join(bundle['keystore'].split())
+          Path(os.environ['SHARK_KEYSTORE_PATH']).write_bytes(base64.b64decode(key, validate=True))
+          print(''.join(bundle['password'].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          fi
+          unset SHARK_SIGNING_BUNDLE
+          if [[ -z "${SHARK_KEYSTORE_PATH:-}" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then echo "::error::Permanent signing key missing"; exit 1; fi
+            gradle --no-daemon :app:assembleDebug -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/SharkNailTV-debug.apk"
+            exit 0
+          fi
+          : "${SHARK_KEYSTORE_PASSWORD:?Missing SHARK_KEYSTORE_PASSWORD}"
+          : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
+          : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
+          gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [[ ${#apks[@]} == 1 ]]
+          "$tools/zipalign" -P 16 -f 4 "${apks[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$SHARK_KEYSTORE_PATH" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out "$GITHUB_WORKSPACE/SharkNailTV.apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            cert=$("$tools/apksigner" verify --print-certs "$GITHUB_WORKSPACE/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            [[ "$cert" == "14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96" ]] || { echo "::error::Signing certificate does not match installed 3.4.8"; exit 1; }
+          fi
+          badging=$("$tools/aapt" dump badging "$GITHUB_WORKSPACE/SharkNailTV.apk")
+          [[ "$badging" == *"package: name='com.example.xtreamtv' versionCode='$VERSION_CODE'"* ]]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-APK
+          path: SharkNailTV*.apk
+          if-no-files-found: error
+
+      - name: Publish signed ZIP OTA
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -f SharkNailTV.apk
+          test -n "${SOURCE_ZIP:-}"
+          test "${VERSION_CODE:?}" -ge 40000
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          tag = "v" + os.environ["VERSION_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
+          Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
+          PY
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "SharkNailTV $VERSION_NAME source ZIP update" --latest
+ +'''{programme.title}",color=Color.White,fontSize=12.sp,maxLines=2) }
+          ''', '')
+          # Avoid filtering out all HDR-labelled results: SmartPlayback already ranks preferred alternatives.
+          a=s.index('                val preferSdr = playbackPrefs(context).getString("dynamicRange", "Auto")')
+          b=s.index('                val direct = eligible.filter',a)
+          s=s[:a]+s[b:]
+          s=swap(s,'val direct = eligible.filter','val direct = ranked.filter')
+          # Defer automatic sports network requests until needed, while preserving manual refresh.
+          s=swap(s,'''    LaunchedEffect(sportsKey,sportsRefresh) {
+                  var forceRefresh=sportsRefresh > 0''','''    var sportsRequested by remember { mutableStateOf(false) }
+              LaunchedEffect(sportsKey,sportsRefresh,sportsRequested) {
+                  if (!sportsRequested && sportsRefresh == 0) return@LaunchedEffect
+                  var forceRefresh=sportsRefresh > 0''')
+          s=swap(s,'''    var section by remember { mutableStateOf("Home") }
+              val catalogueKind''','''    var section by remember { mutableStateOf("Home") }
+              LaunchedEffect(section) { if (section == "Sports Guide") sportsRequested = true }
+              val catalogueKind''')
+          # Avoid repeatedly parsing and sorting EPG on unrelated recompositions.
+          s=swap(s,'''                    val now=System.currentTimeMillis()
+                              val upcoming=listings.filter { (parseEpgTime(it.end) ?: Long.MAX_VALUE)>now }.sortedBy { parseEpgTime(it.start) ?: Long.MAX_VALUE }.take(8)''','''                    var guideNow by remember { mutableStateOf(System.currentTimeMillis()) }
+                              LaunchedEffect(Unit) { while(true) { guideNow=System.currentTimeMillis(); delay(60_000) } }
+                              val upcoming=remember(listings,guideNow) { listings.filter { (parseEpgTime(it.end) ?: Long.MAX_VALUE)>guideNow }.sortedBy { parseEpgTime(it.start) ?: Long.MAX_VALUE }.take(8) }''')
+          p.write_text(s)
+          p=root / "PlaybackSettings.kt"
+          s=p.read_text()
+          s=swap(s,'''                        // Do not let a known HDR decoder configure a surface in strict SDR mode.
+                                  // Home playback can recover using its existing source failover.
+                                  if (hdr) throw java.io.IOException("HDR source blocked by SDR mode; select an SDR source")''','''                        if (hdr && android.os.Build.VERSION.SDK_INT >= 31) {
+                                      val mediaFormat = configuration.mediaFormat
+                                      val key = android.media.MediaFormat.KEY_COLOR_TRANSFER_REQUEST
+                                      val previous = if (mediaFormat.containsKey(key)) mediaFormat.getInteger(key) else null
+                                      mediaFormat.setInteger(key, android.media.MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
+                                      try {
+                                          return delegate.createAdapter(configuration)
+                                      } catch (error: Exception) {
+                                          android.util.Log.w("SharkPlayback", "SDR conversion request rejected; retrying original format")
+                                          if (previous == null) mediaFormat.removeKey(key) else mediaFormat.setInteger(key, previous)
+                                      }
+                                  }''')
+          s=swap(s,'''Auto follows the stream. Prefer SDR blocks detected HDR and Dolby Vision video instead of silently switching the TV to HDR. HDR-only titles may not play in SDR mode. Restart playback after changing.''','''Auto follows the stream. Prefer SDR ranks SDR sources first and requests HDR-to-SDR conversion on supported Android 12+ decoders. Unsupported devices may still display HDR. Prefer HDR favours HDR sources when available. Restart playback after changing.''')
+          p.write_text(s)
+          p=Path("app/build.gradle.kts")
+          s=p.read_text()
+          s=swap(s,'orElse("40001")','orElse("40002")')
+          s=swap(s,'orElse("4.0.1")','orElse("4.0.2")')
+          p.write_text(s)
+          PY402
+            grep -F 'orElse("4.0.2")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
