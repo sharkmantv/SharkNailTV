@@ -5,13 +5,14 @@ on:
     branches: [main]
     paths:
       - 'incoming/SharkNailTV.zip'
+      - '.github/workflows/build-zip.yml'
   workflow_dispatch:
     inputs:
       source:
         description: Android source to build
         type: choice
         options: [repository, zip, repository-zip]
-        default: repository
+        default: zip
 
 permissions:
   contents: write
@@ -33,12 +34,8 @@ jobs:
           set -euo pipefail
           source="$REQUESTED_SOURCE"
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            source=repository
-            # Only build the incoming ZIP when this push actually updates that ZIP.
-            # Otherwise build current repository code, not a stale uploaded archive.
-            if git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep -Fxq 'incoming/SharkNailTV.zip'; then
-              source=zip
-            fi
+            # Push builds are always sourced from the uploaded archive; no fallback.
+            source=zip
           fi
           case "$source" in
             repository)
@@ -190,6 +187,8 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           test -f SharkNailTV.apk
+          test -n "${SOURCE_ZIP:-}"
+          test "${VERSION_CODE:?}" -ge 40000
           python - <<'PY'
           import json, os
           from pathlib import Path
