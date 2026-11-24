@@ -78,7 +78,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 and 4.0.2 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.0.3 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -104,6 +104,8 @@ jobs:
             test -f app/src/main/java/com/example/xtreamtv/ProviderCache.kt
             python "$GITHUB_WORKSPACE/incoming/apply-4.0.2.py"
             grep -F 'orElse("4.0.2")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/apply-4.0.3.py"
+            grep -F 'orElse("4.0.3")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
