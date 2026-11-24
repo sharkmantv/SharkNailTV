@@ -25,6 +25,13 @@ s=swap(s,'        val startMs = if (live && sharkMega) 650 else if (sharkMega) 1
 s=swap(s,'            .setPrioritizeTimeOverSizeThresholds(true)\n            .build()','''            .setPrioritizeTimeOverSizeThresholds(!(live && lowMemory && p.getString("buffer","Normal") != "Large"))
             .build()''')
 s=swap(s,'Text("Built-in Media3 playback engine",color = Color.White,fontSize=14.sp)','''Text("Built-in Media3 playback engine · FFmpeg audio fallback",color = Color.White,fontSize=14.sp)''')
+# Retire obsolete multi-source toggle from the Xtream-only playback settings.
+s=swap(s,'    var smartAuto by remember { mutableStateOf(p.getBoolean("smartAuto",true)) }\n','')
+a=s.index('                Text("One Source Player · automatic failover",color=Color.White)')
+b=s.index('                SmartPlayback.modes.forEach',a)
+assert 'Try next source on failure' in s[a:b]
+s=s[:a]+s[b:]
+s=swap(s,';smartAuto=true;',';')
 p.write_text(s)
 
 p=root/"MainActivity.kt"
@@ -151,6 +158,16 @@ b=s.index('                            FocusAction("Back to Settings")',a)
 assert 'Reuse Last Link' in s[a:b] and 'Auto-play the last working link' in s[a:b]
 s=s[:a]+s[b:]
 assert not any(x in s for x in ("reuseLastLink","lastWorkingLinks","homeLinkKey","Reuse Last Link"))
+# Explicit title selection can still start IPTV playback; do not auto-switch to a different match.
+s=swap(s,' && playbackPrefs(context).getBoolean("smartAuto",true)) instantMovieRequest++',') instantMovieRequest++')
+s=swap(s,'        autoSession=playbackPrefs(context).getBoolean("smartAuto",true)','        autoSession=true')
+s=swap(s,'''        autoResumeMs = maxOf(autoResumeMs, resumeMs)
+        failedUrls = failedUrls + stream.url
+        homePlaying = homeStreams.firstOrNull { it.url !in failedUrls }
+        if(homePlaying==null) { showHomeSources=true; homeLookupStatus="All automatic sources failed" }''','''        autoResumeMs = maxOf(autoResumeMs, resumeMs)
+        homePlaying=null
+        showHomeSources=false
+        homeLookupStatus="IPTV playback interrupted — press Play to retry"''')
 p.write_text(s)
 
 p=root/"HomePlayback.kt"
