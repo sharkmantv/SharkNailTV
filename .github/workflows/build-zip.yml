@@ -247,16 +247,24 @@ jobs:
           avdmanager="$(find "$ANDROID_HOME/cmdline-tools" -name avdmanager -type f -print -quit)"
           echo no | "$avdmanager" create avd --force -n shark-smoke -k "system-images;android-35;google_apis;x86_64"
           if [[ -e /dev/kvm ]]; then sudo chmod a+rw /dev/kvm; fi
-          "$ANDROID_HOME/emulator/emulator" -avd shark-smoke -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
-          emu_pid=$!
-          trap 'kill "$emu_pid" 2>/dev/null || true' EXIT
           adb="$ANDROID_HOME/platform-tools/adb"
-          timeout 240 "$adb" wait-for-device
-          for i in $(seq 1 120); do
-            [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]] && break
-            sleep 2
+          emulator="$ANDROID_HOME/emulator/emulator"
+          "$adb" start-server
+          "$emulator" -accel-check || true
+          accel=off
+          if [[ -r /dev/kvm && -w /dev/kvm ]] && "$emulator" -accel-check >/dev/null 2>&1; then accel=on; fi
+          echo "Emulator acceleration: $accel"
+          "$emulator" -avd shark-smoke -port 5554 -accel "$accel" -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -verbose > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emu_pid=$!
+          trap 'result=$?; tail -100 "$RUNNER_TEMP/emulator.log" || true; kill "$emu_pid" 2>/dev/null || true; exit "$result"' EXIT
+          export ANDROID_SERIAL=emulator-5554
+          ready=false
+          for i in $(seq 1 180); do
+            if ! kill -0 "$emu_pid" 2>/dev/null; then echo "::error::Emulator process exited before boot"; exit 1; fi
+            if [[ "$(timeout 8 "$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" == "1" ]]; then ready=true; break; fi
+            sleep 5
           done
-          test "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          test "$ready" = true || { echo "::error::Emulator boot timed out"; exit 1; }
           "$adb" shell input keyevent 82
           "$adb" install -r "$GITHUB_WORKSPACE/SharkNailTV.apk"
           "$adb" logcat -c
