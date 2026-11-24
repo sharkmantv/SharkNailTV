@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 root=Path("app/src/main/java/com/example/xtreamtv")
 def swap(s,a,b):
     assert s.count(a)==1, "Unexpected profile source: "+a[:140]
@@ -43,8 +44,8 @@ b=s.index('                val cm=',a)
 s=s[:a]+s[b:]
 s=swap(s,'                val rankingMode = playbackPrefs(context).getString("smartMode", "Shark Smart").orEmpty()\n','')
 s=swap(s,'                    results, rankingMode, kbps,','                    matches, kbps,')
-assert s.count(',sharkMega=sharkMega')==3
-s=s.replace(',sharkMega=sharkMega','')
+s, count = re.subn(r",\s*sharkMega\s*=\s*sharkMega\b(?!\s*,\s*live\s*=)", "", s)
+assert count == 3, f"Expected three SafePlayer profile arguments, found {count}"
 s=swap(s,',sharkMega:Boolean=false,onFirstFrame',',onFirstFrame')
 s=swap(s,'remember(context, sharkMega, liveStream) { configuredPlayer(context, sharkMega = sharkMega, live = liveStream) }','remember(context, liveStream) { configuredPlayer(context, live = liveStream) }')
 s=swap(s,'Profile: '+chr(36)+'{if(sharkMega) "Shark Mega" else "Standard"}','Profile: Automatic IPTV')
