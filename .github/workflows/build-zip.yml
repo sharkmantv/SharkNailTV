@@ -7,6 +7,7 @@ on:
       - 'incoming/SharkNailTV.zip'
       - 'incoming/room-catalogue-4.1.11.py'
       - 'incoming/preload-4.1.11.py'
+      - 'incoming/build-video-decoders-4.1.11.sh'
       - '.github/workflows/build-zip.yml'
   workflow_dispatch:
     inputs:
@@ -26,7 +27,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
       - name: Select build source
@@ -477,6 +478,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+      - name: Build matching AV1 and VP9 native decoder extensions
+        if: env.SOURCE_ZIP != ''
+        run: bash "$GITHUB_WORKSPACE/incoming/build-video-decoders-4.1.11.sh"
       - name: Prepare version and optional signing
         env:
           SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
@@ -582,6 +586,10 @@ jobs:
               for abi in ('arm64-v8a','armeabi-v7a','x86','x86_64'):
                   assert 'lib/'+abi+'/libffmpegJNI.so' in files, "Missing FFmpeg for "+abi
               assert 'assets/ffmpeg-source-notice.txt' in files
+              for abi in ('arm64-v8a','armeabi-v7a'):
+                  assert 'lib/'+abi+'/libdav1dJNI.so' in files, "Missing AV1 for "+abi
+                  assert 'lib/'+abi+'/libvpxJNI.so' in files, "Missing VP9 for "+abi
+              assert 'assets/decoder-licenses/SOURCES.txt' in files
               assert any(b'FfmpegAudioRenderer' in apk.read(f) for f in files if f.startswith('classes') and f.endswith('.dex')), "FFmpeg renderer missing from DEX"
           print('FFmpeg native ABIs, DEX, licensing notice and APK integrity verified')
           PY
