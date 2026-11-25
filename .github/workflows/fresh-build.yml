@@ -4,7 +4,7 @@ on:
     branches: ['fresh/shark-sky-5.0.0']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -58,12 +58,12 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50001'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50002'"
           unzip -tq SharkNailTV.apk
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.1-candidate-install-untested
+          name: SharkSky-5.0.2-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Prepare emulator acceleration
@@ -84,6 +84,12 @@ jobs:
           script: adb install SharkNailTV.apk && adb shell am start -W -n com.example.xtreamtv/.MainActivity && sleep 3 && adb shell pidof com.example.xtreamtv
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.1-signed
+          name: SharkSky-5.0.2-signed
           path: SharkNailTV.apk
           if-no-files-found: error
+      - name: Publish OTA after successful installation test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v5.0.2 SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.2" --notes "Decoder compatibility memory, playback/display settings and OTA. APK signature and emulator installation verified by CI. Physical-device playback verification pending." --latest

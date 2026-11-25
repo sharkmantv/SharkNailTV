@@ -45,7 +45,7 @@ public class MainActivity extends Activity {
  long download=-1;
  static class Item { String id,name,ext; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(dp(6));if(width>0)g.setStroke(dp(width),border);return g;}
@@ -64,7 +64,20 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.1  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.2  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void playbackSettings(){
+  page="Settings";screen("Playback & display");
+  LinearLayout r=row();button(r,"Subtitles: "+(prefs.getBoolean("subtitles_on",true)?"On":"Off"),()->{prefs.edit().putBoolean("subtitles_on",!prefs.getBoolean("subtitles_on",true)).apply();playbackSettings();});
+  button(r,"Codec info: "+(prefs.getBoolean("show_codec_info",false)?"On":"Off"),()->{prefs.edit().putBoolean("show_codec_info",!prefs.getBoolean("show_codec_info",false)).apply();playbackSettings();});body.addView(r);
+  LinearLayout r2=row();int mode=prefs.getInt("resize_mode",0);button(r2,"Picture: "+(mode==3?"Stretch":mode==4?"Zoom":"Fit"),()->{prefs.edit().putInt("resize_mode",mode==0?3:mode==3?4:0).apply();playbackSettings();});
+  button(r2,"Audio: "+prefs.getString("audio_lang","Automatic"),()->languageDialog("audio_lang","Preferred audio language"));button(r2,"Text: "+prefs.getString("text_lang","Automatic"),()->languageDialog("text_lang","Preferred subtitle language"));body.addView(r2);
+  LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
+  android.view.Display.Mode m=getWindowManager().getDefaultDisplay().getMode();status=text("Display: "+m.getPhysicalWidth()+" × "+m.getPhysicalHeight()+" · "+String.format(Locale.US,"%.2f Hz",m.getRefreshRate())+"  |  Native fallback uses Android system controls.",14);body.addView(status);
+  LinearLayout back=row();button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
+ }
+ void languageDialog(String key,String title){String[] labels={"Automatic","English","Spanish","French","German","Italian","Arabic"},codes={null,"en","es","fr","de","it","ar"};new AlertDialog.Builder(this).setTitle(title).setItems(labels,(d,i)->{prefs.edit().putString(key,codes[i]).apply();playbackSettings();}).setNegativeButton("Cancel",null).show();}
+ void displayDialog(){android.view.Display display=getWindowManager().getDefaultDisplay();android.view.Display.Mode[] modes=display.getSupportedModes();String[] labels=new String[modes.length+2];labels[0]="Automatic (system)";labels[1]="Highest refresh at current resolution";for(int i=0;i<modes.length;i++)labels[i+2]=modes[i].getPhysicalWidth()+" × "+modes[i].getPhysicalHeight()+" · "+String.format(Locale.US,"%.2f Hz",modes[i].getRefreshRate());new AlertDialog.Builder(this).setTitle("Supported display modes").setItems(labels,(d,i)->{prefs.edit().putInt("display_mode",i==0?0:i==1?-1:modes[i-2].getModeId()).apply();applyDisplayMode();playbackSettings();}).setNegativeButton("Cancel",null).show();}
+ void applyDisplayMode(){android.view.Display display=getWindowManager().getDefaultDisplay();android.view.Display.Mode current=display.getMode();int request=prefs.getInt("display_mode",0),chosen=0;float rate=0;for(android.view.Display.Mode m:display.getSupportedModes()){if(request>0&&m.getModeId()==request){chosen=request;break;}if(request==-1&&m.getPhysicalWidth()==current.getPhysicalWidth()&&m.getPhysicalHeight()==current.getPhysicalHeight()&&m.getRefreshRate()>rate){rate=m.getRefreshRate();chosen=m.getModeId();}}WindowManager.LayoutParams a=getWindow().getAttributes();a.preferredDisplayModeId=chosen;getWindow().setAttributes(a);}
  String prefix(){return page.equals("Live TV")?"live":page.equals("Movies")?"vod":"series";}
  static List<Item> parse(JSONArray a,String id,String name){List<Item> list=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject j=a.optJSONObject(i);if(j!=null&&!j.optString(id).isEmpty())list.add(new Item(j.optString(id),j.optString(name),j.optString("container_extension","mp4")));}return list;}
  void open(String p){page=p;cat="";seriesId="";catPos=itemPos=0;selected=null;cats=new ArrayList<>();items=new ArrayList<>();browser(false);loadCats();}
@@ -83,8 +96,12 @@ public class MainActivity extends Activity {
  void loadEpg(Item i){if(epg==null)return;epg.setText(i.name);int req=++epgToken;String url=api("get_short_epg","&stream_id="+enc(i.id)+"&limit=4");task(()->new JSONObject(get(url)),j->{if(req!=epgToken||epg==null)return;StringBuilder b=new StringBuilder(i.name);JSONArray a=j.optJSONArray("epg_listings");if(a!=null)for(int n=0;n<a.length();n++){JSONObject o=a.optJSONObject(n);if(o!=null){String v=o.optString("title");try{v=new String(android.util.Base64.decode(v,0),"UTF-8");}catch(Exception ignored){}b.append("\n").append(v);}}if(a==null||a.length()==0)b.append("\nNo programme information");epg.setText(b);});}
  void fav(){if(selected==null)return;Set<String>s=new HashSet<>(prefs.getStringSet("fav",Collections.emptySet()));if(!s.add(selected.id)){s.remove(selected.id);msg("Removed favourite");}else msg("Favourite saved");prefs.edit().putStringSet("fav",s).apply();}
  String stream(Item i){String k=page.equals("Live TV")?"live":page.equals("Movies")?"movie":"series";String e=k.equals("live")?liveExt:i.ext;if(!e.matches("[a-zA-Z0-9]{1,8}"))e="mp4";return server+"/"+k+"/"+enc(user)+"/"+enc(pass)+"/"+enc(i.id)+"."+e;}
- void attach(FrameLayout host,Item i,boolean fullscreen){attachExo(host,i,fullscreen,0,0);}
- void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position){
+ String decoderKey(Item i){return UUID.nameUUIDFromBytes((server+"|"+page+"|"+i.id+"|"+i.ext).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();}
+ android.content.SharedPreferences decoderPrefs(){return getSharedPreferences("decoder_recovery_v1",0);}
+ boolean rememberedDecoder(Item i){long when=decoderPrefs().getLong(decoderKey(i),0);long age=System.currentTimeMillis()-when;return when>0&&age>=0&&age<7L*24*60*60*1000;}
+ void rememberDecoder(Item i){android.content.SharedPreferences d=decoderPrefs();android.content.SharedPreferences.Editor e=d.edit();Map<String,?> all=d.getAll();if(all.size()>=128){String oldest=null;long time=Long.MAX_VALUE;for(Map.Entry<String,?> entry:all.entrySet())if(entry.getValue() instanceof Long&&(Long)entry.getValue()<time){oldest=entry.getKey();time=(Long)entry.getValue();}if(oldest!=null)e.remove(oldest);}e.putLong(decoderKey(i),System.currentTimeMillis()).apply();}
+ void attach(FrameLayout host,Item i,boolean fullscreen){boolean cached=fullscreen&&!page.equals("Live TV")&&rememberedDecoder(i);attachExo(host,i,fullscreen,cached?1:0,0,cached);}
+ void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst){
   release();host.removeAllViews();
   PlayerView v=new PlayerView(this);v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   host.addView(v,new FrameLayout.LayoutParams(-1,-1));
@@ -101,7 +118,12 @@ public class MainActivity extends Activity {
    });
   }
   ExoPlayer p=new ExoPlayer.Builder(this,factory).build();
-  video=v;player=p;v.setPlayer(p);p.setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
+  video=v;player=p;v.setPlayer(p);v.setResizeMode(prefs.getInt("resize_mode",0));
+  p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
+   .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
+   .setPreferredTextLanguage(prefs.getString("text_lang",null))
+   .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles_on",true)).build());
+  p.setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
   if(!fullscreen)p.setVolume(0);
   final boolean vod=fullscreen&&!page.equals("Live TV");
   final int token=screenToken;
@@ -114,6 +136,15 @@ public class MainActivity extends Activity {
   if(page.equals("Live TV"))m.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build());
   p.addListener(new Player.Listener(){
    boolean recovering;
+   @Override public void onRenderedFirstFrame(){
+    if(player!=p||recovering)return;
+    if(vod&&attempt==1)rememberDecoder(i);
+    if(fullscreen&&prefs.getBoolean("show_codec_info",false)){
+     Format f=p.getVideoFormat();
+     String details=(activeDecoder.isEmpty()?"Decoder unavailable":activeDecoder)+(f==null?"":" · "+f.width+"×"+f.height+(f.bitrate>0?" · "+String.format(Locale.US,"%.1f Mb/s",f.bitrate/1000000.0):""));
+     msg(details);
+    }
+   }
    @Override public void onPlayerError(PlaybackException e){
     if(player!=p||recovering)return;
     Format fmt=p.getVideoFormat();
@@ -125,12 +156,15 @@ public class MainActivity extends Activity {
     }
     boolean decoderError=e.errorCode==PlaybackException.ERROR_CODE_DECODER_INIT_FAILED||e.errorCode==PlaybackException.ERROR_CODE_DECODING_FAILED;
     if(!vod||!decoderError||stopped){msg("Playback failed: "+e.getErrorCodeName());return;}
+    if(attempt==1)decoderPrefs().edit().remove(decoderKey(i)).apply();
     recovering=true;long resume=Math.max(0,p.getCurrentPosition());
-    msg(attempt==0?"Retrying compatible hardware decoder…":"Trying Android native playback…");
+    msg(attempt==0&&!cachedFirst?"Retrying compatible hardware decoder…":attempt==1&&cachedFirst?"Retrying standard decoder…":"Trying Android native playback…");
     release();
     ui.postDelayed(()->{
      if(token!=screenToken||!full||stopped||isFinishing()||player!=null||nativeVideo!=null)return;
-     if(attempt==0)attachExo(host,i,true,1,resume);else attachNative(host,i,resume);
+     if(attempt==0&&!cachedFirst)attachExo(host,i,true,1,resume,false);
+     else if(attempt==1&&cachedFirst)attachExo(host,i,true,0,resume,true);
+     else attachNative(host,i,resume);
     },500);
    }
   });
@@ -150,7 +184,7 @@ public class MainActivity extends Activity {
  @Override protected void onStart(){super.onStart();stopped=false;}
  @Override protected void onStop(){stopped=true;super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
  @Override protected void onDestroy(){screenToken++;release();io.shutdownNow();ui.removeCallbacksAndMessages(null);super.onDestroy();}
- void update(){msg("Checking…");task(()->new JSONObject(get("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest")),j->{String tag=j.optString("tag_name").replaceFirst("^v","");if(compare(tag,"5.0.1")<=0){msg("No newer release.");return;}JSONArray a=j.optJSONArray("assets");String url="";if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null&&o.optString("name").equals("SharkNailTV.apk"))url=o.optString("browser_download_url");}if(!url.startsWith("https://github.com/sharkmantv/SharkNailTV/releases/download/")){msg("Update unavailable.");return;}String link=url;new AlertDialog.Builder(this).setTitle("Download "+tag+"?").setPositiveButton("Download",(d,w)->{try{DownloadManager dm=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);DownloadManager.Request q=new DownloadManager.Request(Uri.parse(link));q.setTitle("Shark Sky update");q.setDestinationInExternalFilesDir(this,Environment.DIRECTORY_DOWNLOADS,"SharkSky-"+tag+".apk");download=dm.enqueue(q);prefs.edit().putLong("download",download).apply();msg("Downloading. Install downloaded APK when ready.");}catch(Exception ex){msg("Download failed.");}}).setNegativeButton("Cancel",null).show();});}
+ void update(){msg("Checking…");task(()->new JSONObject(get("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest")),j->{String tag=j.optString("tag_name").replaceFirst("^v","");if(compare(tag,"5.0.2")<=0){msg("No newer release.");return;}JSONArray a=j.optJSONArray("assets");String url="";if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null&&o.optString("name").equals("SharkNailTV.apk"))url=o.optString("browser_download_url");}if(!url.startsWith("https://github.com/sharkmantv/SharkNailTV/releases/download/")){msg("Update unavailable.");return;}String link=url;new AlertDialog.Builder(this).setTitle("Download "+tag+"?").setPositiveButton("Download",(d,w)->{try{DownloadManager dm=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);DownloadManager.Request q=new DownloadManager.Request(Uri.parse(link));q.setTitle("Shark Sky update");q.setDestinationInExternalFilesDir(this,Environment.DIRECTORY_DOWNLOADS,"SharkSky-"+tag+".apk");download=dm.enqueue(q);prefs.edit().putLong("download",download).apply();msg("Downloading. Install downloaded APK when ready.");}catch(Exception ex){msg("Download failed.");}}).setNegativeButton("Cancel",null).show();});}
  static int compare(String a,String b){try{String[]x=a.split("\\."),y=b.split("\\.");for(int i=0;i<Math.max(x.length,y.length);i++){int n=i<x.length?Integer.parseInt(x[i]):0,m=i<y.length?Integer.parseInt(y[i]):0;if(n!=m)return Integer.compare(n,m);}return 0;}catch(Exception e){return -1;}}
  void install(){try{if(download<0){msg("No downloaded APK.");return;}DownloadManager dm=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);Uri uri=dm.getUriForDownloadedFile(download);if(uri==null){msg("Download incomplete.");return;}if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}Intent in=new Intent(Intent.ACTION_VIEW);in.setDataAndType(uri,"application/vnd.android.package-archive");in.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(in);}catch(Exception e){msg("Installer unavailable.");}}
 }
