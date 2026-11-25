@@ -2,7 +2,7 @@ name: Build SharkNailTV ZIP and publish OTA on upload
 
 on:
   push:
-    branches: [main]
+    branches: [main, development/4.1.0-catalogue-ui]
     paths:
       - 'incoming/SharkNailTV.zip'
       - '.github/workflows/build-zip.yml'
@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sharknailtv-release
+  group: sharknailtv-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -255,8 +255,16 @@ jobs:
           import androidx.compose.foundation.lazy.grid.GridCells
           import androidx.compose.foundation.lazy.grid.items as gridItems
           import androidx.compose.foundation.lazy.grid.rememberLazyGridState''')
-          start=s.index('                                if(sectionEntries.isNotEmpty()) BoxWithConstraints(Modifier.weight(1f).fillMaxWidth())')
-          stop=s.index('\n                            }\n',start)
+          # Find the catalogue box using stable inner marker and actual indentation.
+          import re
+          marker=s.index('val firstRow=remember(sectionEntries)')
+          matches=list(re.finditer(r'(?m)^([ ]*)if\s*\(sectionEntries\.isNotEmpty\(\)\)\s*BoxWithConstraints\s*\(',s[:marker]))
+          assert matches, "Could not locate catalogue box"
+          match=matches[-1]
+          start=match.start()
+          end=re.search(r'(?m)^'+re.escape(match.group(1))+r'\}[ \t]*$',s[marker:])
+          assert end, "Could not locate catalogue box end"
+          stop=marker+end.end()
           old=s[start:stop]
           assert 'val firstRow=remember(sectionEntries)' in old and 'V4PosterRow(' in old, "Unexpected old catalogue rows"
           s=s[:start]+'''                                if(connected) TvCatalogueBrowser(
@@ -294,7 +302,7 @@ jobs:
               }
               val categoryState=androidx.compose.foundation.lazy.rememberLazyListState()
               val gridState=rememberLazyGridState()
-              LaunchedEffect(categoryId) { gridState.scrollToItem(0) }
+              LaunchedEffect(categoryId,visible.isNotEmpty()) { if(visible.isNotEmpty()) gridState.scrollToItem(0) }
               CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
                   Row(modifier.clipToBounds().padding(horizontal=5.dp,vertical=3.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                       Column(Modifier.weight(0.27f).fillMaxHeight().background(Color(0xE609152A)).padding(5.dp)) {
@@ -315,7 +323,7 @@ jobs:
                               CompactLiveAction(if(alphabetical) "Order: A–Z" else "Order: provider"){alphabetical=!alphabetical}
                               CompactLiveAction(if(searching) "Close search" else "Search"){searching=!searching;if(!searching)query=""}
                           }
-                          if(searching) OutlinedTextField(value=query,onValueChange={query=it},singleLine=true,label={Text("Find title")},modifier=Modifier.fillMaxWidth())
+                          if(searching) androidx.compose.material3.OutlinedTextField(value=query,onValueChange={query=it},singleLine=true,label={Text("Find title")},modifier=Modifier.fillMaxWidth())
                           Box(Modifier.weight(1f).fillMaxWidth()) {
                               LazyVerticalGrid(columns=GridCells.Adaptive(112.dp),state=gridState,
                                   modifier=Modifier.fillMaxSize().clipToBounds(),
@@ -348,7 +356,20 @@ jobs:
 
           '''
           s=swap(s,anchor,ui+anchor)
+          # Privacy-safe session metrics; no URLs or credentials.
           p.write_text(s)
+          p=Path("app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt")
+          s=p.read_text()
+          lines=s.splitlines(keepends=True)
+          builders=[n for n,line in enumerate(lines) if 'return ExoPlayer.Builder(' in line and '.build().apply {' in line]
+          assert len(builders)==1, "Unexpected player builder"
+          n=builders[0]
+          lines.insert(n+1,'''        addAnalyticsListener(androidx.media3.exoplayer.analytics.PlaybackStatsListener(false) { _, stats ->
+                      android.util.Log.d("SharkPlaybackStats", "preview="+preview+" startupMs="+stats.meanJoinTimeMs+
+                          " rebufferCount="+stats.totalRebufferCount+" droppedFrames="+stats.totalDroppedFrames)
+                  })
+          ''')
+          p.write_text(''.join(lines))
           p=Path("app/build.gradle.kts")
           s=p.read_text()
           s=swap(s,'orElse("40009")','orElse("40100")')
@@ -379,7 +400,7 @@ jobs:
         run: |
           set -euo pipefail
           floor=30000
-          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40099; fi
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
             python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
           version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
@@ -528,7 +549,7 @@ jobs:
           fi
           echo 'Signed APK installed and launched without a detected application crash.'
       - name: Publish signed ZIP OTA
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
