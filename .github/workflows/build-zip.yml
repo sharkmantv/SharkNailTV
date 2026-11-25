@@ -154,7 +154,31 @@ jobs:
                                           previewRetry++
                                       } else onPlay(channel)''',s)
           assert n==1, "Channel OK action not found"
-          s,n=re.subn(r'key\(entry\.id\)\s*\{\s*LivePreview\(([^\n]+)\)\s*\}',r'key(entry.id, previewRetry) { LivePreview(\1) { previewFailed=it } }',s)
+          # The archive uses a different wrapper around LivePreview than the repository source.
+          # Find the invocation itself and preserve all original arguments and surrounding layout.
+          start=s.index('@Composable private fun LivePreview(')
+          calls=list(re.finditer(r'\bLivePreview\(',s[:start]))
+          assert len(calls)==1, "Expected one LivePreview invocation; found "+str(len(calls))
+          a=calls[0].start()
+          opening=calls[0].end()-1
+          depth=1
+          i=opening+1
+          quote=None
+          escaped=False
+          while i<len(s) and depth:
+              ch=s[i]
+              if quote:
+                  if escaped: escaped=False
+                  elif ch=='\\': escaped=True
+                  elif ch==quote: quote=None
+              elif ch in ('"', "'"): quote=ch
+              elif ch=='(': depth+=1
+              elif ch==')': depth-=1
+              i+=1
+          assert depth==0, "Unbalanced LivePreview invocation"
+          args=s[opening+1:i-1].rstrip().rstrip(',')
+          s=s[:a]+'key(previewRetry) { LivePreview('+args+', onFailureChange = { previewFailed=it }) }'+s[i:]
+          n=1
           assert n==1, "Preview call not found"
           start=s.index('@Composable private fun LivePreview(')
           end=s.find('\n@Composable',start+1)
@@ -174,9 +198,8 @@ jobs:
                           failed=false
                       }
                       override fun onPlaybackStateChanged(state:Int) {''')
-          # Hide the native video surface while the failure message is displayed.
-          part=swap(part,'        AndroidView(', '        if(!failed) AndroidView(')
-          part,n=re.subn(r'if\s*\(failed\)\s*Text\([^\n]+', 'if(failed) Text("Channel unavailable — Press OK to retry", color=Color.White, fontSize=13.sp, textAlign=androidx.compose.ui.text.style.TextAlign.Center, modifier=Modifier.align(Alignment.Center).padding(12.dp))',part)
+          # Draw an opaque error overlay above the existing preview surface; keep normal playback unchanged.
+          part,n=re.subn(r'if\s*\(failed\)\s*Text\([^\n]+', 'if(failed) Text("Channel unavailable — Press OK to retry", color=Color.White, fontSize=13.sp, textAlign=androidx.compose.ui.text.style.TextAlign.Center, modifier=Modifier.align(Alignment.Center).background(Color.Black).padding(12.dp))',part)
           assert n==1, "Existing preview failure label not found"
           p.write_text(before+part+after)
           p=Path("app/build.gradle.kts")
