@@ -19,8 +19,11 @@ jobs:
           gradle-version: '9.3.1'
       - name: SDK
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
       - name: Compile
         run: gradle --no-daemon :app:assembleRelease
       - name: Sign and verify
