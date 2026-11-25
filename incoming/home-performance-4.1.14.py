@@ -149,6 +149,47 @@ old=m.group(0)
 new=old.replace('update={it.player=player;', 'update={exitPlayerView[0]=it;it.player=player;').replace('onRelease={it.player=null}', 'onRelease={it.player=null;exitPlayerView[0]=null}')
 assert new!=old and 'exitPlayerView[0]=it' in new
 ui=swap(ui,old,new)
+# Live fullscreen can enter READY with progressing audio but no video frame.
+# A bounded video-specific watchdog rebinds the surface and reinitializes
+# playback once, without changing ordinary VOD or healthy live playback.
+ui=swap(ui,'    BackHandler { when { panel.isNotEmpty()', '''    var videoRetry by remember(url) { mutableStateOf(0) }
+    LaunchedEffect(player,url,liveStream) {
+        if(!liveStream) return@LaunchedEffect
+        var readyWithoutFrameMs=0L
+        while(!firstFrame && !failureSent) {
+            delay(500L)
+            val videoSelected=player.currentTracks.isTypeSelected(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+            if(player.isPlaying && videoSelected && !firstFrame) {
+                readyWithoutFrameMs+=500L
+            } else {
+                readyWithoutFrameMs=0L
+            }
+            if(readyWithoutFrameMs>=5_000L) {
+                if(videoRetry==0) {
+                    videoRetry=1
+                    readyWithoutFrameMs=0L
+                    playerError="Recovering video…"
+                    android.util.Log.w("SharkPlayback","Live audio playing without first video frame; retrying surface")
+                    val view=exitPlayerView[0]
+                    player.pause()
+                    player.stop()
+                    view?.player=null
+                    player.clearVideoSurface()
+                    view?.player=player
+                    player.seekToDefaultPosition()
+                    player.prepare()
+                    player.playWhenReady=true
+                } else {
+                    playerError="Video unavailable — return to channels and retry"
+                    player.pause()
+                    android.util.Log.w("SharkPlayback","Live first video frame still absent after recovery")
+                    break
+                }
+            }
+        }
+        if(firstFrame && videoRetry>0) playerError=""
+    }
+    BackHandler { when { panel.isNotEmpty()''')
 s=s[:a]+ui+s[b:]
 p.write_text(s)
 
