@@ -61,12 +61,12 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50018'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50019'"
           unzip -tq SharkNailTV.apk
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.18-candidate-install-untested
+          name: SharkSky-5.0.19-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Fetch last published APK for upgrade test
@@ -74,11 +74,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release download v5.0.9 --repo "$GITHUB_REPOSITORY" --pattern SharkNailTV.apk --output "$RUNNER_TEMP/previous.apk"
+          gh release download v5.0.18 --repo "$GITHUB_REPOSITORY" --pattern SharkNailTV.apk --output "$RUNNER_TEMP/previous.apk"
           tools="$ANDROID_HOME/build-tools/36.0.0"
           previous_cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/previous.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$previous_cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging "$RUNNER_TEMP/previous.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50009'"
+          "$tools/aapt" dump badging "$RUNNER_TEMP/previous.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50018'"
       - name: Prepare emulator acceleration
         run: |
           if [ -e /dev/kvm ]; then
@@ -109,13 +109,13 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
             adb shell pidof com.example.xtreamtv
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50018'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50019'
             python3 ci/check_tv_ui.py
             adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/shark-crash.log"
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.18-signed
+          name: SharkSky-5.0.19-signed
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Publish OTA after successful upgrade and UI test
@@ -124,13 +124,13 @@ jobs:
         run: |
           set -euo pipefail
           latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
-          if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" v5.0.18 | sort -V | tail -1)" != v5.0.18 ]; then
+          if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" v5.0.19 | sort -V | tail -1)" != v5.0.19 ]; then
             echo "A newer release exists; skipping OTA publication."
             exit 0
           fi
           for attempt in 1 2 3; do
-            if gh release create v5.0.18 SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.18" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; first-video-frame recovery for movies and series; reuse the existing Live TV player for fullscreen transitions; restore SDR/HDR preferences and two-row poster browsing; resize the same Live TV surface instead of switching surfaces; add timed Now/Next and full per-channel EPG with caching; unified dark navy theme and TV-friendly typography; request native decoder HDR-to-SDR tone mapping and report actual output transfer; add fullscreen picture range selection with VOD position retention; multi-channel EPG timeline and current programme information in visible channel rows; enlarged preview and highlighted channel EPG without autoplay; two measured portrait poster rows with edge-to-edge artwork; Media3 beta01, separate Live/VOD range preferences, OpenGL SDR path with TextureView fallback and silent decoder recovery. APK signature, upgrade from 5.0.9, Home/Settings and two-row poster geometry smoke test verified by CI. Physical-device playback verification pending." --latest; then exit 0; fi
-            if gh release view v5.0.18 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fx SharkNailTV.apk; then exit 0; fi
+            if gh release create v5.0.19 SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.19" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; first-video-frame recovery for movies and series; reuse the existing Live TV player for fullscreen transitions; restore SDR/HDR preferences and two-row poster browsing; resize the same Live TV surface instead of switching surfaces; add timed Now/Next and full per-channel EPG with caching; unified dark navy theme and TV-friendly typography; request native decoder HDR-to-SDR tone mapping and report actual output transfer; add fullscreen picture range selection with VOD position retention; multi-channel EPG timeline and current programme information in visible channel rows; enlarged preview and highlighted channel EPG without autoplay; two measured portrait poster rows with edge-to-edge artwork; Media3 beta01, separate Live/VOD range preferences, OpenGL SDR path with TextureView fallback and silent decoder recovery; bounded in-memory category, stream and episode caching, forced Retry refresh, account-change invalidation and low-memory eviction. Player and picture-mode implementation unchanged. APK signature, upgrade from 5.0.18, Home/Settings and two-row poster geometry smoke test verified by CI. Physical-device playback verification pending." --latest; then exit 0; fi
+            if gh release view v5.0.19 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fx SharkNailTV.apk; then exit 0; fi
             sleep $((attempt*10))
           done
           echo "OTA publication failed; verified artifact remains available."

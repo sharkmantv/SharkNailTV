@@ -1,0 +1,74 @@
+name: Verify matching Media3 beta FFmpeg extension (no OTA)
+on:
+  push:
+    branches: ['fresh/shark-sky-5.0.0']
+    paths: ['.github/workflows/ffmpeg-beta-verification.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      MEDIA3_REF: da29e44e446f0b3ddc16ebfb8c1da9628e8aa6fc
+      FFMPEG_REF: 3f92512fd1fd6f5e6d6eb45a156c352835314d69
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android native tools
+        run: |
+          set -euo pipefail
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          yes | "$sdkmanager" --licenses || true
+          "$sdkmanager" "ndk;$NDK_VERSION" 'cmake;3.22.1'
+          sudo apt-get update
+          sudo apt-get install -y make nasm pkg-config yasm
+      - name: Fetch pinned upstream sources
+        run: |
+          set -euo pipefail
+          git init media
+          git -C media remote add origin https://github.com/androidx/media.git
+          git -C media fetch --depth 1 origin "$MEDIA3_REF"
+          git -C media checkout --detach FETCH_HEAD
+          test "$(git -C media rev-parse HEAD)" = "$MEDIA3_REF"
+          cd media/libraries/decoder_ffmpeg/src/main/jni
+          git init ffmpeg
+          git -C ffmpeg remote add origin https://github.com/FFmpeg/FFmpeg.git
+          git -C ffmpeg fetch --depth 1 origin "$FFMPEG_REF"
+          git -C ffmpeg checkout --detach FETCH_HEAD
+          test "$(git -C ffmpeg rev-parse HEAD)" = "$FFMPEG_REF"
+      - name: Build audio-only decoder against the exact beta
+        run: |
+          set -euo pipefail
+          printf '\nandroid { ndkVersion = "%s" }\n' "$NDK_VERSION" >> media/libraries/decoder_ffmpeg/build.gradle.kts
+          cd media/libraries/decoder_ffmpeg/src/main/jni
+          ./build_ffmpeg.sh "$(pwd)/.." "$ANDROID_HOME/ndk/$NDK_VERSION" linux-x86_64 24 ac3 eac3 dca mlp truehd
+          cd ../../../../..
+          ./gradlew :lib-decoder-ffmpeg:assembleRelease --no-daemon
+      - name: Verify AAR ABI and native alignment
+        run: |
+          set -euo pipefail
+          aar="$(find media/libraries/decoder_ffmpeg/build -name '*-release.aar' -print -quit)"
+          test -n "$aar"
+          mkdir -p evidence inspect
+          cp "$aar" evidence/media3-ffmpeg-1.12.0-beta01.aar
+          unzip -q "$aar" -d inspect
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            test -f "inspect/jni/$abi/libffmpegJNI.so"
+          done
+          for abi in arm64-v8a x86_64; do
+            align=$("$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -lW "inspect/jni/$abi/libffmpegJNI.so" | awk '$1=="LOAD"{print $NF}')
+            test -n "$align"
+            if grep -qv '^0x4000$' <<<"$align"; then exit 1; fi
+          done
+          printf 'Media3=%s\nFFmpeg=%s\nNDK=%s\nAudio decoders=ac3 eac3 dca mlp truehd\n' "$MEDIA3_REF" "$FFMPEG_REF" "$NDK_VERSION" > evidence/build-manifest.txt
+          (cd evidence && sha256sum *.aar > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-beta-verification-only
+          path: evidence/
+          if-no-files-found: error
