@@ -9,6 +9,12 @@ class Fixture(BaseHTTPRequestHandler):
         action = q.get("action", [""])[0]
         if action == "get_vod_categories":
             data = [{"category_id": "1", "category_name": "Fixture movies"}]
+        elif action == "get_live_categories":
+            data = [{"category_id": "1", "category_name": "Fixture channels"}]
+        elif action == "get_live_streams":
+            data = [{"stream_id": n, "name": "Test channel %03d" % n} for n in range(1, 21)]
+        elif action in ("get_short_epg", "get_simple_data_table"):
+            data = {"epg_listings":[]}
         elif action == "get_vod_streams":
             data = [{"stream_id": n, "name": "Layout fixture %03d" % n, "container_extension": "mp4"} for n in range(1, 41)]
         else:
@@ -98,6 +104,20 @@ try:
         assert width>0 and height>width, "Poster is not portrait"
         assert 1.15<=height/width<=1.95, "Poster ratio outside acceptable portrait range"
     print("PASS: home, settings, test Xtream login and two portrait rows")
+    tap(expect("Home"))
+    tap(expect("Live TV"))
+    expect("Fixture channels")
+    expect("Test channel 001")
+    root=ui()
+    assert not any(find(root,label) is not None for label in ("Home","Search","TV Guide","Retry")), "Live bottom actions still visible"
+    tap(expect("Live TV options"))
+    for label in ("Home","Search","TV Guide","Retry"):
+        expect(label)
+    adb("shell","input","keyevent","4")
+    adb("shell","input","keyevent","82")
+    expect("TV Guide")
+    adb("shell","input","keyevent","4")
+    print("PASS: Live TV bottom row removed; touch and remote options retain all actions")
 except Exception:
     try:
         with open("failed-ui.xml","w") as out:

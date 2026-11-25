@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
  @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
- GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(dp(6));if(width>0)g.setStroke(dp(width),border);return g;}
+ GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
  static final int UI_TEXT=0xfff2f5fc, UI_SECONDARY=0xffb5c7e3, UI_ACCENT=0xff8dcaff, UI_GOLD=0xffffcf63;
  final android.graphics.Typeface uiRegular=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
  final android.graphics.Typeface uiMedium=android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL);
@@ -128,21 +128,37 @@ public class MainActivity extends Activity {
   d.addState(new int[]{},premiumFrame(false,false));
   return d;
  }
- // Draw-only focused border, no scale, padding, or layout animation.
- void premiumHomeFocus(View tile){
-  final GradientDrawable shine=bg(0x00000000,0x00000000,UI_GOLD,3);
-  final android.animation.ValueAnimator pulse=android.animation.ValueAnimator.ofArgb(UI_GOLD,0xffff3c22,UI_GOLD);
-  pulse.setDuration(1800);pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-  pulse.addUpdateListener(anim->shine.setStroke(dp(3),(Integer)anim.getAnimatedValue()));
-  tile.setOnFocusChangeListener((v,focused)->{pulse.cancel();if(focused){shine.setStroke(dp(3),UI_GOLD);tile.setForeground(shine);if(Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled())pulse.start();}else tile.setForeground(null);});
-  tile.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){}public void onViewDetachedFromWindow(View v){pulse.cancel();v.setForeground(null);}});
+ // Draw-only pulse; only focused controls and the visible preview animate.
+ static final class PulseFrame extends Drawable {
+  final android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+  final boolean always;final float width;boolean focused;
+  final Runnable tick=()->invalidateSelf();
+  PulseFrame(boolean always,float width){this.always=always;this.width=width;paint.setStyle(android.graphics.Paint.Style.STROKE);paint.setStrokeWidth(width);}
+  @Override public boolean isStateful(){return !always;}
+  @Override protected boolean onStateChange(int[] state){boolean next=false;for(int s:state)if(s==android.R.attr.state_focused)next=true;if(focused==next)return false;focused=next;if(!focused)unscheduleSelf(tick);invalidateSelf();return true;}
+  @Override public void draw(android.graphics.Canvas canvas){
+   if(!isVisible()||(!always&&!focused))return;
+   boolean animate=Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled();
+   long now=android.os.SystemClock.uptimeMillis();
+   float phase=animate?(float)(.5+.5*Math.cos(2*Math.PI*(now%1800)/1800.0)):1f;
+   paint.setColor(Color.rgb(255,150+Math.round(105*phase),Math.round(58*phase)));
+   android.graphics.Rect r=getBounds();float inset=width*.5f;
+   canvas.drawRect(r.left+inset,r.top+inset,r.right-inset,r.bottom-inset,paint);
+   if(animate){unscheduleSelf(tick);scheduleSelf(tick,now+40);}
+  }
+  @Override public boolean setVisible(boolean visible,boolean restart){if(!visible)unscheduleSelf(tick);return super.setVisible(visible,restart);}
+  @Override public void setAlpha(int alpha){}
+  @Override public void setColorFilter(android.graphics.ColorFilter filter){}
+  @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
  }
+ void premiumHomeFocus(View tile){tile.setForeground(new PulseFrame(false,dp(3)));}
+ Drawable previewPulse(){return new PulseFrame(true,dp(2));}
  StateListDrawable posterFocus(){StateListDrawable d=new StateListDrawable();d.addState(new int[]{android.R.attr.state_focused},bg(0xff223c60,0xff142642,UI_GOLD,3));d.addState(new int[]{},bg(0xff111d34,0xff0b1428,0xff397eb9,2));return d;}
  GradientDrawable screenBackground(){return new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff17355b,0xff101f3c,0xff050b19});}
  void styleInput(EditText e){e.setTypeface(uiRegular);e.setTextColor(UI_TEXT);e.setHintTextColor(UI_SECONDARY);e.setTextSize(16);}
  TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextColor(size<=12?UI_SECONDARY:UI_TEXT);t.setTypeface(size>=21?uiMedium:uiRegular);t.setTextSize(size);t.setLetterSpacing(size>=21?0.005f:0.01f);t.setGravity(Gravity.CENTER_VERTICAL);t.setMaxLines(2);return t;}
  LinearLayout row(){return new LinearLayout(this);} LinearLayout col(){LinearLayout l=row();l.setOrientation(1);return l;}
- void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());t.setPadding(dp(6),0,dp(6),0);t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
+ void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());premiumHomeFocus(t);t.setPadding(dp(6),0,dp(6),0);t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
  void release(){removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
@@ -193,7 +209,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);styleInput(e);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;clearCatalogue();guideCache.evictAll();JSONObject serverInfo=j.optJSONObject("server_info");String zone=serverInfo==null?"":serverInfo.optString("timezone","");prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).putString("epg_zone",zone).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.26  ·  Media3 1.12.0-beta01  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.27  ·  Media3 1.12.0-beta01  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -222,7 +238,7 @@ public class MainActivity extends Activity {
  void open(String p){page=p;cat="";seriesId="";catPos=itemPos=0;selected=null;cats=new ArrayList<>();items=new ArrayList<>();browser(false);loadCats();}
  RecyclerView list(){RecyclerView r=new RecyclerView(this);r.setLayoutManager(new LinearLayoutManager(this));r.setHasFixedSize(true);r.setItemAnimator(null);return r;}
  class Rows extends RecyclerView.Adapter<Rows.H>{List<Item> data;Pick pick;Rows(List<Item>d,Pick p){data=d;pick=p;}class H extends RecyclerView.ViewHolder{TextView t;H(TextView t){super(t);this.t=t;}}
- public H onCreateViewHolder(ViewGroup p,int type){TextView t=text("",15);t.setSingleLine();t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setPadding(dp(8),0,dp(5),0);t.setFocusable(true);t.setBackground(focus());RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,dp(38));lp.setMargins(dp(2),dp(1),dp(2),dp(2));t.setLayoutParams(lp);H h=new H(t);t.setOnClickListener(v->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});return h;}
+ public H onCreateViewHolder(ViewGroup p,int type){TextView t=text("",15);t.setSingleLine();t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setPadding(dp(8),0,dp(5),0);t.setFocusable(true);t.setBackground(focus());premiumHomeFocus(t);RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,dp(38));lp.setMargins(dp(2),dp(1),dp(2),dp(2));t.setLayoutParams(lp);H h=new H(t);t.setOnClickListener(v->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});return h;}
  public void onBindViewHolder(H h,int i){h.t.setText(data.get(i).name);} public int getItemCount(){return data.size();}}
  static String cleanTitle(String title){
   return title.replaceAll("(?i)^\\s*(?:[A-Z]{2,3}\\s*[|:•]\\s*)+","").replaceAll("(?i)\\b(?:4K|8K|UHD|FHD|HD|1080p|2160p|720p|HEVC|HDR10|HDR|DOLBY VISION)\\b"," ").replaceAll("\\s*[\\[(](?:19|20)\\d{2}[\\])]","").replaceAll("\\s+"," ").trim();
@@ -291,7 +307,7 @@ public class MainActivity extends Activity {
   Posters(List<Item>d,Pick p,String t,int height){data=d;pick=p;type=t;cardHeight=height;}
   class H extends RecyclerView.ViewHolder{ImageView art;TextView title;Future<?> job;Item bound;H(LinearLayout v,ImageView a,TextView t){super(v);art=a;title=t;}}
   @Override public H onCreateViewHolder(ViewGroup parent,int viewType){
-   LinearLayout v=col();v.setPadding(dp(3),dp(3),dp(3),dp(3));v.setFocusable(true);v.setClickable(true);v.setBackground(posterFocus());
+   LinearLayout v=col();v.setPadding(dp(3),dp(3),dp(3),dp(3));v.setFocusable(true);v.setClickable(true);v.setBackground(posterFocus());premiumHomeFocus(v);
    ImageView a=new ImageView(MainActivity.this);a.setScaleType(ImageView.ScaleType.CENTER_CROP);a.setBackgroundColor(0xff0b1529);v.addView(a,new LinearLayout.LayoutParams(-1,-1));
    TextView t=text("",12);t.setVisibility(View.GONE);
    RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,cardHeight);lp.setMargins(dp(3),dp(3),dp(3),dp(3));v.setLayoutParams(lp);
@@ -306,7 +322,9 @@ public class MainActivity extends Activity {
  }
  void focusAt(RecyclerView r,int p){if(r.getAdapter()==null||r.getAdapter().getItemCount()==0)return;int i=Math.max(0,Math.min(p,r.getAdapter().getItemCount()-1));r.scrollToPosition(i);r.post(()->{RecyclerView.ViewHolder h=r.findViewHolderForAdapterPosition(i);if(h!=null)h.itemView.requestFocus();else r.requestFocus();});}
  void catAdapter(){left.setAdapter(new Rows(cats,(i,p)->{catPos=p;itemPos=0;cat=i.id;seriesId="";loadItems();}));}
- void browser(boolean restore){screen(page);LinearLayout heads=row();heads.addView(text("Categories",14),new LinearLayout.LayoutParams(0,dp(25),1));heads.addView(text(page.equals("Live TV")?"Channels":"Titles",14),new LinearLayout.LayoutParams(0,dp(25),1.4f));boolean live=page.equals("Live TV");if(live)heads.addView(new View(this),new LinearLayout.LayoutParams(0,dp(25),1.6f));body.addView(heads);LinearLayout r=row();body.addView(r,new LinearLayout.LayoutParams(-1,0,1));left=list();right=list();final RecyclerView grid=right;grid.addOnLayoutChangeListener((v,l,t,rr,b,ol,ot,orr,ob)->{if(rr-l!=orr-ol||b-t!=ob-ot)grid.post(()->updatePosterGeometry(grid));});r.addView(left,new LinearLayout.LayoutParams(0,-1,1));r.addView(right,new LinearLayout.LayoutParams(0,-1,live?1.4f:2.5f));catAdapter();setItemsAdapter(items,this::pick);if(live){LinearLayout c=col();c.setPadding(dp(4),0,0,0);r.addView(c,new LinearLayout.LayoutParams(0,-1,1.6f));preview=new FrameLayout(this);preview.setBackgroundColor(Color.BLACK);preview.setForeground(bg(0x00000000,0x00000000,0xff399df4,2));c.addView(preview,new LinearLayout.LayoutParams(-1,0,1.7f));TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));epg=text(selected==null?"Programme information":selected.name,13);epg.setMaxLines(7);epg.setGravity(Gravity.TOP);epg.setPadding(dp(9),dp(5),dp(9),dp(3));LinearLayout guidePanel=col();guidePanel.setBackground(bg(0xff193554,0xff0b172e,0xff3b78b5,1));LinearLayout.LayoutParams guideLp=new LinearLayout.LayoutParams(-1,0,1);guideLp.topMargin=dp(4);c.addView(guidePanel,guideLp);guidePanel.addView(epg,new LinearLayout.LayoutParams(-1,0,1));programmeProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);programmeProgress.setMax(100);programmeProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(UI_GOLD));programmeProgress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff335175));programmeProgress.setVisibility(View.INVISIBLE);LinearLayout.LayoutParams barLp=new LinearLayout.LayoutParams(-1,dp(6));barLp.setMargins(dp(9),0,dp(9),dp(6));guidePanel.addView(programmeProgress,barLp);LinearLayout b=row();button(b,"Full screen",()->{if(selected!=null)playFull(selected);});button(b,"Favourite",this::fav);c.addView(b);}status=text("",12);body.addView(status,new LinearLayout.LayoutParams(-1,dp(23)));LinearLayout b=row();button(b,"Home",this::home);button(b,"Search",this::search);if(live)button(b,"TV Guide",this::openGuide);button(b,"Retry",()->{clearCatalogue();if(cats.isEmpty())loadCats();else loadItems();});body.addView(b);if(restore){left.scrollToPosition(catPos);focusAt(right,itemPos);}}
+ void browser(boolean restore){screen(page);if(page.equals("Live TV")){LinearLayout head=(LinearLayout)body.getChildAt(0);TextView menu=text("⋮",24);menu.setGravity(Gravity.CENTER);menu.setContentDescription("Live TV options");menu.setFocusable(true);menu.setClickable(true);premiumHomeFocus(menu);head.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(43)));menu.setOnClickListener(v->liveOptions());}LinearLayout heads=row();heads.addView(text("Categories",14),new LinearLayout.LayoutParams(0,dp(25),1));heads.addView(text(page.equals("Live TV")?"Channels":"Titles",14),new LinearLayout.LayoutParams(0,dp(25),1.4f));boolean live=page.equals("Live TV");if(live)heads.addView(new View(this),new LinearLayout.LayoutParams(0,dp(25),1.6f));body.addView(heads);LinearLayout r=row();body.addView(r,new LinearLayout.LayoutParams(-1,0,1));left=list();right=list();final RecyclerView grid=right;grid.addOnLayoutChangeListener((v,l,t,rr,b,ol,ot,orr,ob)->{if(rr-l!=orr-ol||b-t!=ob-ot)grid.post(()->updatePosterGeometry(grid));});r.addView(left,new LinearLayout.LayoutParams(0,-1,1));r.addView(right,new LinearLayout.LayoutParams(0,-1,live?1.4f:2.5f));catAdapter();setItemsAdapter(items,this::pick);if(live){LinearLayout c=col();c.setPadding(dp(4),0,0,0);r.addView(c,new LinearLayout.LayoutParams(0,-1,1.6f));preview=new FrameLayout(this);preview.setBackgroundColor(Color.BLACK);preview.setForeground(previewPulse());c.addView(preview,new LinearLayout.LayoutParams(-1,0,1.7f));TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));epg=text(selected==null?"Programme information":selected.name,13);epg.setMaxLines(7);epg.setGravity(Gravity.TOP);epg.setPadding(dp(9),dp(5),dp(9),dp(3));LinearLayout guidePanel=col();guidePanel.setBackground(bg(0xff193554,0xff0b172e,0xff3b78b5,1));LinearLayout.LayoutParams guideLp=new LinearLayout.LayoutParams(-1,0,1);guideLp.topMargin=dp(4);c.addView(guidePanel,guideLp);guidePanel.addView(epg,new LinearLayout.LayoutParams(-1,0,1));programmeProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);programmeProgress.setMax(100);programmeProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(UI_GOLD));programmeProgress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff335175));programmeProgress.setVisibility(View.INVISIBLE);LinearLayout.LayoutParams barLp=new LinearLayout.LayoutParams(-1,dp(6));barLp.setMargins(dp(9),0,dp(9),dp(6));guidePanel.addView(programmeProgress,barLp);LinearLayout b=row();button(b,"Full screen",()->{if(selected!=null)playFull(selected);});button(b,"Favourite",this::fav);c.addView(b);}status=text("",12);body.addView(status,new LinearLayout.LayoutParams(-1,dp(23)));if(!live){LinearLayout b=row();button(b,"Home",this::home);button(b,"Search",this::search);button(b,"Retry",this::retryCatalogue);body.addView(b);}if(restore){left.scrollToPosition(catPos);focusAt(right,itemPos);}}
+ void retryCatalogue(){clearCatalogue();if(cats.isEmpty())loadCats();else loadItems();}
+ void liveOptions(){if(full||!page.equals("Live TV"))return;new AlertDialog.Builder(this).setTitle("Live TV options").setItems(new String[]{"Home","Search","TV Guide","Retry"},(d,n)->{switch(n){case 0:home();break;case 1:search();break;case 2:openGuide();break;case 3:retryCatalogue();break;}}).setNegativeButton("Cancel",null).show();}
  void loadCats(){String k=prefix(),url=api("get_"+k+"_categories","");int req=++loadToken;msg("Loading categories…");catalogueTask("cats:"+k,CATEGORY_TTL,false,req,()->parse(new JSONArray(get(url)),"category_id","category_name"),a->{cats=new ArrayList<>();cats.add(new Item("","All",""));if(page.equals("Live TV"))cats.add(new Item("@fav","Favourites",""));cats.addAll(a);catAdapter();focusAt(left,0);loadItems();});}
  void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(page.equals("Live TV")&&right!=null)right.setAdapter(new Rows(Collections.emptyList(),this::pick));msg("Loading…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
  void search(){EditText e=new EditText(this);e.setSingleLine();styleInput(e);new AlertDialog.Builder(this).setTitle("Search current list").setView(e).setPositiveButton("Search",(d,w)->{String q=e.getText().toString().toLowerCase(Locale.ROOT);List<Item>a=new ArrayList<>();for(Item i:items)if(i.name.toLowerCase(Locale.ROOT).contains(q))a.add(i);setItemsAdapter(a,(i,p)->pick(i,items.indexOf(i)));focusAt(right,0);}).setNegativeButton("Cancel",null).show();}
@@ -406,7 +424,7 @@ public class MainActivity extends Activity {
    H(LinearLayout r,TextView n,TextView s,LinearLayout cells){super(r);root=r;name=n;sub=s;slots=cells;}
   }
   @Override public H onCreateViewHolder(ViewGroup parent,int type){
-   LinearLayout root=timeline?row():col();root.setBackground(focus());root.setFocusable(true);root.setClickable(true);root.setPadding(dp(8),dp(3),dp(8),dp(3));
+   LinearLayout root=timeline?row():col();root.setBackground(focus());premiumHomeFocus(root);premiumHomeFocus(t);root.setFocusable(true);root.setClickable(true);root.setPadding(dp(8),dp(3),dp(8),dp(3));
    TextView name=text("",14);name.setTypeface(uiMedium);name.setSingleLine();name.setEllipsize(android.text.TextUtils.TruncateAt.END);
    TextView sub=text("",11);sub.setSingleLine();sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
    LinearLayout slots=row();if(timeline){root.addView(name,new LinearLayout.LayoutParams(0,-1,1.15f));root.addView(slots,new LinearLayout.LayoutParams(0,-1,3f));}
@@ -492,7 +510,7 @@ public class MainActivity extends Activity {
   for(Programme p:data.shows){String day=guideDate(p);if(!day.equals(lastDate)){TextView header=text(day,15);header.setTextColor(UI_ACCENT);header.setTypeface(uiMedium);entries.addView(header,new LinearLayout.LayoutParams(-1,dp(29)));lastDate=day;}
    boolean current=p.start>0&&p.end>0&&p.start<=now&&now<p.end;
    TextView entry=text((current?"NOW  ":"")+guideTimes(p)+"  "+p.title+(p.description.isEmpty()?"":"\n"+p.description),14);
-   entry.setMaxLines(5);entry.setPadding(dp(10),dp(7),dp(10),dp(7));entry.setFocusable(true);entry.setBackground(focus());LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(2),0,dp(2));entries.addView(entry,lp);
+   entry.setMaxLines(5);entry.setPadding(dp(10),dp(7),dp(10),dp(7));entry.setFocusable(true);entry.setBackground(focus());premiumHomeFocus(entry);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(2),0,dp(2));entries.addView(entry,lp);
    if(firstCurrent==null&&(current||p.start>now))firstCurrent=entry;
   }
   if(data.shows.isEmpty())entries.addView(text("No programme schedule provided for this channel.",15));
@@ -680,7 +698,7 @@ public class MainActivity extends Activity {
  }
  String rangeLabel(){return rangeName(rangeFor(page.equals("Live TV")));}
  TextView playerAction(LinearLayout bar,String label,Runnable action){
-  TextView b=text(label,13);b.setTypeface(uiMedium);b.setGravity(Gravity.CENTER);b.setPadding(dp(9),0,dp(9),0);b.setBackground(focus());b.setFocusable(true);b.setClickable(true);
+  TextView b=text(label,13);b.setTypeface(uiMedium);b.setGravity(Gravity.CENTER);b.setPadding(dp(9),0,dp(9),0);b.setBackground(focus());premiumHomeFocus(b);b.setFocusable(true);b.setClickable(true);
   LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(37));lp.setMargins(dp(3),0,dp(3),0);bar.addView(b,lp);b.setOnClickListener(v->action.run());return b;
  }
  void chooseTrack(int type){
@@ -711,12 +729,12 @@ public class MainActivity extends Activity {
    androidx.media3.ui.DefaultTimeBar bar=(androidx.media3.ui.DefaultTimeBar)progress;bar.setPlayedColor(UI_GOLD);bar.setScrubberColor(UI_GOLD);bar.setBufferedColor(0xff6a7890);bar.setUnplayedColor(0xff394458);
   }
   int[] controls={androidx.media3.ui.R.id.exo_play_pause,androidx.media3.ui.R.id.exo_prev,androidx.media3.ui.R.id.exo_next,androidx.media3.ui.R.id.exo_settings,androidx.media3.ui.R.id.exo_subtitle};
-  for(int id:controls){View v=pv.findViewById(id);if(v!=null){v.setBackground(focus());if(v instanceof ImageView)((ImageView)v).setColorFilter(UI_GOLD);}}
+  for(int id:controls){View v=pv.findViewById(id);if(v!=null){v.setBackground(focus());premiumHomeFocus(v);if(v instanceof ImageView)((ImageView)v).setColorFilter(UI_GOLD);}}
  }
  void addRangeButton(FrameLayout host,Item item,PlayerView playerView){
   removeRangeButton();
   if(playerView==null){
-   TextView button=text("Picture  •  "+rangeLabel(),14);button.setGravity(Gravity.CENTER);button.setPadding(dp(14),0,dp(14),0);button.setBackground(focus());button.setFocusable(true);button.setClickable(true);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,dp(40),Gravity.TOP|Gravity.RIGHT);lp.topMargin=dp(18);lp.rightMargin=dp(22);host.addView(button,lp);rangeButton=button;button.setOnClickListener(v->choosePlayerRange(item));return;
+   TextView button=text("Picture  •  "+rangeLabel(),14);button.setGravity(Gravity.CENTER);button.setPadding(dp(14),0,dp(14),0);button.setBackground(focus());premiumHomeFocus(button);button.setFocusable(true);button.setClickable(true);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,dp(40),Gravity.TOP|Gravity.RIGHT);lp.topMargin=dp(18);lp.rightMargin=dp(22);host.addView(button,lp);rangeButton=button;button.setOnClickListener(v->choosePlayerRange(item));return;
   }
   stylePlayer(playerView);
   LinearLayout header=col();header.setPadding(dp(18),dp(8),dp(18),dp(10));header.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf0060c18,0xcc111d32,0x00111d32}));
@@ -732,6 +750,7 @@ public class MainActivity extends Activity {
   playerView.showController();
  }
  @Override public boolean dispatchKeyEvent(KeyEvent event){
+  if(!full&&page.equals("Live TV")&&event.getKeyCode()==KeyEvent.KEYCODE_MENU){if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)liveOptions();return true;}
   if(full&&event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0&&rangeButton!=null&&playbackItem!=null){
    if(event.getKeyCode()==KeyEvent.KEYCODE_MENU){choosePlayerRange(playbackItem);return true;}
    if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&getCurrentFocus()!=rangeButton&&(playerHeader==null||getCurrentFocus()==null||getCurrentFocus().getParent()!=rangeButton.getParent())){
@@ -772,7 +791,7 @@ public class MainActivity extends Activity {
   int[] target=new int[2],origin=new int[2];preview.getLocationInWindow(target);root.getLocationInWindow(origin);
   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(preview.getWidth(),preview.getHeight(),Gravity.TOP|Gravity.LEFT);
   lp.leftMargin=target[0]-origin[0];lp.topMargin=target[1]-origin[1];
-  liveSurfaceHost.setLayoutParams(lp);liveSurfaceHost.setForeground(bg(0x00000000,0x00000000,0xff399df4,2));
+  liveSurfaceHost.setLayoutParams(lp);if(!(liveSurfaceHost.getForeground() instanceof PulseFrame))liveSurfaceHost.setForeground(previewPulse());
  }
  boolean enterLiveFullscreen(){
   if(liveSurfaceHost==null||video==null||player==null)return false;
