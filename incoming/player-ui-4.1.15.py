@@ -339,7 +339,7 @@ if old not in ui:
     assert len(matches)==1,"Live category scroll anchor not found"
     old=matches[0]
 ui=swap(ui,old,'''LaunchedEffect(categories,categoryId) {
-        val index=categories.indexOfFirst { it.first==categoryId }
+        val index=uniqueCategories.indexOfFirst { it.first==categoryId }
         if(index>=0) {
             androidx.compose.runtime.withFrameNanos { }
             if(categoryState.layoutInfo.visibleItemsInfo.none { it.index==index }) categoryState.scrollToItem(index)
@@ -365,6 +365,60 @@ ui=ui[:start]+'''    var initialPreviewReady by remember { mutableStateOf(false)
 '''+ui[start:]
 s=s[:a]+ui+s[b:]
 p.write_text(s)
+
+# UK broadcast schedules: use source-provided station names only. No
+# extra paid service, invented rights mapping or provider credentials.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index("private object PublicSports")
+b=s.index("@Composable private fun PublicGuide(",a)
+ui=s[a:b]
+ui=swap(ui,'val result=mutableListOf<PublicFixture>()','''val result=mutableListOf<PublicFixture>()
+        val eventIds=mutableMapOf<String,String>()
+        fun fixtureKey(name:String,date:String)=date+"|"+name.lowercase(Locale.ROOT)
+            .replace(Regex(" (vs|versus|v|at) ")," ").replace(Regex("[^a-z0-9]"),"")
+        val tvByEvent=mutableMapOf<String,MutableSet<String>>()
+        val tvByName=mutableMapOf<String,MutableSet<String>>()''')
+anchor='result.add(PublicFixture(name,date,time,"$sport · $league · broadcaster unverified"))'
+assert ui.count(anchor)==2,"Unexpected fixture feed constructors"
+ui=ui.replace(anchor,'''val id=o.optString("idEvent")
+                if(id.isNotBlank() && id!="null") eventIds[fixtureKey(name,date)]=id
+                '''+anchor,1)
+# Fetch only seven days per existing two-hour guide refresh, off main thread.
+# The free endpoint may return only one record or no coverage.
+anchor='        if(successful==0)'
+assert ui.count(anchor)==1
+ui=ui.replace(anchor,'''        for(date in dates.take(7)) {
+            val data=fetch("$base/eventstv.php?d=$date&a=United_Kingdom") ?: continue
+            val listings=data.optJSONArray("tvevents") ?: data.optJSONArray("events") ?: continue
+            for(i in 0 until listings.length()) {
+                val item=listings.optJSONObject(i) ?: continue
+                val country=item.optString("strCountry").replace("_"," ").trim()
+                if(!country.equals("United Kingdom",true) && !country.equals("UK",true) && !country.equals("Great Britain",true)) continue
+                val channel=item.optString("strChannel").trim()
+                if(channel.isBlank() || channel=="null") continue
+                val id=item.optString("idEvent")
+                val name=item.optString("strEvent")
+                val day=item.optString("dateEvent").ifBlank { date }
+                if(day!=date) continue
+                if(id.isNotBlank() && id!="null") tvByEvent.getOrPut(id) { linkedSetOf() }.add(channel)
+                if(name.isNotBlank()) tvByName.getOrPut(fixtureKey(name,day)) { linkedSetOf() }.add(channel)
+            }
+        }
+        val enriched=result.map { fixture ->
+            val eventKey=fixtureKey(fixture.name,fixture.date)
+            val channels=(eventIds[eventKey]?.let { tvByEvent[it] }.orEmpty()+tvByName[eventKey].orEmpty()).distinct()
+            if(channels.isEmpty()) fixture
+            else fixture.copy(channel=fixture.channel.substringBeforeLast(" · ")+" · UK TV: "+channels.joinToString(", "))
+        }
+'''+anchor,1)
+ui=swap(ui,'val merged=result.distinctBy','val merged=enriched.sortedByDescending { it.channel.contains(" · UK TV: ") }.distinctBy')
+s=s[:a]+ui+s[b:]
+s=swap(s,'Text(event.channel.substringAfter(" · "),color = Color.White,fontSize=10.sp,maxLines=2)','''Text(event.channel.substringAfter(" · ").substringBeforeLast(" · "),color=Color.White,fontSize=10.sp,maxLines=2)
+                            Text(event.channel.substringAfterLast(" · ").let { if(it=="broadcaster unverified") "UK TV: not listed" else it },
+                                color=Color(0xFFFFD66B),fontSize=11.sp,maxLines=3)''')
+p.write_text(s)
+print("Sports Guide: UK broadcaster listings matched by event ID or exact normalized event/date; unavailable listings remain explicitly unknown.")
 
 # Approved original shark and individual alpha PNG icons are mandatory.
 # Never crop a screenshot or silently use old artwork.
