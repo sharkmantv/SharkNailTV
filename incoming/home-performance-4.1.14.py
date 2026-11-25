@@ -86,11 +86,7 @@ s=s[:a]+ui+s[b:]
 # Remove the old triple animated logo on content pages. Keep the familiar
 # blue Sky background. The approved new Home mascot is an isolated asset,
 # not a baked-in screenshot or a clock.
-s=swap(s,"GlassHeader(132.dp)",'''if(section=="Home" && selected==null) {
-                    Image(painterResource(R.drawable.shark_home_premium),
-                        contentDescription="Shark holding Sky Premium", modifier=Modifier.fillMaxWidth().height(126.dp),
-                        contentScale=ContentScale.Fit)
-                }''')
+s=swap(s,"GlassHeader(132.dp)","// Full-screen content: branding is confined to the dedicated Home menu.")
 # The approved archive can have multiple uses of hudBackdrop; scope to the Home background.
 a=s.index('@Composable private fun HomeHeroBackground(')
 b=s.find('\n@Composable',a+1)
@@ -102,46 +98,34 @@ else:
     # Preserve the existing Sky-blue background if this revision already uses a custom fill.
     print("Existing Home background retained")
 s=s[:a]+ui+s[b:]
-# Home uses the original navigation destinations with independent click
-# targets, not a flattened screenshot. Non-Home pages keep the old nav.
-# Header image and icon crops are prepared from the approved mockup.
-# Match the actual navigation modifier rather than assuming a 64dp tile.
-nav=re.search(r'Column\(Modifier\.weight\(1f\)\.height\((\d+)\.dp\)\.onFocusChanged\s*\{\s*state\s*->\s*if\(state\.isFocused\) focusedNav=item',s)
-if not nav:
-    loc=s.find('var focusedNav')
-    if loc>=0: print("Navigation source for review:\n"+s[loc:loc+5000])
-    else:
-        for m in re.finditer(r'listOf\([^\n]*"Shark TV"[^\n]*"Movies"[^\n]*\)',s):
-            print("Navigation candidate:\n"+s[m.start():m.start()+4000])
-    raise AssertionError("Navigation modifier differs from all reviewed patterns")
-a=nav.start()
-label=re.search(r'Text\(\s*item\s*,\s*color\s*=\s*Color\.White\s*,\s*fontSize\s*=\s*\d+\.sp',s[a:a+5000])
-assert label,"Navigation tile label differs"
-b=a+label.start()
-old_height=nav.group(1)
-s=s[:b]+'''if(section=="Home") {
-                                Column(Modifier.fillMaxSize(), horizontalAlignment=Alignment.CenterHorizontally) {
-                                    val artwork = when(item) {
-                                        "Shark TV" -> R.drawable.shark_icon_sky
-                                        "Movies" -> R.drawable.shark_icon_movies
-                                        "TV Series" -> R.drawable.shark_icon_series
-                                        "Settings" -> R.drawable.shark_icon_settings
-                                        "Home" -> R.drawable.shark_icon_sky
-                                        "Shark Stream" -> R.drawable.shark_icon_live
-                                        else -> 0
-                                    }
-                                    if(artwork!=0) Image(painterResource(artwork),null,
-                                        Modifier.weight(1f).fillMaxWidth().padding(horizontal=4.dp),contentScale=ContentScale.Fit)
-                                    else Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center) {
-                                        Icon(Icons.Filled.SportsSoccer,null,tint=SharkFocusGold,modifier=Modifier.size(30.dp))
-                                    }
-                                    Text(if(item=="Shark TV") "Live TV" else item,color=Color.White,fontSize=12.sp,
-                                        maxLines=1,overflow=TextOverflow.Ellipsis)
-                                }
-                            } else '''+s[b:]
-nav_prefix='Column(Modifier.weight(1f).height('+old_height+'.dp).onFocusChanged'
-assert s[a:].startswith(nav_prefix)
-s=s[:a]+s[a:].replace(nav_prefix,'Column(Modifier.weight(1f).height(if(section=="Home") 82.dp else 48.dp).onFocusChanged',1)
+# The actual 4.1.13 archive uses a dedicated five-tile Home menu.
+# Keep the original click targets, focus requester and sizing.
+a=s.index('val labels = listOf("Shark TV", "Movies", "TV Series", "Sports Guide", "Settings")') if 'val labels = listOf("Shark TV", "Movies", "TV Series", "Sports Guide", "Settings")' in s else s.index('listOf("Shark TV", "Movies", "TV Series", "Sports Guide", "Settings")')
+b=s.find('\n@Composable',a)
+if b<0: b=len(s)
+ui=s[a:b]
+ui=swap(ui,'''            Box(Modifier.fillMaxWidth().height(16.dp),contentAlignment=Alignment.CenterEnd) {
+                val clockContext=LocalContext.current
+                var now by remember { mutableStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(Unit) { while(true) { now=System.currentTimeMillis(); delay(15_000L) } }
+                Text(sharkClock(clockContext,now),color=Color.White,fontSize=12.sp,maxLines=1)
+            }
+''','')
+ui=swap(ui,'''                AsyncImage(model=R.drawable.shark_brand, contentDescription=null, modifier=Modifier.weight(1f).fillMaxHeight(), contentScale=ContentScale.Fit)
+                AsyncImage(model=R.drawable.sky_stream_design, contentDescription="Sky Stream", modifier=Modifier.weight(1.2f).fillMaxHeight(), contentScale=ContentScale.Fit)
+                AsyncImage(model=R.drawable.shark_brand_right, contentDescription=null, modifier=Modifier.weight(1f).fillMaxHeight(), contentScale=ContentScale.Fit)''','''                AsyncImage(model=R.drawable.shark_home_premium, contentDescription="Shark holding Sky Premium", modifier=Modifier.fillMaxSize(), contentScale=ContentScale.Fit)''')
+ui=swap(ui,'BoxWithConstraints(Modifier.fillMaxSize().hudBackdrop().padding(horizontal=18.dp, vertical=10.dp))','BoxWithConstraints(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF082F88),Color(0xFF061E55),Color(0xFF071B43)))).padding(horizontal=18.dp, vertical=10.dp))')
+ui=swap(ui,'ChromeIcon(symbols[index],iconSize)','''val artwork=when(label) {
+                            "Shark TV" -> R.drawable.shark_icon_sky
+                            "Movies" -> R.drawable.shark_icon_movies
+                            "TV Series" -> R.drawable.shark_icon_series
+                            "Settings" -> R.drawable.shark_icon_settings
+                            else -> 0
+                        }
+                        if(artwork!=0) AsyncImage(model=artwork,contentDescription=null,
+                            modifier=Modifier.fillMaxWidth().height(tileHeight*0.62f),contentScale=ContentScale.Fit)
+                        else ChromeIcon(symbols[index],iconSize)''')
+s=s[:a]+ui+s[b:]
 # Keep Home branding static; no header animation or duplicated clock.
 # Release fullscreen player and detach surface before returning; no forced
 # software rendering, display-mode switch, sleep or added animation.
