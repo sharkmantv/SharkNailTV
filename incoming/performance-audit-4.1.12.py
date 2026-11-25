@@ -18,10 +18,16 @@ settings=root/"settings.gradle.kts"
 s=settings.read_text()
 if 'include(":macrobenchmark")' not in s:
     settings.write_text(s+'\ninclude(":macrobenchmark")\n')
+rootgradle=root/"build.gradle.kts"
+g=rootgradle.read_text()
+if 'id("com.android.test")' not in g:
+    assert g.count("plugins {")==1
+    g=g.replace("plugins {",'plugins {\n    id("com.android.test") version "9.1.1" apply false',1)
+    rootgradle.write_text(g)
 module=root/"macrobenchmark"
 module.mkdir(exist_ok=True)
 (module/"build.gradle.kts").write_text('''plugins {
-    id("com.android.test") version "9.1.1"
+    id("com.android.test")
 }
 android {
     namespace = "com.example.xtreamtv.macrobenchmark"
