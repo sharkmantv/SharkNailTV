@@ -18,7 +18,7 @@ class Fixture(BaseHTTPRequestHandler):
         elif action == "get_vod_streams":
             data = [{"stream_id": n, "name": "Layout fixture %03d" % n, "container_extension": "mp4"} for n in range(1, 41)]
         else:
-            data = {"user_info": {"auth": 1}, "server_info": {"timezone": "Europe/London"}}
+            data = {"user_info": {"auth": int(q.get("username")==["fixture"] and q.get("password")==["fixture"])}, "server_info": {"timezone": "Europe/London"}}
         body = json.dumps(data).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -56,8 +56,26 @@ def expect(label, timeout=30):
         time.sleep(1)
     raise AssertionError("Missing UI label: "+label)
 def enter_field(node,value):
-    tap(node)
-    adb("shell","input","text",value)
+    # On busy emulators, a single bulk input command can reorder characters.
+    # Enter fixture credentials slowly, verifying the address before Connect.
+    target=bounds(node)
+    secret=node.get("password")=="true"
+    for attempt in range(3):
+        tap(node)
+        time.sleep(.7)
+        adb("shell","input","keycombination","113","29")
+        adb("shell","input","keyevent","67")
+        time.sleep(.25)
+        for ch in value:
+            adb("shell","input","text",ch)
+            time.sleep(.12)
+        time.sleep(.5)
+        current=next((n for n in ui().iter("node") if n.get("class")=="android.widget.EditText" and n.get("focused")=="true"),None)
+        if current is not None:
+            actual=current.get("text","")
+            if (not secret and actual==value) or (secret and len(actual)==len(value)):
+                return
+    raise AssertionError("Could not reliably enter fixture "+("password" if secret else "login field"))
 
 server=ThreadingHTTPServer(("127.0.0.1",18765),Fixture)
 threading.Thread(target=server.serve_forever,daemon=True).start()
