@@ -304,3 +304,53 @@ ui=swap(ui,old,'key(fullscreenTexture) { '+new+' }')
 s=s[:a]+ui+s[b:]
 p.write_text(s)
 print("All fullscreen modes now use independent TextureView rendering with bounded SurfaceView recovery and VOD position preservation.")
+
+
+# Return-to-menu stability: SaveableStateHolder already restores lazy list
+# positions. Do not immediately overwrite restored positions on re-entry.
+# Delay the initial live preview as well as subsequent focus changes so
+# the fullscreen decoder can dispose before a new preview starts.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index("@Composable private fun LiveBrowser(")
+b=s.index("@Composable private fun CompactLiveAction(",a)
+ui=s[a:b]
+m=re.search(r'val preview by produceState\(current,\s*current\)\s*\{\s*delay\((\d+)(?:L)?\)\s*value\s*=\s*current\s*\}',ui)
+assert m,"Live preview debounce anchor not found"
+ui=swap(ui,m.group(0),'''val preview by produceState<Entry?>(null,current) {
+        delay(400L)
+        value = current
+    }''')
+old='LaunchedEffect(categoryId, channels.isNotEmpty()) { if(channels.isNotEmpty()) { val i=filtered.indexOfFirst { it.id==lastId }; channelState.scrollToItem(i.coerceAtLeast(0)) } }'
+if old not in ui:
+    matches=re.findall(r'LaunchedEffect\(categoryId,\s*channels\.isNotEmpty\(\)\)[^\n]*',ui)
+    print("Live channel scroll anchors:",matches)
+    assert len(matches)==1,"Live channel scroll anchor not found"
+    old=matches[0]
+ui=swap(ui,old,'''var restoredLiveCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(categoryId,channels.isNotEmpty(),lastId) {
+        if(channels.isEmpty()) return@LaunchedEffect
+        val changed=restoredLiveCategory!=categoryId
+        restoredLiveCategory=categoryId
+        val index=filtered.indexOfFirst { it.id==lastId }
+        androidx.compose.runtime.withFrameNanos { }
+        val visible=channelState.layoutInfo.visibleItemsInfo.any { it.index==index }
+        if(index>=0 && !visible) channelState.scrollToItem(index)
+        else if(changed && index<0) channelState.scrollToItem(0)
+    }''')
+old='LaunchedEffect(categories) { val i=categories.indexOfFirst { it.first==categoryId }; if(i>=0 && categories.isNotEmpty())categoryState.scrollToItem(i) }'
+if old not in ui:
+    matches=re.findall(r'LaunchedEffect\(categories\)[^\n]*categoryState\.scrollToItem[^\n]*',ui)
+    print("Live category scroll anchors:",matches)
+    assert len(matches)==1,"Live category scroll anchor not found"
+    old=matches[0]
+ui=swap(ui,old,'''LaunchedEffect(categories,categoryId) {
+        val index=categories.indexOfFirst { it.first==categoryId }
+        if(index>=0) {
+            androidx.compose.runtime.withFrameNanos { }
+            if(categoryState.layoutInfo.visibleItemsInfo.none { it.index==index }) categoryState.scrollToItem(index)
+        }
+    }''')
+s=s[:a]+ui+s[b:]
+p.write_text(s)
+print("Live menu return: preserved restored positions; initial preview decoder start debounced.")
