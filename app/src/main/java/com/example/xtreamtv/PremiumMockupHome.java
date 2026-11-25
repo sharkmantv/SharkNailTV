@@ -24,7 +24,7 @@ import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Design 3: original approved art in independently laid-out, accessible interactive views. */
+/** Four-screen candidate: existing hero artwork with four native, translucent Home tiles. */
 final class PremiumMockupHome {
  private static Bitmap atlas;
  private static Bitmap crop(int x,int y,int w,int h){return Bitmap.createBitmap(atlas,x,y,w,h);}
@@ -40,7 +40,7 @@ final class PremiumMockupHome {
   a.body.removeAllViews();a.body.setPadding(0,0,0,0);
   DesignLayout root=new DesignLayout(a);a.body.addView(root,new LinearLayout.LayoutParams(-1,-1));
   root.setBackground(a.screenBackground());
-  ImageView hero=image(a,crop(0,0,1388,612));hero.setScaleType(ImageView.ScaleType.FIT_CENTER);root.place(hero,70,0,1508,665);
+  ImageView hero=image(a,crop(0,0,1388,612));hero.setScaleType(ImageView.ScaleType.FIT_CENTER);root.place(hero,70,0,1508,742);
   ImageView logo=image(a,crop(0,620,537,98));logo.setScaleType(ImageView.ScaleType.FIT_CENTER);logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);logo.setContentDescription("SHARK SKY");root.place(logo,28,18,340,66);
   TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextColor(Color.WHITE);clock.setTextSize(22);root.place(clock,1260,15,350,54);
   String[] dests={"Live TV","Movies","Series","Settings"};
@@ -65,23 +65,6 @@ final class PremiumMockupHome {
  }
  private static final class DesignLayout extends ViewGroup{
   final List<int[]> coords=new ArrayList<>();
-  View[] rail,tiles;
-  @Override public boolean dispatchKeyEvent(KeyEvent event){
-   int key=event.getKeyCode();if(rail==null||tiles==null||(key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT&&key!=KeyEvent.KEYCODE_DPAD_UP&&key!=KeyEvent.KEYCODE_DPAD_DOWN))return super.dispatchKeyEvent(event);
-   if(event.getAction()==KeyEvent.ACTION_UP)return true;if(event.getAction()!=KeyEvent.ACTION_DOWN)return super.dispatchKeyEvent(event);
-   View focused=findFocus(),target=null;
-   for(int i=0;i<tiles.length;i++)if(focused==tiles[i]){
-    if(key==KeyEvent.KEYCODE_DPAD_LEFT)target=i>0?tiles[i-1]:rail[1];
-    else if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=tiles[Math.min(i+1,tiles.length-1)];
-    else if(key==KeyEvent.KEYCODE_DPAD_UP)target=rail[i+1];else target=tiles[i];break;
-   }
-   for(int i=0;i<rail.length;i++)if(focused==rail[i]){
-    if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=tiles[Math.max(0,i-1)];
-    else if(key==KeyEvent.KEYCODE_DPAD_UP)target=rail[Math.max(0,i-1)];
-    else if(key==KeyEvent.KEYCODE_DPAD_DOWN)target=rail[Math.min(i+1,rail.length-1)];else target=rail[i];break;
-   }
-   if(target==null)target=tiles[0];return target.requestFocus()||super.dispatchKeyEvent(event);
-  }
   DesignLayout(MainActivity a){super(a);setClipChildren(false);setClipToPadding(false);}
   void place(View v,int x,int y,int w,int h){coords.add(new int[]{x,y,w,h});addView(v,new LayoutParams(w,h));}
   int left(int[] p,int w){return Math.round(p[0]*w/1648f);}
