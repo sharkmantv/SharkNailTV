@@ -8,7 +8,7 @@ permissions:
   actions: read
 concurrency:
   group: shark-sky-premium-5030-visual
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest

@@ -105,6 +105,29 @@ final class PremiumVisuals {
   Tile(Context c,String title,int icon,boolean reflection){super(c);this.title=title;this.icon=icon;this.reflection=reflection;setContentDescription(title);setFocusable(true);setFocusableInTouchMode(true);setClickable(true);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);}
   @Override protected void onFocusChanged(boolean f,int dir,Rect prev){super.onFocusChanged(f,dir,prev);invalidate();}
   @Override protected void onDraw(Canvas c){super.onDraw(c);float w=getWidth(),h=getHeight(),body=h;float margin=Math.max(3,Math.min(w,body)*.035f);boolean f=isFocused();boolean animate=android.os.Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled();float phase=animate?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1900*Math.PI*2/1900.0)):1;
+   if(reflection){
+    // Home navigation: Sky Stream-style labels with a colour strip along the top only.
+    float inset=Math.max(3,h*.045f);
+    RectF panel=new RectF(inset,inset,w-inset,h-inset);
+    p.setStyle(Paint.Style.FILL);
+    p.setShader(new LinearGradient(0,panel.top,0,panel.bottom,new int[]{f?0xd321215c:0xbc151640,0xe4111243},null,Shader.TileMode.CLAMP));
+    c.drawRect(panel,p);p.setShader(null);
+    if(f){p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1,h*.009f));p.setColor(0x995b74ce);c.drawRect(panel,p);p.setStyle(Paint.Style.FILL);}
+    int[] left={0xffff8d00,0xffff394d,0xfff4289e,0xffad51ff};
+    int[] right={0xffff385e,0xffd92191,0xff9c41ff,0xff438dff};
+    int k=Math.max(0,Math.min(icon,3));
+    float band=Math.max(3,h*.027f);
+    int saved=c.save();c.clipRect(panel);
+    p.setShader(new LinearGradient(panel.left,0,panel.right,0,left[k],right[k],Shader.TileMode.CLAMP));
+    p.setAlpha((int)(f?205+50*phase:155+65*phase));c.drawRect(panel.left,panel.top,panel.right,panel.top+band,p);
+    p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,panel.top+band,panel.right,panel.top+band*2.2f,p);
+    p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
+    p.setTypeface(Typeface.create(f?"sans-serif-medium":"sans-serif",Typeface.NORMAL));
+    p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(h*.22f,w*.105f));
+    p.setColor(0xfff4f5ff);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.5f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
+    if(animate&&isShown())postInvalidateDelayed(50);
+    return;
+   }
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);
    float iconSize=Math.min(w*.55f,body*.57f);float iy=body*.08f;
    Bitmap art=reflection&&icon>=0&&icon<homeArt.length?homeArt[icon]:null;
