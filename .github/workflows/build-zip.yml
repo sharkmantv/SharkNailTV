@@ -271,7 +271,7 @@ jobs:
                                               modifier=Modifier.weight(1f).fillMaxWidth(),
                                               categories=categories, categoryId=categoryId, entries=sectionEntries,
                                               loading=catalogueLoading, onCategory={ categoryId=it },
-                                              onRetry={api?.clearCatalogueCache();catalogueRetry++},
+                                              onRetry={scope.launch { api?.clearCatalogueCache();catalogueRetry++ }},
                                               onSelect={openTitle(it)}
                                           )'''+s[stop:]
           # Remove the duplicate category popup control; the new sidebar remains visible.
@@ -280,7 +280,8 @@ jobs:
               s=s.replace(old,'if(connected && catalogueKind.isNotBlank() && section !in listOf("Shark TV","Movies","TV Series"))',1)
           # The existing empty state below the browser is preserved, including provider errors.
           anchor='@Composable private fun V4PosterRow('
-          ui='''@Composable private fun TvCatalogueBrowser(
+          ui='''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+          @Composable private fun TvCatalogueBrowser(
               modifier:Modifier=Modifier,
               categories:List<Pair<String,String>>,
               categoryId:String?,
