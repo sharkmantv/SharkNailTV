@@ -370,9 +370,73 @@ jobs:
                           " rebufferCount="+stats.totalRebufferCount+" droppedFrames="+stats.totalDroppedFrames)
                   })
           ''')
-          p.write_text(''.join(lines))
+          s=''.join(lines)
+          # Optional hardware experiments: never enable additional decoders by default.
+          marker='    return ExoPlayer.Builder('
+          assert s.count(marker)==1
+          s=s.replace(marker,'''    val experimentalTunneling = !preview && p.getBoolean("sharkTunneling",false)
+              val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context.applicationContext)
+              trackSelector.setParameters(trackSelector.buildUponParameters().setTunnelingEnabled(experimentalTunneling).build())
+              if (!preview && !live && p.getBoolean("sharkPrewarm",false)) {
+                  factory.experimentalSetEnableMediaCodecVideoRendererPrewarming(true)
+              }
+              val networkFactory: androidx.media3.datasource.DataSource.Factory = if (!preview && p.getBoolean("sharkCronet",false)) {
+                  sharkCronetFactory(context) ?: androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkPlaybackHttp)
+              } else androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkPlaybackHttp)
+              return ExoPlayer.Builder(''',1)
+          s=swap(s,'.setLoadControl(load).setMediaSourceFactory(','.setTrackSelector(trackSelector).setLoadControl(load).setMediaSourceFactory(')
+          # Only replace the data-source argument in the player builder, not the fallback above.
+          s=swap(s,'.setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkPlaybackHttp)))','.setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, networkFactory))')
+          s += '''
+          // Reuse one optional Cronet engine; do not load extra native networking binaries.
+          private var sharedSharkCronet: org.chromium.net.CronetEngine? = null
+          @Synchronized private fun sharkCronetFactory(context: Context): androidx.media3.datasource.DataSource.Factory? {
+              return try {
+                  val engine = sharedSharkCronet ?: androidx.media3.datasource.cronet.CronetUtil.buildCronetEngine(context.applicationContext)?.also { sharedSharkCronet=it }
+                  if (engine == null) {
+                      android.util.Log.d("SharkPlaybackStats","Cronet provider unavailable; using OkHttp")
+                      null
+                  } else androidx.media3.datasource.cronet.CronetDataSource.Factory(engine, java.util.concurrent.Executor { it.run() })
+                      .setConnectionTimeoutMs(10_000).setReadTimeoutMs(20_000)
+              } catch (_: Exception) { null } catch (_: LinkageError) { null }
+          }
+          '''
+          # Experimental options live beside decoder fallback in Playback & Display.
+          anchor='                Text("Decoder Fallback: '
+          assert s.count(anchor)==1
+          s=s.replace(anchor,'''                SharkExperimentalPlaybackOptions(p)
+                          Text("Decoder Fallback: ''',1)
+          s += '''
+          @Composable private fun SharkExperimentalPlaybackOptions(p: android.content.SharedPreferences) {
+              Text("Advanced playback · experimental",color=Color.White,fontSize=12.sp)
+              listOf("sharkTunneling" to "Hardware tunneling","sharkPrewarm" to "VOD decoder prewarming","sharkCronet" to "Cronet networking").forEach { (key,title) ->
+                  var enabled by remember(key) { mutableStateOf(p.getBoolean(key,false)) }
+                  PremiumButton(compact=true,onClick={enabled=!enabled;p.edit().putBoolean(key,enabled).apply()},modifier=Modifier.fillMaxWidth()) {
+                      Text(title+": "+if(enabled) "On" else "Off")
+                  }
+              }
+              Text("Restart playback after changing. Keep off if a stream fails.",color=Color.LightGray,fontSize=11.sp)
+          }
+          '''
+          p.write_text(s)
+          p=Path("app/src/main/java/com/example/xtreamtv/MainActivity.kt")
+          s=p.read_text()
+          # Coalesce same-channel EPG requests; existing bounded per-account cache remains.
+          anchor='    suspend fun epg(streamId:String):List<Program>'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,'''    private val epgRequestLocks=Array(16) { kotlinx.coroutines.sync.Mutex() }
+              suspend fun epg(streamId:String):List<Program> = epgRequestLocks[(streamId.hashCode() and Int.MAX_VALUE)%epgRequestLocks.size].withLock {
+                  fetchEpgUncoalesced(streamId)
+              }
+              private suspend fun fetchEpgUncoalesced(streamId:String):List<Program>''',1)
+          if 'import kotlinx.coroutines.sync.withLock' not in s:
+              s=s.replace('import kotlinx.coroutines.', 'import kotlinx.coroutines.sync.withLock\nimport kotlinx.coroutines.',1)
+          p.write_text(s)
           p=Path("app/build.gradle.kts")
           s=p.read_text()
+          # Use a stable engine exactly matching the shipped, SHA-verified FFmpeg AAR.
+          s=swap(s,'media3Version = "1.12.0-beta01"','media3Version = "1.11.1"')
+          s=swap(s,'    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")','    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")\n    implementation("androidx.media3:media3-datasource-cronet:$media3Version")')
           s=swap(s,'orElse("40009")','orElse("40100")')
           s=swap(s,'orElse("4.0.9")','orElse("4.1.0")')
           p.write_text(s)
@@ -481,7 +545,7 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.1.0 beta package and FFmpeg fallback
+      - name: Verify complete 4.1.0 package and matching FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
@@ -566,4 +630,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME (Media3 beta test)" --notes "Dedicated Movies/Series catalogue with persistent category sidebar, vertically scrolling lazy poster grid, title search, sorting and provider artwork; Home layout unchanged. Live TV now uses account-scoped cache-first category and channel loading, retaining background refresh and selection. Preview failures display Channel unavailable — Press OK to retry; OK retries the same failed channel, with a 20-second no-first-frame timeout. Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. EXPERIMENTAL Media3 1.12.0-beta01 with existing 1.11.1-built LGPL FFmpeg audio fallback; FFmpeg runtime compatibility is not yet verified, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Dedicated Movies/Series catalogue with persistent category sidebar, vertically scrolling lazy poster grid, title search, sorting and provider artwork; Home layout unchanged. Live TV now uses account-scoped cache-first category and channel loading, retaining background refresh and selection. Preview failures display Channel unavailable — Press OK to retry; OK retries the same failed channel, with a 20-second no-first-frame timeout. Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. Media3 1.11.1 with matching LGPL FFmpeg audio fallback; optional experimental tunneling, VOD decoder prewarming and Cronet networking; coalesced EPG requests; device performance and FFmpeg runtime compatibility require testing, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
