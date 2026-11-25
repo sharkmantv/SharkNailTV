@@ -105,8 +105,20 @@ s=s[:a]+ui+s[b:]
 # Home uses the original navigation destinations with independent click
 # targets, not a flattened screenshot. Non-Home pages keep the old nav.
 # Header image and icon crops are prepared from the approved mockup.
-a=s.index('Column(Modifier.weight(1f).height(64.dp).onFocusChanged')
-b=s.index('Text(item,color=Color.White,fontSize=13.sp',a)
+# Match the actual navigation modifier rather than assuming a 64dp tile.
+nav=re.search(r'Column\(Modifier\.weight\(1f\)\.height\((\d+)\.dp\)\.onFocusChanged\s*\{\s*state\s*->\s*if\(state\.isFocused\) focusedNav=item',s)
+if not nav:
+    loc=s.find('var focusedNav')
+    if loc>=0: print("Navigation source for review:\n"+s[loc:loc+5000])
+    else:
+        for m in re.finditer(r'listOf\([^\n]*"Shark TV"[^\n]*"Movies"[^\n]*\)',s):
+            print("Navigation candidate:\n"+s[m.start():m.start()+4000])
+    raise AssertionError("Navigation modifier differs from all reviewed patterns")
+a=nav.start()
+label=re.search(r'Text\(\s*item\s*,\s*color\s*=\s*Color\.White\s*,\s*fontSize\s*=\s*\d+\.sp',s[a:a+5000])
+assert label,"Navigation tile label differs"
+b=a+label.start()
+old_height=nav.group(1)
 s=s[:b]+'''if(section=="Home") {
                                 Column(Modifier.fillMaxSize(), horizontalAlignment=Alignment.CenterHorizontally) {
                                     val artwork = when(item) {
@@ -127,7 +139,9 @@ s=s[:b]+'''if(section=="Home") {
                                         maxLines=1,overflow=TextOverflow.Ellipsis)
                                 }
                             } else '''+s[b:]
-s=swap(s,'Column(Modifier.weight(1f).height(64.dp).onFocusChanged','Column(Modifier.weight(1f).height(if(section=="Home") 82.dp else 48.dp).onFocusChanged')
+nav_prefix='Column(Modifier.weight(1f).height('+old_height+'.dp).onFocusChanged'
+assert s[a:].startswith(nav_prefix)
+s=s[:a]+s[a:].replace(nav_prefix,'Column(Modifier.weight(1f).height(if(section=="Home") 82.dp else 48.dp).onFocusChanged',1)
 # Keep Home branding static; no header animation or duplicated clock.
 # Release fullscreen player and detach surface before returning; no forced
 # software rendering, display-mode switch, sleep or added animation.
