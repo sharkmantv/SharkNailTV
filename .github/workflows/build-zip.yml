@@ -593,9 +593,13 @@ jobs:
               for abi in ('arm64-v8a','armeabi-v7a','x86','x86_64'):
                   assert 'lib/'+abi+'/libffmpegJNI.so' in files, "Missing FFmpeg for "+abi
               assert 'assets/ffmpeg-source-notice.txt' in files
-              for abi in ('arm64-v8a','armeabi-v7a'):
+              for abi in ('arm64-v8a','armeabi-v7a','x86','x86_64'):
                   assert 'lib/'+abi+'/libdav1dJNI.so' in files, "Missing AV1 for "+abi
-                  assert 'lib/'+abi+'/libvpxJNI.so' in files, "Missing VP9 for "+abi
+                  assert 'lib/'+abi+'/libvpxV2JNI.so' in files, "Missing VP9 JNI for "+abi
+                  assert 'lib/'+abi+'/libvpx.so' in files, "Missing VP9 library for "+abi
+              dex=b"".join(apk.read(f) for f in files if f.startswith('classes') and f.endswith('.dex'))
+              assert b'LibvpxVideoRenderer' in dex, "VP9 renderer missing"
+              assert b'Libdav1dVideoRenderer' in dex, "AV1 renderer missing"
               assert 'assets/decoder-licenses/SOURCES.txt' in files
               assert any(b'FfmpegAudioRenderer' in apk.read(f) for f in files if f.startswith('classes') and f.endswith('.dex')), "FFmpeg renderer missing from DEX"
           print('Native decoder ABIs, DEX, licensing notices and APK integrity verified')
