@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);styleInput(e);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;clearCatalogue();guideCache.evictAll();JSONObject serverInfo=j.optJSONObject("server_info");String zone=serverInfo==null?"":serverInfo.optString("timezone","");prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).putString("epg_zone",zone).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.19  ·  Media3 1.12.0-beta01  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.20  ·  Media3 1.12.0-beta01  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -718,7 +718,7 @@ public class MainActivity extends Activity {
  void checkUpdate(){
   if(updateBusy)return;updateBusy=true;updateMessage("Checking GitHub…",-1);
   updateIo.execute(()->{try{
-   JSONObject j=new JSONObject(get("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest"));
+   JSONObject j=releaseMetadata();
    String tag=j.optString("tag_name").replaceFirst("^v","");if(!tag.matches("[0-9]+\\.[0-9]+\\.[0-9]+"))throw new IOException("Invalid release version");
    if(compare(tag,BuildConfig.VERSION_NAME)<=0){ui.post(()->{updateBusy=false;updateMessage("You have the latest version: "+BuildConfig.VERSION_NAME,0);});return;}
    JSONArray assets=j.optJSONArray("assets");JSONObject found=null;if(assets!=null)for(int n=0;n<assets.length();n++){JSONObject x=assets.optJSONObject(n);if(x!=null&&"SharkNailTV.apk".equals(x.optString("name"))){found=x;break;}}
@@ -731,6 +731,38 @@ public class MainActivity extends Activity {
     new AlertDialog.Builder(this).setTitle("Download Shark Sky "+tag+"?").setMessage("The update will be downloaded and verified inside Shark Sky. Android will ask for installation approval.").setPositiveButton("Download",(dialog,w)->downloadUpdate(link,size,digest,tag)).setNegativeButton("Cancel",(dialog,w)->{updateBusy=false;updateMessage("Download cancelled",0);}).setOnCancelListener(dialog->{updateBusy=false;updateMessage("Download cancelled",0);}).show();
    });
   }catch(Exception e){final String reason=updateError(e);ui.post(()->{updateBusy=false;updateMessage("Update check failed: "+reason,0);});}});
+ }
+ JSONObject releaseMetadata()throws Exception{
+  // Direct GitHub release asset does not depend on the unauthenticated REST quota.
+  Exception directFailure;
+  try{
+   HttpURLConnection con=openUpdate("https://github.com/sharkmantv/SharkNailTV/releases/latest/download/update.json");
+   try{
+    JSONObject j=new JSONObject(readUpdateMetadata(con));
+    String version=j.optString("tag_name");
+    JSONArray assets=j.optJSONArray("assets");
+    if(!version.matches("v[0-9]+\\.[0-9]+\\.[0-9]+")||assets==null||assets.length()!=1)throw new IOException("Invalid update manifest");
+    JSONObject apk=assets.getJSONObject(0);
+    if(!"SharkNailTV.apk".equals(apk.optString("name"))||!apk.optString("digest").matches("sha256:[a-fA-F0-9]{64}"))throw new IOException("Invalid manifest checksum");
+    return j;
+   }finally{con.disconnect();}
+  }catch(Exception e){directFailure=e;}
+  HttpURLConnection con=null;
+  try{
+   con=(HttpURLConnection)new URL("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest").openConnection();
+   con.setInstanceFollowRedirects(false);con.setConnectTimeout(10000);con.setReadTimeout(15000);
+   con.setRequestProperty("User-Agent","SharkSky/"+BuildConfig.VERSION_NAME);
+   con.setRequestProperty("Accept","application/vnd.github+json");
+   int code=con.getResponseCode();
+   if(code!=200)throw new IOException("GitHub API HTTP "+code);
+   return new JSONObject(readUpdateMetadata(con));
+  }catch(Exception e){throw new IOException("Manifest "+updateError(directFailure)+" / "+updateError(e));}
+  finally{if(con!=null)con.disconnect();}
+ }
+ static String readUpdateMetadata(HttpURLConnection con)throws Exception{
+  try(InputStream in=con.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+   byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>512*1024)throw new IOException("Update metadata too large");out.write(b,0,n);}return out.toString("UTF-8");
+  }
  }
  static String updateError(Exception e){if(e instanceof java.net.SocketTimeoutException)return "connection timed out";if(e instanceof java.net.UnknownHostException)return "cannot reach GitHub";if(e instanceof javax.net.ssl.SSLException)return "secure connection failed";String m=e.getMessage();return m!=null&&m.matches("[A-Za-z0-9 .:/()_-]{1,120}")&&!m.contains("://")?m:e.getClass().getSimpleName();}
  HttpURLConnection openUpdate(String link)throws Exception{
