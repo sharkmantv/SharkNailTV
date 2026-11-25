@@ -36,17 +36,11 @@ final class PremiumVisuals {
   final Paint p=new Paint(3);final boolean withHero;
   Backdrop(boolean h){withHero=h;}
   @Override public void draw(Canvas c){Rect r=getBounds();float w=r.width(),h=r.height();if(w<=0||h<=0)return;int save=c.save();c.translate(r.left,r.top);
-   if(withHero){
     // Sky Stream inspired: near-black top, rich cobalt at the lower edge, no ribbon.
     p.setShader(new LinearGradient(0,0,0,h,new int[]{0xff070811,0xff090c2e,0xff10105b,0xff111ba0,0xff10177e},new float[]{0,.26f,.52f,.80f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
     p.setShader(new RadialGradient(w*.13f,h*.77f,w*.76f,new int[]{0x700040ef,0x330027cb,0x000027cb},new float[]{0,.42f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
-   }else{
-   p.setShader(new LinearGradient(0,0,w,h,new int[]{0xff061021,0xff071b40,0xff040c20},new float[]{0,.52f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
-   p.setShader(new RadialGradient(w*.53f,h*.38f,Math.max(w,h)*.51f,new int[]{0x8c155ed6,0x35133f99,0x00133f99},new float[]{0,.52f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
-   p.setShader(new LinearGradient(0,0,w,0,new int[]{0x000c61ce,0x603168ca,0x000c61ce},null,Shader.TileMode.CLAMP));Path ribbon=new Path();ribbon.moveTo(0,h*.53f);ribbon.cubicTo(w*.38f,h*.22f,w*.65f,h*.66f,w,h*.18f);ribbon.lineTo(w,h*.25f);ribbon.cubicTo(w*.62f,h*.73f,w*.32f,h*.31f,0,h*.58f);ribbon.close();c.drawPath(ribbon,p);
-   }
    p.setShader(null);if(withHero&&fourSharks!=null){c.drawBitmap(fourSharks,new Rect(0,0,fourSharks.getWidth(),Math.round(fourSharks.getHeight()*.723f)),new RectF(0,0,w,h*.723f),bitmapPaint);}else if(withHero&&hero!=null){float bw=w*.98f,bh=bw*hero.getHeight()/hero.getWidth();float max=h*.69f;if(bh>max){bw*=max/bh;bh=max;}c.drawBitmap(hero,null,new RectF((w-bw)/2,0,(w+bw)/2,bh),bitmapPaint);}
-   if(!withHero){p.setShader(new LinearGradient(0,h*.76f,0,h,new int[]{0x00030b1d,0xcb06142e,0xff030a18},new float[]{0,.53f,1},Shader.TileMode.CLAMP));c.drawRect(0,h*.76f,w,h,p);}p.setShader(null);c.restoreToCount(save);
+   p.setShader(null);c.restoreToCount(save);
   }
   @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.OPAQUE;}
  }
