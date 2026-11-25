@@ -133,7 +133,9 @@ try:
     tap(expect("Settings"))
     tap(expect("Cleaner"))
     tap(expect("Clear app cache"))
-    tap(expect("Clear cache"))
+    # Android native AlertDialog renders action buttons in uppercase.
+    expect("Clear app cache?")
+    tap(expect("CLEAR CACHE"))
     expect("SHARK SKY")
     # The saved Xtream login must still work after cleaning and activity restart.
     tap(expect("Live TV"))
