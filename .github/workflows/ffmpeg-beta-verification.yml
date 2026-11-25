@@ -1,8 +1,5 @@
 name: Verify matching Media3 beta FFmpeg extension (no OTA)
 on:
-  push:
-    branches: ['fresh/shark-sky-5.0.0']
-    paths: ['.github/workflows/ffmpeg-beta-verification.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,7 +49,7 @@ jobs:
       - name: Verify AAR ABI and native alignment
         run: |
           set -euo pipefail
-          aar="$(find media/libraries/decoder_ffmpeg/build -name '*-release.aar' -print -quit)"
+          aar="$(find media -path '*decoder_ffmpeg*' -name '*-release.aar' -type f -print -quit)"
           test -n "$aar"
           mkdir -p evidence inspect
           cp "$aar" evidence/media3-ffmpeg-1.12.0-beta01.aar
