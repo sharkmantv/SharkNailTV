@@ -199,3 +199,58 @@ s=s[:start]+'''@Composable internal fun cataloguePages(entries:List<Entry>, quer
 '''
 p.write_text(s)
 print("Catalogue stability: standard focus, safe paging keys, cached browsing and bounded search indexing.")
+
+
+# Remote Back must always be handled in-app, even while the composable
+# catalogue or player screen is being replaced. Never default to Activity finish.
+p=root/"MainActivity.kt"
+s=p.read_text()
+anchor='class MainActivity:ComponentActivity(){'
+s=swap(s,anchor,anchor+'''
+    override fun dispatchKeyEvent(event:android.view.KeyEvent):Boolean {
+        if(event.keyCode==android.view.KeyEvent.KEYCODE_BACK) {
+            if(event.action==android.view.KeyEvent.ACTION_UP && !event.isCanceled) {
+                if(onBackPressedDispatcher.hasEnabledCallbacks()) onBackPressedDispatcher.onBackPressed()
+            }
+            // One navigation action per completed remote key press. Consume repeats
+            // and transient gaps between Compose destinations.
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+''')
+# Keep one app-level callback mounted across Home, Movies, Series and playback.
+# SafePlayer's own later BackHandler retains priority for player controls.
+anchor='        if (!introFinished) {'
+s=swap(s,anchor,'''        BackHandler {
+            when {
+                exitPrompt -> exitPrompt=false
+                !introFinished -> introFinished=true
+                homePlaying!=null -> homePlaying=null
+                selected?.kind in listOf("live","movie","episode") && api!=null -> {
+                    selected=episodeParent
+                    episodeParent=null
+                }
+                selected!=null -> {
+                    homeLookupJob?.cancel()
+                    homePlaying=null
+                    selected=null
+                }
+                section.endsWith(" Catalogue") -> section="Shark Streaming"
+                section=="EPG / TV Guide" -> section="Shark TV"
+                section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health","Shark Performance Hub") -> section="Settings"
+                section!="Home" -> section="Home"
+                else -> exitPrompt=true
+            }
+        }
+'''+anchor)
+# Remove branch-scoped duplicate callbacks, not SafePlayer's child callback.
+s=swap(s,'            BackHandler { homePlaying=null }\n','')
+s=swap(s,'            BackHandler { selected=episodeParent; episodeParent=null }\n','')
+matches=re.findall(r'(?m)^ *BackHandler \{ if\(selected!=null\) \{homeLookupJob\?\.cancel\(\);homePlaying=null;selected=null\}[^\n]*\}\n',s)
+assert len(matches)==1,"Expected original branch navigation handler"
+s=swap(s,matches[0],'')
+# Older source versions also register a separate Home exit handler.
+s=re.sub(r'(?m)^ *BackHandler \{ exitPrompt\s*=\s*true \}\n','',s)
+p.write_text(s)
+print("Remote Back now routes through a permanent app-level handler; explicit Exit confirmation remains.")
