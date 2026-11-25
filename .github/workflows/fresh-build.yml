@@ -1,12 +1,12 @@
 name: Shark Sky clean candidate
 on:
   push:
-    branches: ['design/four-screen-blue-candidate']
+    branches: ['design/premium-5.0.29-visual-rebuild']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: shark-sky-four-screen-candidate
+  group: shark-sky-premium-5029-visual
   cancel-in-progress: false
 jobs:
   build:
@@ -74,7 +74,7 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50028'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50029'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
             unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
@@ -82,7 +82,7 @@ jobs:
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.28-candidate-install-untested
+          name: SharkSky-5.0.29-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Fetch last published APK for upgrade test
@@ -127,7 +127,7 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
             adb shell pidof com.example.xtreamtv
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50028'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50029'
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_premium_home.py
             adb exec-out screencap -p > premium-home-preview.png
@@ -136,7 +136,7 @@ jobs:
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.28-signed
+          name: SharkSky-5.0.29-signed
           path: |
             SharkNailTV.apk
             ffmpeg-source.tar.gz
@@ -144,9 +144,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: SharkSky-5.0.28-home-preview
+          name: SharkSky-5.0.29-home-preview
           path: |
             premium-home-preview.png
+            premium-settings-preview.png
+            premium-live-preview.png
             failed-ui.xml
             failed-ui.png
           if-no-files-found: ignore

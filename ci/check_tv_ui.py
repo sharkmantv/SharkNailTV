@@ -66,16 +66,18 @@ try:
     expect("SHARK SKY")
     # First tap on a previously unfocused home item must open it.
     tap(expect("Settings"))
-    expect("Playback & display")
-    tap(expect("Home"))
+    expect("Playback")
+    adb("shell","input","keyevent","4")
     expect("SHARK SKY")
     # Remote path must also open Settings, not merely highlight it.
     for _ in range(3):
         adb("shell","input","keyevent","22")
     adb("shell","input","keyevent","23")
-    expect("Playback & display")
+    expect("Playback")
+    with open("premium-settings-preview.png","wb") as out:
+        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
     print("PASS: Settings opens by touch and DPAD OK")
-    tap(expect("Home"))
+    adb("shell","input","keyevent","4")
     expect("SHARK SKY")
     tap(expect("Movies"))
     expect("Xtream Codes")
@@ -108,6 +110,8 @@ try:
     tap(expect("Live TV"))
     expect("Fixture channels")
     expect("Test channel 001")
+    with open("premium-live-preview.png","wb") as out:
+        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
     root=ui()
     assert not any(find(root,label) is not None for label in ("Home","Search","TV Guide","Retry")), "Live bottom actions still visible"
     tap(expect("Live TV options"))
