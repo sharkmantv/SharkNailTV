@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 
 internal val HudBackground = Color(0xFF060D23)
 internal val HudSurface = Color(0xFF101D38)
-internal val SharkFocusGold = Color(0xFFFFD44D)
+internal val SharkFocusGold = Color(0xFFFFFF00)
 internal val HudAccent = Color(0xFFA8E8FF)
 internal val SharkFrameShape = RoundedCornerShape(0.dp)
 
@@ -67,36 +67,23 @@ internal fun Modifier.glassFrame(
     focused: Boolean = false,
     repeatPulse: Boolean = false
 ): Modifier {
-    val highlight = focused || (color != HudAccent && color.red > .65f && color.green > .55f)
-    val edge = Brush.verticalGradient(
-        if (focused || color == SharkFocusGold) listOf(SharkFocusGold, Color(0xFFD8A43D))
-        else if (highlight) listOf(Color(0xFFECF8FF), HudAccent, Color(0xFF688BCD))
-        else listOf(Color(0x8296BAEA), Color(0x3B809DDF), Color(0x566888C5))
-    )
-    val stroke = if (highlight) width.coerceIn(1.dp, 2.dp) else width.coerceAtMost(1.dp)
-    val frame = Modifier.clip(shape).border(stroke, edge, shape)
-    if (!focused) return then(frame)
-
-    val pulse = if (repeatPulse) {
-        val transition = rememberInfiniteTransition(label = "Navigation focus border")
-        transition.animateFloat(0f, 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse),
-            label = "Gold outline opacity")
-
-    } else {
-        val opacity = remember { Animatable(0f) }
-        LaunchedEffect(Unit) {
-            opacity.animateTo(1f, tween(180))
-            opacity.animateTo(0f, tween(420))
-        }
-        opacity.asState()
-    }
-    return drawWithCache {
-        val line = stroke.toPx() * 1.2f
-        val inset = line / 2
+    // Animate only the focused item. Draw an inset, density-based stroke so
+    // tall tiles and wide channel rows have exactly the same edge thickness.
+    if (!focused) return then(Modifier.clip(shape).border(width.coerceAtMost(1.dp), color, shape))
+    val transition = rememberInfiniteTransition(label = "Continuous yellow focus")
+    val phase = transition.animateFloat(0f, 1f,
+        infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "Yellow brightness")
+    return then(Modifier.clip(shape).drawWithCache {
+        val line = 3.dp.toPx().coerceAtMost(minOf(size.width, size.height) / 2f)
+        val inset = line / 2f
         val outlineSize = Size((size.width - line).coerceAtLeast(0f), (size.height - line).coerceAtLeast(0f))
         onDrawWithContent {
             drawContent()
-            drawRect(Color(0xFFFFE990), Offset(inset, inset), outlineSize, alpha = pulse.value, style = Stroke(line))
+            if (line > 0f) {
+                val yellow = androidx.compose.ui.graphics.lerp(
+                    Color(0xFFFFD900), Color(0xFFFFFF99), phase.value)
+                drawRect(yellow, Offset(inset, inset), outlineSize, style = Stroke(line))
+            }
         }
-    }.then(frame)
+    })
 }

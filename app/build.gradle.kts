@@ -20,7 +20,8 @@ android {
     defaultConfig { buildConfigField("String", "UPDATE_MANIFEST_URL", "\"${updateManifest.replace("\\", "\\\\").replace("\"", "\\\"")}\"") }
     buildFeatures { compose = true; buildConfig = true }
     packaging { jniLibs { useLegacyPackaging = true } }
-    defaultConfig { buildConfigField("String", "TMDB_API_KEY", "\"2c67bb8f745b1db06a58acfffff805f4\"") }
+    val tmdbApiKey = System.getenv("TMDB_API_KEY").orEmpty()
+    defaultConfig { buildConfigField("String", "TMDB_API_KEY", "\"${tmdbApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"") }
     defaultConfig { buildConfigField("String", "SPORTS_API_KEY", "\"${sportsProperties.getProperty("SPORTS_API_KEY", "")}\"") }
     // Optional private CI secret; never commit a personal manifest URL to source control.
     val penguManifest = System.getenv("PENGUPLAY_MANIFEST_URL").orEmpty()
@@ -66,6 +67,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-smoothstreaming:$media3Version")
     implementation("androidx.media3:media3-exoplayer-rtsp:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
+    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
     // Native BitTorrent libraries for Android TV. Version 2.1.0-35 retains older Android compatibility.
     implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-35")
     implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-35")

@@ -47,11 +47,19 @@ internal fun readSavedPassword(context:Context):String = runCatching {
     String(cipher.doFinal(Base64.decode(p.getString("password", "").orEmpty(),Base64.NO_WRAP)),Charsets.UTF_8)
 }.getOrDefault("")
 internal fun playbackPrefs(context:Context)=context.getSharedPreferences("playback_config",0)
+private val sharkMediaHttpClient by lazy {
+    okhttp3.OkHttpClient.Builder()
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+}
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal fun configuredPlayer(
     context: Context,
     preview: Boolean = false,
-    sharkMega: Boolean = false
+    sharkMega: Boolean = false,
+    liveStream: Boolean = false
 ): ExoPlayer {
     val p=playbackPrefs(context)
     val factory=object : DefaultRenderersFactory(context.applicationContext) {
@@ -75,6 +83,7 @@ internal fun configuredPlayer(
             }
         }
     }.setEnableDecoderFallback(p.getBoolean("fallback",true))
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
     val decoder=p.getString("decoder","Hardware preferred")
     if(decoder!="Automatic") factory.setMediaCodecSelector(MediaCodecSelector { mime,secure,tunnel ->
         val all=MediaCodecSelector.DEFAULT.getDecoderInfos(mime,secure,tunnel)
@@ -101,14 +110,14 @@ internal fun configuredPlayer(
         }
         // Shark Mega is a fast-start profile, not a larger memory allocation.
         // Preserve the user's chosen forward-buffer size for stability.
-        val startMs = if (sharkMega) 1_000 else 1_500
+        val startMs = when { liveStream -> 750; sharkMega -> 1_000; else -> 1_500 }
         val rebufferMs = if (sharkMega) 2_500 else 3_500
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(min, max, startMs, rebufferMs)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
     }
-    return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(10000).setReadTimeoutMs(20000)))).build().apply {
+    return ExoPlayer.Builder(context.applicationContext,factory).setLoadControl(load).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context.applicationContext).setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkMediaHttpClient)))).build().apply {
         setVideoChangeFrameRateStrategy(if(p.getString("refreshRate","Auto")=="Auto") androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
         trackSelectionParameters=trackSelectionParameters.buildUpon().apply {
             // Prefer AVC for SDR compatibility, or HEVC for HDR-capable alternatives.

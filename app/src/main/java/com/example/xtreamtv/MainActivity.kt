@@ -145,7 +145,7 @@ private enum class ServiceGenre(val label: String, val movieId: Int, val seriesI
 
 data class Program(val title:String,val start:String,val end:String)
 data class SportEvent(val channel:Entry,val program:Program,val startMillis:Long,val endMillis:Long)
-class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); SharkAppUpdater.check(this); setContent { App() } } }
+class MainActivity:ComponentActivity(){ override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState); getSharedPreferences("xtream_integration",0).let { XtreamIntegrationConfig.epgLimit=it.getInt("epgLimit",12).coerceIn(1,24); XtreamIntegrationConfig.catalogueTimeout=it.getInt("catalogueTimeout",25).coerceIn(10,60) }; window.setFlags(android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED); applyDisplaySettings(this); setContent { App() } } }
 
 /** Original full-screen shark artwork with cinematic glass impact. */
 @Composable private fun SharkIntro(onFinished:()->Unit) {
@@ -254,11 +254,14 @@ class XtreamApi(private val server:String,private val user:String,private val pa
     }
 
     @Volatile private var liveFormats = emptySet<String>()
+    var expiryText:String = ""
+        private set
 
     suspend fun authenticate(): Boolean {
         val data = json("") as? JSONObject ?: return false
         val info = data.optJSONObject("user_info") ?: return false
         if (info.optString("auth") !in listOf("1", "true") || !info.optString("status", "Active").equals("Active", true)) return false
+        expiryText=info.optString("exp_date").toLongOrNull()?.takeIf { it>0L && it<Long.MAX_VALUE/1000L }?.let { SimpleDateFormat("yyyy-MM-dd",Locale.UK).format(Date(it*1000L)) }.orEmpty()
         liveFormats = info.optJSONArray("allowed_output_formats")?.let { formats ->
             (0 until formats.length()).map { formats.optString(it).trim().lowercase(Locale.ROOT) }.toSet()
         }.orEmpty()
@@ -292,21 +295,21 @@ class XtreamApi(private val server:String,private val user:String,private val pa
                 while(reader.hasNext()) {
                     requestContext.ensureActive()
                     if(reader.peek()!=android.util.JsonToken.BEGIN_OBJECT) { reader.skipValue(); continue }
-                    var id=""; var name="Untitled"; var image=""; var category=""; var extension="mp4"
+                    var id=""; var name="Untitled"; var image=""; var category=""; var extension="mp4"; var year=""
                     reader.beginObject()
                     while(reader.hasNext()) {
                         val field=reader.nextName()
                         val textField = when (field) {
-                            "stream_id", "series_id", "name", "stream_icon", "cover", "category_id", "container_extension" -> true
+                            "stream_id", "series_id", "name", "stream_icon", "cover", "category_id", "container_extension", "year", "releaseDate", "release_date" -> true
                             else -> false
                         }
                         if (textField && (reader.peek() == android.util.JsonToken.STRING || reader.peek() == android.util.JsonToken.NUMBER)) {
                             val value=reader.nextString()
-                            when(field) { "stream_id","series_id" -> id=value; "name" -> name=value; "stream_icon","cover" -> image=value; "category_id" -> category=value; "container_extension" -> extension=value }
+                            when(field) { "stream_id","series_id" -> id=value; "name" -> name=value; "stream_icon","cover" -> image=value; "category_id" -> category=value; "container_extension" -> extension=value; "year","releaseDate","release_date" -> if(year.isBlank() && (value.take(4).toIntOrNull() ?: 0) in 1900..2100) year=value.take(4) }
                         } else reader.skipValue()
                     }
                     reader.endObject()
-                    if(id.isNotBlank() && (titleFilter==null || titleFilter(name)) && seen.add(id)) result.add(Entry(id,name,image.takeIf { it.startsWith("https://") || it.startsWith("http://") }.orEmpty(),category,kind,extension))
+                    if(id.isNotBlank() && (titleFilter==null || titleFilter(name)) && seen.add(id)) result.add(Entry(id,name,image.takeIf { it.startsWith("https://") || it.startsWith("http://") }.orEmpty(),category,kind,extension,year=year))
                     if(result.size >= (if(titleFilter==null) 10000 else 100000)) break
                 }
             }
@@ -324,7 +327,37 @@ class XtreamApi(private val server:String,private val user:String,private val pa
             for(i in 0 until arr.length()) { val e=arr.optJSONObject(i) ?: continue; val eid=e.optString("id"); if(eid.isNotBlank()) result.add(Entry(eid,"S$season E${e.optString("episode_num",(i+1).toString())} · ${e.optString("title","Episode")}",kind="episode",container=e.optString("container_extension","mp4"))) }
         }; result
     }
-    suspend fun epg(streamId:String):List<Program>{ programmeCache.get(streamId)?.takeIf { System.currentTimeMillis()-it.first<120000L }?.let { return it.second }; val o=json("get_short_epg","&stream_id=${encoded(streamId)}&limit=${XtreamIntegrationConfig.epgLimit}") as? JSONObject?:return emptyList();val arr=o.optJSONArray("epg_listings")?:return emptyList();return (0 until arr.length()).mapNotNull { i-> val p=arr.optJSONObject(i)?:return@mapNotNull null;Program(decode(p.optString("title")),p.optString("start_timestamp").takeIf { it.toLongOrNull()?.let { n -> n>0 } == true } ?: p.optString("start"),p.optString("stop_timestamp").takeIf { it.toLongOrNull()?.let { n -> n>0 } == true } ?: p.optString("end")) }.also { programmeCache.put(streamId,System.currentTimeMillis() to it) } }
+    suspend fun epg(streamId:String):List<Program> {
+        programmeCache.get(streamId)?.takeIf { System.currentTimeMillis()-it.first<120000L }?.let { return it.second }
+        suspend fun read(action:String, extra:String):List<Program> {
+            return try {
+                val obj=json(action,extra) as? JSONObject ?: return emptyList()
+                val arr=obj.optJSONArray("epg_listings") ?: return emptyList()
+                (0 until arr.length()).mapNotNull { i ->
+                    val p=arr.optJSONObject(i) ?: return@mapNotNull null
+                    val title=decode(p.optString("title"))
+                    val start=p.optString("start_timestamp").takeIf { (it.toLongOrNull() ?: 0L)>0L } ?: p.optString("start")
+                    val end=p.optString("stop_timestamp").takeIf { (it.toLongOrNull() ?: 0L)>0L } ?: p.optString("end")
+                    val a=parseEpgTime(start); val b=parseEpgTime(end)
+                    if(title.isBlank() || a==null || b==null || b<=a) null else Program(title,start,end)
+                }
+            } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; emptyList() }
+        }
+        val args="&stream_id=${encoded(streamId)}"
+        val primary=read("get_short_epg",args+"&limit=${XtreamIntegrationConfig.epgLimit}")
+        val now=System.currentTimeMillis()
+        val hasNow=primary.any { (parseEpgTime(it.start) ?: Long.MAX_VALUE)<=now && (parseEpgTime(it.end) ?: 0L)>now }
+        val hasNext=primary.any { (parseEpgTime(it.start) ?: 0L)>now }
+        val merged=primary.toMutableList()
+        if(!hasNow || !hasNext || primary.size<2) {
+            read("get_simple_data_table",args).forEach { candidate ->
+                val a=parseEpgTime(candidate.start) ?: return@forEach
+                val b=parseEpgTime(candidate.end) ?: return@forEach
+                if(merged.none { a<(parseEpgTime(it.end) ?: 0L) && b>(parseEpgTime(it.start) ?: Long.MAX_VALUE) }) merged.add(candidate)
+            }
+        }
+        return merged.sortedBy { parseEpgTime(it.start) ?: Long.MAX_VALUE }.also { programmeCache.put(streamId,System.currentTimeMillis() to it) }
+    }
     private fun decode(s:String):String {
         // Xtream EPG titles may be Base64, but some providers return plain text.
         // Only decode canonical Base64 strings to avoid corrupting normal titles.
@@ -365,6 +398,7 @@ fun App() {
     val prefs = remember { context.getSharedPreferences("shark_settings", 0) }
     var exitPrompt by remember { mutableStateOf(false) }
     var introFinished by remember { mutableStateOf(false) }
+    val skyArt=rememberSkyArt()
     var server by remember { mutableStateOf(prefs.getString("server", "") ?: "") }
     var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
     var password by remember { mutableStateOf(readSavedPassword(context)) }
@@ -678,7 +712,7 @@ fun App() {
             }
         }
     }
-    val livePreviewEnabled = playbackPrefs(context).getBoolean("livePreviewEnabled", true)
+    val livePreviewEnabled = playbackPrefs(context).getBoolean("livePreviewEnabled", false)
     var diagnostics by remember { mutableStateOf(false) }
     var testRun by remember { mutableIntStateOf(0) }
     var speedServer by remember { mutableStateOf(prefs.getString("libreSpeedServer", "").orEmpty()) }
@@ -815,7 +849,13 @@ fun App() {
         large = SharkFrameShape, extraLarge = SharkFrameShape
     ), colorScheme = darkColorScheme(primary = HudAccent, background = HudBackground, surface = HudSurface,
         surfaceVariant = Color(0xFF17294B), outline = Color(0xFF6989BB), onSurface = Color.White, onSurfaceVariant = Color.White)) {
-        if (!introFinished) { SharkIntro { introFinished=true } } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
+        if (!introFinished) {
+            if(skyArt==null) Box(Modifier.fillMaxSize().background(Color(0xFF061125)))
+            else if(skyArt["intro"]!=null || skyArt["intro39"]!=null) {
+                LaunchedEffect(Unit) { delay(2500);introFinished=true }
+                SkyArtImage(skyArt["intro"] ?: skyArt["intro39"],Modifier.fillMaxSize(),fill=true)
+            } else SharkIntro { introFinished=true }
+        } else if((section=="Home" || section.endsWith(" Catalogue")) && selected?.kind=="tmdb" && homePlaying!=null) {
             val stream=homePlaying!!
             val linkKey = homeLinkKey(checkNotNull(selected))
             BackHandler { homePlaying=null }
@@ -840,6 +880,31 @@ fun App() {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 SafePlayer(api!!.url(entry, playbackPrefs(context).getString("streamFormat", "Auto")),title=entry.title, liveStream=entry.kind=="live", programmes=epg, inferFormat=true, onExit={selected=episodeParent;episodeParent=null}, onChannel={ direction -> val i=live.indexOf(entry); if(entry.kind=="live" && i>=0) live.getOrNull(i+direction)?.let { selected=it } })
             }
+        } else if(section=="Home" && selected==null) {
+            BackHandler { exitPrompt=true }
+            SkySharkHome(skyArt,if(connected) api?.expiryText?.takeIf { it.isNotBlank() }?.let { "Current playlist expires: $it" } ?: "Playlist connected" else "Connect your playlist") { action ->
+                when(action) {
+                    "Live" -> if(connected) section="Shark TV" else showLogin=true
+                    "Movies" -> if(connected) section="Movies" else showLogin=true
+                    "Series" -> if(connected) section="TV Series" else showLogin=true
+                    "Account" -> section="Xtream Codes"
+                    "Change Playlist" -> showLogin=true
+                    "Settings" -> section="Settings"
+                    "Reload" -> if(!loading) {
+                        val provider=api
+                        if(provider==null) showLogin=true else {
+                            loading=true
+                            scope.launch {
+                                try { provider.refreshProviderCategories(); catalogueRetry++; posterRefresh++; refreshNotice="Playlist refreshed." }
+                                catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; refreshNotice="Refresh failed. Saved playlist unchanged." }
+                                finally { loading=false }
+                            }
+                        }
+                    }
+                    "EXIT" -> exitPrompt=true
+                }
+            }
+            if(loading) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.BottomCenter) { CircularProgressIndicator(Modifier.padding(18.dp)) }
         } else Box(Modifier.fillMaxSize()) {
             BackHandler { if(selected!=null) {homeLookupJob?.cancel();homePlaying=null;selected=null} else if(section.endsWith(" Catalogue")) section="Shark Streaming" else if(section=="Shark Streaming") section="Home" else if(section=="EPG / TV Guide") section="Shark TV" else if(section in listOf("Sharks Toolkit","Connection Status","API Configuration","Playback & Display","Xtream Codes","System Health","Shark Performance Hub")) section="Settings" else if(section!="Home") section="Home" else exitPrompt=true }
             val defaultArtwork = trendingMovies.firstOrNull { it.backdrop.isNotBlank() }?.backdrop.orEmpty()
@@ -1064,7 +1129,7 @@ fun App() {
                                                     }
                                                     .clickable {
                                                         when(label) {
-                                                            "Software Update" -> SharkAppUpdater.check(context as android.app.Activity, manual = true)
+                                                            "Software Update" -> refreshNotice="This isolated test build does not install production updates."
                                                             "Exit" -> exitPrompt=true
                                                             "Change Playlist" -> showLogin=true
                                                             "Refresh IPTV Catalogue" -> if(!loading) { loading=true; scope.launch {
@@ -1430,35 +1495,10 @@ fun App() {
     repeatPulse: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val fireMotion = rememberInfiniteTransition(label = "Shark TV fire focus")
-    val firePhase by fireMotion.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
-        label = "Yellow orange red focus pulse"
-    )
-    val fireColor = androidx.compose.ui.graphics.lerp(
-        Color(0xFFFFE747), Color(0xFFFF4920), firePhase
-    )
-    val frameColor = if (focused || selected) fireColor else Color(0xFF56BFFF)
-    val frameWidth = if (focused || selected) 3.3.dp else 2.dp
     Box(modifier.padding(2.dp)
-        .graphicsLayer {
-            val focusScale = if (focused) 1.10f else 1f
-            scaleX = focusScale
-            scaleY = focusScale
-        }
-        .glassFrame(frameWidth, frameColor, focused = focused, repeatPulse = false)
-        .drawWithContent {
-            drawContent()
-            if (focused || selected) {
-                drawRoundRect(
-                    color = frameColor,
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(5.dp.toPx()),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.dp.toPx())
-                )
-            }
-        }
-        .padding(2.dp).clip(SharkFrameShape)) { content() }
+        .glassFrame(2.dp, if (focused) SharkFocusGold else Color(0xFF56BFFF),
+            shape = shape, focused = focused, repeatPulse = true)
+        .padding(2.dp).clip(shape)) { content() }
 }
 
 @Composable private fun StreamingBrandCard(
@@ -1623,7 +1663,7 @@ fun App() {
 
 private object TmdbApi {
     private val backdropCache=android.util.LruCache<String,String>(512)
-    private val artCache=android.util.LruCache<String,String>(256)
+    private val artCache=android.util.LruCache<String,String>(2048)
     private val artGate=kotlinx.coroutines.sync.Semaphore(3)
     suspend fun titleLogo(key:String,entry:Entry):String = withContext(Dispatchers.IO) {
         val type=if(entry.genre=="TV Series") "tv" else "movie"
@@ -1657,12 +1697,12 @@ private object TmdbApi {
         .replace(Regex("""(?i)\s*[\[(]?(?:2160p|1080p|720p|4K|UHD|FHD|HD|HDR|HEVC|H265|MULTI|DUAL)[\])]?\s*$"""), "")
         .replace(Regex("""\s*[\[(]?(?:19|20)\d{2}[\])]?\s*$"""), "").trim(' ', '|', '-', ':')
     private fun normalizedTitle(value:String)=value.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
-    private fun catalogueKey(key:String,entry:Entry)="catalogue:${entry.kind}:${entry.title}:${key.hashCode()}"
+    private fun catalogueKey(key:String,entry:Entry)="catalogue:${entry.kind}:${entry.title}:${entry.year}:${key.hashCode()}"
     fun catalogueBackdrop(key:String,entry:Entry):String=backdropCache.get(catalogueKey(key,entry)).orEmpty()
     suspend fun catalogueArt(key:String,entry:Entry):String = withContext(Dispatchers.IO) {
         val type=if(entry.kind=="series") "tv" else "movie"
         val title=cleanTitle(entry).ifBlank { entry.title }
-        val year=Regex("\\(((?:19|20)\\d{2})\\)\\s*$").find(entry.title)?.groupValues?.get(1).orEmpty()
+        val year=entry.year.takeIf { it.matches(Regex("[0-9]{4}")) }.orEmpty().ifBlank { Regex("\\(((?:19|20)\\d{2})\\)\\s*$").find(entry.title)?.groupValues?.get(1).orEmpty() }
         val cacheKey=catalogueKey(key,entry)
         artCache[cacheKey]?.let { return@withContext it }
         artGate.acquire()
@@ -1681,10 +1721,10 @@ private object TmdbApi {
                         val arr=JSONObject(response.body?.string().orEmpty()).optJSONArray("results") ?: JSONArray()
                         val candidates=(0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("poster_path").startsWith("/") }
                         val exact=candidates.filter { candidate -> listOf(candidate.optString(if(type=="tv") "name" else "title"),candidate.optString(if(type=="tv") "original_name" else "original_title")).any { normalizedTitle(it)==normalizedTitle(title) } }
-                        val match=exact.firstOrNull { year.isNotBlank() && it.optString(if(type=="tv") "first_air_date" else "release_date").startsWith(year) } ?: exact.singleOrNull() ?: exact.firstOrNull { year.isBlank() }
+                        val match=if(year.isNotBlank()) exact.filter { it.optString(if(type=="tv") "first_air_date" else "release_date").startsWith(year) }.singleOrNull() else exact.singleOrNull()
                         val path=match?.optString("poster_path").orEmpty()
                         val backdrop=match?.optString("backdrop_path").orEmpty()
-                        if(path.startsWith("/")) art="https://image.tmdb.org/t/p/original$path"
+                        if(path.startsWith("/")) art="https://image.tmdb.org/t/p/w780$path"
                         if(backdrop.startsWith("/")) backdropCache.put(cacheKey,"https://image.tmdb.org/t/p/original$backdrop")
                     }
                 }
@@ -1833,8 +1873,8 @@ private data class AudioTrackSwitch(
     val controlFocus=remember { androidx.compose.ui.focus.FocusRequester() }
     // Player creation can throw on devices with unsupported decoder/display
     // configurations. Keep the app alive and offer a way back to the title.
-    val playerResult = remember(context, sharkMega) {
-        try { Result.success(configuredPlayer(context, sharkMega = sharkMega)) }
+    val playerResult = remember(context, sharkMega, liveStream) {
+        try { Result.success(configuredPlayer(context, sharkMega = sharkMega, liveStream = liveStream)) }
         catch (error: Exception) {
             android.util.Log.e("SharkPlayback", "Player initialisation failed", error)
             Result.failure<ExoPlayer>(error)
@@ -1958,9 +1998,24 @@ private data class AudioTrackSwitch(
                     return
                 }
                 if(now-lastRecovery>60000L) recoveryCount=0
-                if(liveStream && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && recoveryCount<3){
-                    recoveryCount++;lastRecovery=now;playerError=""
-                    player.seekToDefaultPosition();player.prepare();player.playWhenReady=true
+                val behindWindow=error.errorCode==PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                val transientIo=error.errorCode in setOf(
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                    PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+                )
+                if(liveStream && (behindWindow || transientIo) && recoveryCount<3){
+                    recoveryCount++;lastRecovery=now
+                    playerError="Reconnecting…"
+                    val retryDelay=if(behindWindow) 0L else 500L*recoveryCount
+                    handler.postDelayed({
+                        if(player.playerError != null) {
+                            playerError=""
+                            player.seekToDefaultPosition()
+                            player.prepare()
+                            player.playWhenReady=true
+                        }
+                    },retryDelay)
                 }else {playerError="Playback failed (${error.errorCodeName})";reportFailure()}
             }
             override fun onTracksChanged(current: Tracks) { tracks = current }
