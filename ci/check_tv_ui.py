@@ -167,9 +167,22 @@ try:
     for label in ("Home","Search","TV Guide","Retry"):
         expect(label)
     adb("shell","input","keyevent","4")
+    # Wait for the options dialog to relinquish focus before sending the remote key.
+    deadline=time.monotonic()+15
+    while time.monotonic()<deadline:
+        root=ui()
+        if find(root,"TV Guide") is None and find(root,"Test channel 001") is not None:
+            break
+        time.sleep(.25)
+    else:
+        raise AssertionError("Live options did not dismiss to the channel list")
     adb("shell","input","keyevent","82")
-    expect("TV Guide")
+    for label in ("Home","Search","TV Guide","Retry"):
+        expect(label)
+    tap(expect("TV Guide"))
+    expect("Select a channel to see its programme schedule")
     adb("shell","input","keyevent","4")
+    expect("Test channel 001")
     print("PASS: Live TV bottom row removed; touch and remote options retain all actions")
 except Exception:
     try:

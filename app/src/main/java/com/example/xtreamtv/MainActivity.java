@@ -857,7 +857,10 @@ public class MainActivity extends Activity {
   playerView.showController();
  }
  @Override public boolean dispatchKeyEvent(KeyEvent event){
-  if(!full&&(page.equals("Live TV")||page.equals("Movies")||page.equals("Series"))&&event.getKeyCode()==KeyEvent.KEYCODE_MENU){if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){if(page.equals("Live TV"))liveOptions();else catalogueOptions();}return true;}
+  if(!full&&(page.equals("Live TV")||page.equals("Movies")||page.equals("Series"))&&event.getKeyCode()==KeyEvent.KEYCODE_MENU){
+   // Open on release: otherwise the newly focused dialog receives the trailing Menu key-up.
+   if(event.getAction()==KeyEvent.ACTION_UP&&!event.isCanceled()){if(page.equals("Live TV"))liveOptions();else catalogueOptions();}return true;
+  }
   if(full&&event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0&&rangeButton!=null&&playbackItem!=null){
    if(event.getKeyCode()==KeyEvent.KEYCODE_MENU){choosePlayerRange(playbackItem);return true;}
    if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&getCurrentFocus()!=rangeButton&&(playerHeader==null||getCurrentFocus()==null||getCurrentFocus().getParent()!=rangeButton.getParent())){
