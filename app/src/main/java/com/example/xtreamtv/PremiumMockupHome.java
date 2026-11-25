@@ -3,6 +3,13 @@ package com.example.xtreamtv;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.LinearGradient;
+import android.graphics.Shader;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
@@ -41,16 +48,27 @@ final class PremiumMockupHome {
    if(i==0)row.setSelected(true);a.premiumHomeFocus(row);row.setOnClickListener(v->a.navigateHome(dest));
    root.place(row,20,202+i*82,265,70);rail[i]=row;
   }
+  View floor=new View(a);floor.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xff0e2343,0xff020712,0xff071024}));root.place(floor,260,829,1388,99);
   String[] dests={"Live TV","Movies","Series","Settings"};
   for(int i=0;i<4;i++){
    final String dest=dests[i];
    FrameLayout tile=new FrameLayout(a);tile.setId(View.generateViewId());tile.setContentDescription(dest);tile.setFocusable(true);tile.setClickable(true);
-   tile.addView(image(a,crop(i*350,750,320,220)),new FrameLayout.LayoutParams(-1,-1));a.premiumHomeFocus(tile);
+   Bitmap artwork=crop(i*350,750,320,220);
+   root.place(new FloorReflection(a,artwork),325+i*323,833,304,88);
+   tile.addView(image(a,artwork),new FrameLayout.LayoutParams(-1,-1));a.premiumHomeFocus(tile);
    tile.setOnClickListener(v->a.navigateHome(dest));root.place(tile,325+i*323,613,304,218);tiles[i]=tile;
   }
   for(int i=0;i<rail.length;i++){rail[i].setNextFocusRightId(tiles[Math.max(0,i-1)].getId());if(i>0)rail[i].setNextFocusUpId(rail[i-1].getId());if(i+1<rail.length)rail[i].setNextFocusDownId(rail[i+1].getId());}
   for(int i=0;i<tiles.length;i++){tiles[i].setNextFocusLeftId(i==0?rail[1].getId():tiles[i-1].getId());if(i+1<tiles.length)tiles[i].setNextFocusRightId(tiles[i+1].getId());tiles[i].setNextFocusUpId(rail[i+1].getId());}
   tiles[0].requestFocus();
+ }
+ /** Reflect only the real tile pixels, with a soft opacity fade. No layout animation. */
+ private static final class FloorReflection extends View{
+  final Bitmap source;final Paint pixels=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+  final Paint fade=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF reflected=new RectF();final RectF layer=new RectF();
+  FloorReflection(MainActivity a,Bitmap b){super(a);source=b;pixels.setAlpha(112);fade.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
+  @Override protected void onSizeChanged(int w,int h,int ow,int oh){super.onSizeChanged(w,h,ow,oh);layer.set(0,0,w,h);reflected.set(0,-w*source.getHeight()/(float)source.getWidth(),w,0);fade.setShader(new LinearGradient(0,0,0,Math.max(1,h),new int[]{0xbbffffff,0x55ffffff,0x00ffffff},new float[]{0,.35f,1},Shader.TileMode.CLAMP));}
+  @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);if(getWidth()==0||getHeight()==0)return;int layerId=canvas.saveLayer(layer,null);int id=canvas.save();canvas.scale(1,-1);canvas.drawBitmap(source,null,reflected,pixels);canvas.restoreToCount(id);canvas.drawRect(layer,fade);canvas.restoreToCount(layerId);}
  }
  private static final class DesignLayout extends ViewGroup{
   final List<int[]> coords=new ArrayList<>();
