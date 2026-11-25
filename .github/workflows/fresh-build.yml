@@ -47,6 +47,7 @@ jobs:
           python -m pip install Pillow==11.3.0 fonttools==4.59.2
           python ci/prepare_sky_font.py
           python ci/extract_premium_art.py
+          python ci/prepare_holding_art.py
           echo '8b93640d45757966232af87dafbbc0d4dcfe11e9a05bd9f3143a7c609b6e50ba  app/src/main/res/drawable-nodpi/four_sharks_atlas.png' | sha256sum -c -
           python -c "from PIL import Image; im=Image.open('app/src/main/res/drawable-nodpi/four_sharks_atlas.png'); assert im.mode=='RGBA' and im.size==(1672,941) and im.getchannel('A').getextrema()==(0,255)"
       - name: Build and verify exact-beta FFmpeg audio extension
@@ -85,7 +86,7 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50032'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50033'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
             unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
@@ -93,7 +94,7 @@ jobs:
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.32-candidate-install-untested
+          name: SharkSky-5.0.33-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Fetch last published APK for upgrade test
@@ -106,17 +107,17 @@ jobs:
           previous_cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/previous.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$previous_cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
           "$tools/aapt" dump badging "$RUNNER_TEMP/previous.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50026'"
-      - name: Retrieve published 5.0.31 APK for upgrade test
+      - name: Retrieve published 5.0.32 APK for upgrade test
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/prior31"
-          gh release download v5.0.31 --repo "$GITHUB_REPOSITORY" --pattern SharkNailTV.apk --output "$RUNNER_TEMP/prior31/SharkNailTV.apk"
+          mkdir -p "$RUNNER_TEMP/prior32"
+          gh release download v5.0.32 --repo "$GITHUB_REPOSITORY" --pattern SharkNailTV.apk --output "$RUNNER_TEMP/prior32/SharkNailTV.apk"
           tools="$ANDROID_HOME/build-tools/36.0.0"
-          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior31/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior32/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging "$RUNNER_TEMP/prior31/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50031'"
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior32/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50032'"
       - name: Prepare emulator acceleration
         run: |
           if [ -e /dev/kvm ]; then
@@ -142,8 +143,8 @@ jobs:
             adb install "$RUNNER_TEMP/previous.apk"
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             adb shell pidof com.example.xtreamtv
-            adb install -r "$RUNNER_TEMP/prior31/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50031'
+            adb install -r "$RUNNER_TEMP/prior32/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50032'
             adb install -r SharkNailTV.apk
             adb shell am force-stop com.google.android.apps.nexuslauncher
             adb shell am force-stop com.example.xtreamtv
@@ -151,7 +152,7 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
             adb shell pidof com.example.xtreamtv
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50032'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50033'
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_premium_home.py
             adb exec-out screencap -p > premium-home-preview.png
@@ -161,7 +162,7 @@ jobs:
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.32-signed
+          name: SharkSky-5.0.33-signed
           path: |
             SharkNailTV.apk
             ffmpeg-source.tar.gz
@@ -169,9 +170,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: SharkSky-5.0.32-home-preview
+          name: SharkSky-5.0.33-home-preview
           path: |
             premium-home-preview.png
+            premium-focus-movies.png
             premium-settings-preview.png
             premium-live-preview.png
             failed-ui.xml
@@ -193,7 +195,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: SharkSky-5.0.32-signed
+          name: SharkSky-5.0.33-signed
       - name: Reverify exact APK and publish OTA
         shell: bash
         run: |
@@ -204,17 +206,17 @@ jobs:
           tools="$ANDROID_HOME/build-tools/36.0.0"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50032'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50033'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"; done
-          tag=v5.0.32
+          tag=v5.0.33
           latest=$(gh release view --repo "$GH_REPO" --json tagName --jq .tagName)
-          test "$latest" = v5.0.31
+          test "$latest" = v5.0.32
           mkdir -p prior
           gh release download "$latest" --repo "$GH_REPO" --pattern SharkNailTV.apk --dir prior
           priorcert=$("$tools/apksigner" verify --print-certs prior/SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = "$priorcert"
-          "$tools/aapt" dump badging prior/SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50031'"
+          "$tools/aapt" dump badging prior/SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50032'"
           checksum=$(sha256sum SharkNailTV.apk | cut -d' ' -f1)
           bytes=$(stat -c %s SharkNailTV.apk)
           jq -n --arg tag "$tag" --arg link "https://github.com/$GH_REPO/releases/download/$tag/SharkNailTV.apk" --arg digest "sha256:$checksum" --argjson size "$bytes" '{tag_name:$tag,assets:[{name:"SharkNailTV.apk",browser_download_url:$link,size:$size,digest:$digest}]}' > update.json
@@ -222,7 +224,7 @@ jobs:
             test "$(gh release view "$tag" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
             test "$(gh release view "$tag" --repo "$GH_REPO" --json targetCommitish --jq .targetCommitish)" = "$GITHUB_SHA"
           else
-            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.32" --notes "Verified build and emulator upgrade from 5.0.31. Real TV visual and playback testing outstanding."
+            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.33" --notes "Verified build and emulator upgrade from 5.0.32. Real TV visual and playback testing outstanding."
           fi
           for asset in SharkNailTV.apk update.json ffmpeg-source.tar.gz; do gh release upload "$tag" "$asset" --repo "$GH_REPO" --clobber; done
           gh release view "$tag" --repo "$GH_REPO" --json assets | jq -e --arg digest "sha256:$checksum" --argjson size "$bytes" '(.assets | length)==3 and any(.assets[]; .name=="SharkNailTV.apk" and .size==$size and .digest==$digest) and any(.assets[]; .name=="update.json" and .size>0) and any(.assets[]; .name=="ffmpeg-source.tar.gz" and .size>0)'

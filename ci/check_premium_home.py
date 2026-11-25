@@ -50,4 +50,4 @@ assert tile_nodes(right)["Movies"].get("focused")=="true","Right remote navigati
 adb("shell","input","keyevent","21")
 time.sleep(.5)
 assert tile_nodes(dump())["Live TV"].get("focused")=="true","Left remote navigation failed"
-print("PASS: four metallic tiles, no sidebar, no posters/guide, DPAD and layout",r)
+print("PASS: four shark-held tiles, no sidebar, no posters/guide, DPAD and layout",r)
