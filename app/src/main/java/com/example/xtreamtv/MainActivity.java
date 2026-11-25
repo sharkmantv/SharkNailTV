@@ -27,6 +27,8 @@ public class MainActivity extends Activity {
  final ExecutorService io=Executors.newFixedThreadPool(2);
  final Handler ui=new Handler(Looper.getMainLooper());
  final ExecutorService epgIo=Executors.newFixedThreadPool(2);
+ final ThreadPoolExecutor rowGuideIo=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(24),new ThreadPoolExecutor.DiscardOldestPolicy());
+ final Runnable tickRows=new Runnable(){public void run(){if(stopped||!page.equals("Live TV"))return;if(!full&&right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);ui.postDelayed(this,60000);}};
  final android.util.LruCache<String,GuideData> guideCache=new android.util.LruCache<>(80);
  Future<?> previewGuideJob,fullGuideJob;
  int guideRequest;
@@ -84,7 +86,7 @@ public class MainActivity extends Activity {
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
- void screen(String title){ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();head.addView(art(R.drawable.shark_logo),new LinearLayout.LayoutParams(dp(90),dp(43)));TextView t=text(title,22);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));body.addView(head);}
+ void screen(String title){ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();head.addView(art(R.drawable.shark_logo),new LinearLayout.LayoutParams(dp(90),dp(43)));TextView t=text(title,22);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));body.addView(head);}
  void home(){page="Home";screen("SHARK SKY");body.addView(art(R.drawable.shark_brand),new LinearLayout.LayoutParams(-1,0,1));LinearLayout r=row();String[] names={"Live TV","Movies","Series","Settings"};int[] icons={R.drawable.metal48_live,R.drawable.metal48_movies,R.drawable.metal48_series,R.drawable.metal48_settings};for(int i=0;i<4;i++){String dest=names[i];LinearLayout tile=col();tile.setGravity(Gravity.CENTER);tile.setPadding(dp(8),dp(6),dp(8),dp(6));tile.setBackground(focus());tile.setFocusable(true);tile.setClickable(true);tile.addView(art(icons[i]),new LinearLayout.LayoutParams(-1,0,1));TextView t=text(dest,19);t.setGravity(Gravity.CENTER);tile.addView(t,new LinearLayout.LayoutParams(-1,dp(36)));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(140),1);p.setMargins(dp(4),dp(4),dp(4),dp(4));r.addView(tile,p);tile.setOnClickListener(v->{if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);});}body.addView(r);r.getChildAt(0).requestFocus();}
  void msg(String s){if(status!=null)status.setText(s);else Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
  static String enc(String s){try{return URLEncoder.encode(s,"UTF-8").replace("+","%20");}catch(Exception e){throw new IllegalArgumentException(e);}}
@@ -93,7 +95,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);styleInput(e);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;guideCache.evictAll();JSONObject serverInfo=j.optJSONObject("server_info");String zone=serverInfo==null?"":serverInfo.optString("timezone","");prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).putString("epg_zone",zone).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.12  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.13  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -148,7 +150,7 @@ public class MainActivity extends Activity {
  boolean showPosters(){return page.equals("Movies")||(page.equals("Series")&&seriesId.isEmpty());}
  void setItemsAdapter(List<Item> data,Pick pick){
   if(showPosters()){int screenDp=getResources().getConfiguration().screenWidthDp;int cols=Math.max(2,Math.min(6,Math.round(screenDp*.70f/125f)));right.setLayoutManager(new GridLayoutManager(this,cols));right.setAdapter(new Posters(data,pick,page.equals("Series")?"tv":"movie",cols));}
-  else{if(!(right.getLayoutManager() instanceof LinearLayoutManager)||right.getLayoutManager() instanceof GridLayoutManager)right.setLayoutManager(new LinearLayoutManager(this));right.setAdapter(new Rows(data,pick));}
+  else{if(!(right.getLayoutManager() instanceof LinearLayoutManager)||right.getLayoutManager() instanceof GridLayoutManager)right.setLayoutManager(new LinearLayoutManager(this));if(page.equals("Live TV")){right.setAdapter(new LiveGuideRows(data,pick,false,0,null));ui.removeCallbacks(tickRows);ui.postDelayed(tickRows,60000);}else right.setAdapter(new Rows(data,pick));}
  }
  class Posters extends RecyclerView.Adapter<Posters.H>{
   final List<Item> data;final Pick pick;final String type;final int cols;
@@ -242,7 +244,75 @@ public class MainActivity extends Activity {
   previewGuideJob=epgIo.submit(()->{try{GuideData data=fetchGuide(fullUrl,shortUrl,zone,false);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(token!=screenToken||req!=epgToken||isFinishing())return;guideCache.put(key,data);paintPreviewGuide(i,data);});}
    catch(Exception e){ui.post(()->{if(token==screenToken&&req==epgToken&&epg!=null&&cached==null)epg.setText(i.name+"\nProgramme information unavailable");});}});
  }
+ static final long GUIDE_SLOT=30*60*1000L;
+ static Programme currentProgramme(GuideData data,long now){if(data!=null)for(Programme p:data.shows)if(p.start>0&&p.start<=now&&p.end>now)return p;return null;}
+ static Programme nextProgramme(GuideData data,long now){if(data!=null)for(Programme p:data.shows)if(p.start>now)return p;return null;}
+ class LiveGuideRows extends RecyclerView.Adapter<LiveGuideRows.H>{
+  final List<Item> data;final Pick pick;final boolean timeline;long from;final TextView info;boolean disposed=false;
+  LiveGuideRows(List<Item>d,Pick p,boolean grid,long start,TextView details){data=d;pick=p;timeline=grid;from=start;info=details;}
+  class H extends RecyclerView.ViewHolder{
+   LinearLayout root,slots;TextView name,sub;Item item;Future<?> job;GuideData guide;
+   H(LinearLayout r,TextView n,TextView s,LinearLayout cells){super(r);root=r;name=n;sub=s;slots=cells;}
+  }
+  @Override public H onCreateViewHolder(ViewGroup parent,int type){
+   LinearLayout root=timeline?row():col();root.setBackground(focus());root.setFocusable(true);root.setClickable(true);root.setPadding(dp(8),dp(3),dp(8),dp(3));
+   TextView name=text("",14);name.setTypeface(uiMedium);name.setSingleLine();name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+   TextView sub=text("",11);sub.setSingleLine();sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+   LinearLayout slots=row();if(timeline){root.addView(name,new LinearLayout.LayoutParams(0,-1,1.15f));root.addView(slots,new LinearLayout.LayoutParams(0,-1,3f));}
+   else{root.addView(name,new LinearLayout.LayoutParams(-1,0,1));root.addView(sub,new LinearLayout.LayoutParams(-1,0,1));}
+   RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,dp(timeline?58:44));lp.setMargins(dp(2),dp(1),dp(2),dp(2));root.setLayoutParams(lp);
+   H h=new H(root,name,sub,slots);root.setOnClickListener(v->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});
+   root.setOnFocusChangeListener((v,focused)->{if(focused&&timeline&&h.item!=null)describe(h);});return h;
+  }
+  void describe(H h){if(info==null||h.item==null)return;Programme p=currentProgramme(h.guide,System.currentTimeMillis());if(p==null)p=nextProgramme(h.guide,System.currentTimeMillis());info.setText(h.item.name+(p==null?"  •  Programme information unavailable":"  •  "+guideTimes(p)+"  "+p.title+(p.description.isEmpty()?"":"\n"+p.description)));}
+  void paint(H h,GuideData d,boolean loading){
+   h.guide=d;long now=System.currentTimeMillis();Programme p=currentProgramme(d,now),next=nextProgramme(d,now);
+   if(!timeline){h.sub.setText(p!=null?guideTimes(p)+"  "+p.title:next!=null?"Next "+guideTimes(next)+"  "+next.title:loading?"Loading guide…":"No current listings");return;}
+   h.slots.removeAllViews();long end=from+6*GUIDE_SLOT,cursor=from;
+   if(d!=null)for(Programme show:d.shows){if(show.start<=0||show.end<=show.start||show.end<=cursor||show.start>=end)continue;long a=Math.max(cursor,show.start),b=Math.min(end,show.end);if(a>cursor)cell(h,"",a-cursor,false);if(b>a){cell(h,show.title,b-a,show.start<=now&&show.end>now);cursor=b;}if(cursor>=end)break;}
+   if(cursor<end)cell(h,cursor==from?(loading?"Loading guide…":"No listings for this time"):"",end-cursor,false);
+   if(h.root.hasFocus())describe(h);
+  }
+  void cell(H h,String title,long duration,boolean now){
+   TextView t=text(title,12);t.setMaxLines(2);t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setPadding(dp(5),0,dp(4),0);
+   t.setBackground(bg(now?0xff254b73:0xff111e35,0xff0b1529,0xff314764,1));
+   h.slots.addView(t,new LinearLayout.LayoutParams(0,-1,(float)duration/GUIDE_SLOT));
+  }
+  void bindGuide(H h,Item i,boolean force){
+   if(h.job!=null)h.job.cancel(true);rowGuideIo.purge();h.item=i;h.name.setText(i.name);
+   String key=guideKey(i,false),zone=prefs.getString("epg_zone",""),fullUrl=api("get_simple_data_table","&stream_id="+enc(i.id)),shortUrl=api("get_short_epg","&stream_id="+enc(i.id)+"&limit=16");
+   GuideData d=guideCache.get(key);if(timeline){GuideData ext=guideCache.get(guideKey(i,true));if(ext!=null)d=ext;}
+   final boolean extended=timeline&&(from>System.currentTimeMillis()+2*GUIDE_SLOT||from+6*GUIDE_SLOT<System.currentTimeMillis());
+   if(!force&&d!=null&&System.currentTimeMillis()-d.fetched<180000&&(!extended||d.extended)){paint(h,d,false);return;}
+   paint(h,d,d==null);int token=screenToken;final GuideData previous=d;
+   h.job=rowGuideIo.submit(()->{try{GuideData result=fetchGuide(fullUrl,shortUrl,zone,extended);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(disposed||token!=screenToken||h.item!=i||isFinishing())return;guideCache.put(extended?guideKey(i,true):key,result);paint(h,result,false);});}
+   catch(Exception e){ui.post(()->{if(!disposed&&token==screenToken&&h.item==i&&!isFinishing())paint(h,previous,false);});}});
+  }
+  @Override public void onBindViewHolder(H h,int position){bindGuide(h,data.get(position),false);}
+  @Override public void onViewRecycled(H h){if(h.job!=null)h.job.cancel(true);h.item=null;h.guide=null;super.onViewRecycled(h);}
+  @Override public int getItemCount(){return data.size();}
+  void refreshVisible(RecyclerView list){for(int n=0;n<list.getChildCount();n++){RecyclerView.ViewHolder holder=list.getChildViewHolder(list.getChildAt(n));if(holder instanceof LiveGuideRows.H){H h=(H)holder;if(h.item!=null)bindGuide(h,h.item,false);}}}
+ }
  void openGuide(){
+  if(!page.equals("Live TV")||items.isEmpty()){msg("Select a Live TV category first.");return;}
+  if(guideDialog!=null&&guideDialog.isShowing())return;
+  Dialog dialog=new Dialog(this,R.style.SharkTheme_Fullscreen);guideDialog=dialog;
+  LinearLayout layout=col();layout.setPadding(dp(16),dp(10),dp(16),dp(8));layout.setBackground(screenBackground());
+  TextView title=text("TV Guide",22);layout.addView(title,new LinearLayout.LayoutParams(-1,dp(32)));
+  TextView info=text("Select a channel to see its programme schedule",15);info.setMaxLines(3);layout.addView(info,new LinearLayout.LayoutParams(-1,dp(55)));
+  LinearLayout header=row();header.setPadding(dp(10),0,dp(10),0);layout.addView(header,new LinearLayout.LayoutParams(-1,dp(31)));
+  RecyclerView channels=list();layout.addView(channels,new LinearLayout.LayoutParams(-1,0,1));
+  long now=System.currentTimeMillis();final long[] start={now-now%GUIDE_SLOT};
+  List<Item> channelList=new ArrayList<>(items);
+  LiveGuideRows adapter=new LiveGuideRows(channelList,(item,n)->{dialog.dismiss();openChannelGuide(item);},true,start[0],info);channels.setAdapter(adapter);
+  Runnable headerUpdate=()->{header.removeAllViews();TextView label=text(new java.text.SimpleDateFormat("EEE d MMM",Locale.getDefault()).format(new Date(start[0])),13);header.addView(label,new LinearLayout.LayoutParams(0,-1,1.15f));LinearLayout times=row();header.addView(times,new LinearLayout.LayoutParams(0,-1,3f));for(int i=0;i<6;i++){TextView t=text(formatGuideTime(start[0]+i*GUIDE_SLOT,""),13);t.setTextColor(UI_ACCENT);times.addView(t,new LinearLayout.LayoutParams(0,-1,1));}};
+  Runnable change=()->{adapter.from=start[0];headerUpdate.run();adapter.refreshVisible(channels);};
+  LinearLayout actions=row();button(actions,"Earlier",()->{start[0]-=3*GUIDE_SLOT;change.run();});button(actions,"Now",()->{long t=System.currentTimeMillis();start[0]=t-t%GUIDE_SLOT;change.run();});button(actions,"Later",()->{start[0]+=3*GUIDE_SLOT;change.run();});button(actions,"Close",dialog::dismiss);layout.addView(actions);
+  headerUpdate.run();dialog.setContentView(layout);dialog.setOnDismissListener(d->{adapter.disposed=true;channels.setAdapter(null);if(guideDialog==dialog)guideDialog=null;});dialog.show();
+  if(dialog.getWindow()!=null){dialog.getWindow().setLayout(-1,-1);dialog.getWindow().getDecorView().setSystemUiVisibility(5894);}
+  focusAt(channels,Math.min(Math.max(itemPos,0),channelList.size()-1));
+ }
+ void openChannelGuide(Item initial){
   if(!page.equals("Live TV")||items.isEmpty()){msg("Select a Live TV category first.");return;}
   if(guideDialog!=null&&guideDialog.isShowing())return;
   Dialog dialog=new Dialog(this,R.style.SharkTheme_Fullscreen);guideDialog=dialog;
@@ -253,10 +323,10 @@ public class MainActivity extends Activity {
   LinearLayout schedule=col();schedule.setPadding(dp(8),0,0,0);content.addView(schedule,new LinearLayout.LayoutParams(0,-1,2));
   TextView label=text("Select a channel",17);schedule.addView(label,new LinearLayout.LayoutParams(-1,dp(44)));
   ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);LinearLayout entries=col();scroll.addView(entries);schedule.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-  final Item[] choice={selected==null?items.get(Math.min(Math.max(itemPos,0),items.size()-1)):selected};
+  final Item[] choice={initial};
   List<Item> channelList=new ArrayList<>(items);
   channels.setAdapter(new Rows(channelList,(item,n)->{choice[0]=item;loadFullGuide(dialog,item,label,entries,scroll,false);}));
-  LinearLayout actions=row();button(actions,"Refresh guide",()->loadFullGuide(dialog,choice[0],label,entries,scroll,true));button(actions,"Close",dialog::dismiss);layout.addView(actions);
+  LinearLayout actions=row();button(actions,"Refresh guide",()->loadFullGuide(dialog,choice[0],label,entries,scroll,true));button(actions,"Back to grid",()->{dialog.dismiss();openGuide();});layout.addView(actions);
   dialog.setContentView(layout);dialog.setOnDismissListener(d->{guideRequest++;if(fullGuideJob!=null)fullGuideJob.cancel(true);if(guideDialog==dialog)guideDialog=null;});dialog.show();
   if(dialog.getWindow()!=null){dialog.getWindow().setLayout(-1,-1);dialog.getWindow().getDecorView().setSystemUiVisibility(5894);}
   int index=0;for(int n=0;n<channelList.size();n++)if(channelList.get(n).id.equals(choice[0].id)){index=n;break;}
@@ -543,7 +613,7 @@ public class MainActivity extends Activity {
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;if(page.equals("Live TV")&&!full&&selected!=null&&epg!=null)loadEpg(selected);}
  @Override protected void onStop(){ui.removeCallbacks(refreshEpg);stopped=true;super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
- @Override protected void onDestroy(){screenToken++;release();io.shutdownNow();epgIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();ui.removeCallbacksAndMessages(null);super.onDestroy();}
+ @Override protected void onDestroy(){screenToken++;release();io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
  boolean updateBusy=false;
  volatile int updateProgress=0;
