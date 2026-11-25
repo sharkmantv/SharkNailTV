@@ -306,6 +306,52 @@ p.write_text(s)
 print("All fullscreen modes now use independent TextureView rendering with bounded SurfaceView recovery and VOD position preservation.")
 
 
+# 4K/HDR regression: retain the direct hardware SurfaceView path by default.
+# Prefer SDR retains its original TextureView selection on Android 13+.
+# Runtime decode failure uses the same bounded alternate-surface recovery
+# as a missing first frame. No forced software decoding of HEVC/4K.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index("@Composable private fun SafePlayer(")
+b=s.find("\n@Composable",a+1)
+if b<0: b=len(s)
+ui=s[a:b]
+ui=swap(ui,'var fullscreenTexture by remember(player) { mutableStateOf(true) }','''var fullscreenTexture by remember(player) {
+        mutableStateOf(android.os.Build.VERSION.SDK_INT>=33 &&
+            playbackPrefs(context).getString("dynamicRange","Auto")=="Prefer SDR")
+    }''')
+# Declare retry state before the error listener so actual renderer failures can
+# request recovery instead of immediately terminating the session.
+ui=swap(ui,'    var videoRetry by remember(url) { mutableStateOf(0) }\n','')
+ui=swap(ui,'    var failureSent by remember(url) { mutableStateOf(false) }','''    var failureSent by remember(url) { mutableStateOf(false) }
+    var videoRetry by remember(url) { mutableStateOf(0) }
+    var decoderRecoveryRequested by remember(url) { mutableStateOf(false) }''')
+# Match the existing terminal error branch while preserving audio-track
+# recovery and behind-live-window handling above it.
+error=re.search(r'else\s*\{\s*playerError\s*=\s*"Playback failed \(\$\{error\.errorCodeName\}\)"\s*;\s*reportFailure\(\)\s*\}',ui)
+assert error,"Decoder terminal error branch not found"
+ui=swap(ui,error.group(0),'''else if(error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && videoRetry==0 &&
+                    (renderer?.rendererFormat?.sampleMimeType?.startsWith("video/")==true ||
+                     player.currentTracks.groups.any { it.type==androidx.media3.common.C.TRACK_TYPE_VIDEO })) {
+                    firstFrame=false
+                    decoderRecoveryRequested=true
+                    playerError="Recovering video decoder…"
+                    android.util.Log.w("SharkPlayback","Video decoder failed; requesting one alternate-surface recovery")
+                } else {playerError="Playback failed ("+error.errorCodeName+")";reportFailure()}''')
+ui=swap(ui,'while(!firstFrame && !failureSent) {\n            delay(500L)','''while(!failureSent) {
+            delay(500L)
+            if(firstFrame && !decoderRecoveryRequested) continue''')
+ui=swap(ui,'if(readyWithoutFrameMs>=4_000L) {','if(decoderRecoveryRequested || readyWithoutFrameMs>=4_000L) {')
+ui=swap(ui,'videoRetry=1\n                    readyWithoutFrameMs=0L','videoRetry=1\n                    decoderRecoveryRequested=false\n                    readyWithoutFrameMs=0L')
+ui=swap(ui,'if(firstFrame && !decoderRecoveryRequested) continue','''if(firstFrame && !decoderRecoveryRequested) {
+                if(videoRetry>0 && playerError=="Recovering video…") playerError=""
+                readyWithoutFrameMs=0L
+                continue
+            }''')
+s=s[:a]+ui+s[b:]
+p.write_text(s)
+print("4K/HDR compatibility: direct native output by default, bounded decoder-error recovery, no forced software HEVC.")
+
 # Return-to-menu stability: SaveableStateHolder already restores lazy list
 # positions. Do not immediately overwrite restored positions on re-entry.
 # Delay the initial live preview as well as subsequent focus changes so
