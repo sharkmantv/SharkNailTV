@@ -13,6 +13,8 @@ final class PremiumVisuals {
  static final int GOLD=0xffffd34e, BLUE=0xff66b8ff;
  static final Paint bitmapPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
  static Bitmap hero,logo,fourSharks;
+ static Typeface regular,medium;
+ static Typeface font(Context c,boolean stronger){if(regular==null){regular=Typeface.createFromAsset(c.getAssets(),"fonts/sky_regular.ttf");medium=Typeface.createFromAsset(c.getAssets(),"fonts/sky_medium.ttf");}return stronger?medium:regular;}
  static final Bitmap[] homeArt=new Bitmap[4];
  static void prepare(Context c){
   if(hero!=null&&logo!=null)return;
@@ -37,8 +39,9 @@ final class PremiumVisuals {
   Backdrop(boolean h){withHero=h;}
   @Override public void draw(Canvas c){Rect r=getBounds();float w=r.width(),h=r.height();if(w<=0||h<=0)return;int save=c.save();c.translate(r.left,r.top);
     // Sky Stream inspired: near-black top, rich cobalt at the lower edge, no ribbon.
-    p.setShader(new LinearGradient(0,0,0,h,new int[]{0xff070811,0xff090c2e,0xff10105b,0xff111ba0,0xff10177e},new float[]{0,.26f,.52f,.80f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
-    p.setShader(new RadialGradient(w*.13f,h*.77f,w*.76f,new int[]{0x700040ef,0x330027cb,0x000027cb},new float[]{0,.42f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
+    p.setShader(new LinearGradient(0,0,0,h,new int[]{0xff080b19,0xff0c1538,0xff10254c,0xff102552,0xff07142e},new float[]{0,.26f,.52f,.80f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
+    p.setShader(new RadialGradient(w*.13f,h*.77f,w*.76f,new int[]{0x602d77d7,0x252857ae,0x002857ae},new float[]{0,.42f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
+   p.setShader(new RadialGradient(w*.80f,h*.70f,w*.55f,new int[]{0x582a52a8,0x25295192,0x00295192},new float[]{0,.48f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
    p.setShader(null);if(withHero&&fourSharks!=null){c.drawBitmap(fourSharks,new Rect(0,0,fourSharks.getWidth(),Math.round(fourSharks.getHeight()*.723f)),new RectF(0,0,w,h*.723f),bitmapPaint);}else if(withHero&&hero!=null){float bw=w*.98f,bh=bw*hero.getHeight()/hero.getWidth();float max=h*.69f;if(bh>max){bw*=max/bh;bh=max;}c.drawBitmap(hero,null,new RectF((w-bw)/2,0,(w+bw)/2,bh),bitmapPaint);}
    p.setShader(null);c.restoreToCount(save);
   }
@@ -100,31 +103,49 @@ final class PremiumVisuals {
     float inset=Math.max(3,h*.045f);
     RectF panel=new RectF(inset,inset,w-inset,h-inset);
     p.setStyle(Paint.Style.FILL);
-    p.setShader(new LinearGradient(0,panel.top,0,panel.bottom,new int[]{f?0xd321215c:0xbc151640,0xe4111243},null,Shader.TileMode.CLAMP));
+    p.setShader(new LinearGradient(0,panel.top,0,panel.bottom,new int[]{f?0x702d528a:0x50355580,0x77101e3d},null,Shader.TileMode.CLAMP));
     c.drawRect(panel,p);p.setShader(null);
+    int glossSave=c.save();c.clipRect(panel);
+    p.setShader(new LinearGradient(0,panel.top,0,panel.bottom,new int[]{0x308fcbff,0x0a6b9bdf,0x006b9bdf},new float[]{0,.37f,1},Shader.TileMode.CLAMP));c.drawRect(panel,p);p.setShader(null);c.restoreToCount(glossSave);
 
     int[] left={0xffff8d00,0xffff394d,0xfff4289e,0xffad51ff};
     int[] right={0xffff385e,0xffd92191,0xff9c41ff,0xff438dff};
     int k=Math.floorMod(icon,4);
-    float band=Math.max(3,h*.027f);
+    float band=Math.max(3,h*.027f),stripY=panel.top+Math.max(2,h*.021f);
     int saved=c.save();c.clipRect(panel);
     p.setShader(new LinearGradient(panel.left,0,panel.right,0,left[k],right[k],Shader.TileMode.CLAMP));
-    p.setAlpha((int)(f?205+50*phase:155+65*phase));c.drawRect(panel.left,panel.top,panel.right,panel.top+band,p);
-    p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,panel.top+band,panel.right,panel.top+band*2.2f,p);
+    p.setAlpha((int)(f?205+50*phase:155+65*phase));c.drawRect(panel.left,stripY,panel.right,stripY+band,p);
+    p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,stripY+band,panel.right,stripY+band*2.2f,p);
     p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
     if(f){
-     RectF ring=new RectF(panel);ring.inset(-inset*.42f,-inset*.42f);
-     p.setStyle(Paint.Style.STROKE);
-     float line=Math.max(2,h*.021f);
+     // Anchor every stroke to the same outside edge. All glow and core grow inward.
+     float line=Math.max(2,h*(.014f+.014f*phase));
+     int clip=c.save();c.clipRect(panel);
+     p.setStyle(Paint.Style.STROKE);p.setStrokeJoin(Paint.Join.MITER);
      for(int j=3;j>=1;j--){
-      p.setStrokeWidth(line+j*inset*.42f);
-      p.setColor(Color.argb((int)((15+phase*14)*(4-j)),255,192,22));c.drawRect(ring,p);
+      float width=line+j*Math.max(1,h*.008f);
+      RectF glow=new RectF(panel);glow.inset(width/2,width/2);
+      p.setStrokeWidth(width);p.setColor(Color.argb((int)((18+phase*18)*(4-j)),255,182,10));c.drawRect(glow,p);
      }
-     p.setStrokeWidth(line);
-     p.setColor(Color.rgb(255,200+Math.round(50*phase),55+Math.round(55*phase)));
-     c.drawRect(ring,p);
-     p.setStyle(Paint.Style.FILL);p.setAlpha(255);
+     RectF ring=new RectF(panel);ring.inset(line/2,line/2);p.setStrokeWidth(line);
+     p.setColor(Color.rgb(255,208+Math.round(42*phase),40+Math.round(65*phase)));c.drawRect(ring,p);
+     p.setStyle(Paint.Style.FILL);p.setAlpha(255);c.restoreToCount(clip);
     }
+ }
+ static final class Drip extends View{
+  final Paint p=new Paint(3);final Path drop=new Path();final int offset;
+  Drip(Context c,int i){super(c);offset=i*719;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);setFocusable(false);setClickable(false);}
+  @Override protected void onDraw(Canvas c){
+   super.onDraw(c);if(!isShown()||getWindowVisibility()!=View.VISIBLE)return;
+   if(android.os.Build.VERSION.SDK_INT>=26&&!android.animation.ValueAnimator.areAnimatorsEnabled())return;
+   float phase=((SystemClock.uptimeMillis()+offset)%3100)/3100f;
+   if(phase<.68f){float w=getWidth(),h=getHeight(),q=phase/.68f,x=w*.52f,y=h*.03f+h*.68f*q*q;
+    float radius=Math.max(1,w*(.075f+.025f*q));p.setShader(null);p.setColor(0x661f030a);c.drawOval(x-radius*1.3f,y-radius*.2f,x+radius*1.3f,y+radius*2.6f,p);
+    drop.reset();drop.moveTo(x,y-radius*2.0f);drop.cubicTo(x-radius*.2f,y-radius*.6f,x-radius,y,x-radius,y+radius*.6f);drop.cubicTo(x-radius,y+radius*2.2f,x+radius,y+radius*2.2f,x+radius,y+radius*.6f);drop.cubicTo(x+radius,y,x+radius*.2f,y-radius*.6f,x,y-radius*2.0f);drop.close();
+    p.setShader(new LinearGradient(x-radius,y,x+radius,y+radius*2,new int[]{0xffed5352,0xff99101e,0xff39050a},null,Shader.TileMode.CLAMP));c.drawPath(drop,p);p.setShader(null);
+   }
+   if(isShown())postInvalidateDelayed(40);
+  }
  }
  static final class Tile extends View{
   final Paint p=new Paint(3);final String title;final int icon;final boolean reflection;
@@ -140,7 +161,7 @@ final class PremiumVisuals {
      float ih=h*.42f,iw=ih*src.width()/src.height();
      c.drawBitmap(fourSharks,src,new RectF((w-iw)/2,h*.12f,(w+iw)/2,h*.12f+ih),bitmapPaint);
     }
-    p.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));
+    p.setTypeface(font(getContext(),false));
     p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(h*.21f,w*.105f));
     p.setColor(0xfff4f5ff);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.5f,h*.76f-(fm.ascent+fm.descent)*.5f,p);
     if(animate&&isShown())postInvalidateDelayed(50);
@@ -149,7 +170,7 @@ final class PremiumVisuals {
    if(!reflection){
     skyTile(c,p,w,h,f,phase,icon);
     float is=Math.min(h*.59f,w*.18f);icon(c,p,icon,false,w*.07f,(h-is)/2,is);
-    p.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
+    p.setTypeface(font(getContext(),false));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
     if(animate&&isShown())postInvalidateDelayed(50);return;
    }
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);

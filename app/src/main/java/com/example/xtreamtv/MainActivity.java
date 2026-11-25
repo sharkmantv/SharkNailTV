@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
  ExoPlayer player;
  PlayerView video;
  TextView rangeButton;
- LinearLayout playerHeader;
+ LinearLayout playerHeader,playerDetails;
  ProgressBar programmeProgress;
  String playbackDiagnostics="No video information yet";
  int activeSdrPath=-1;
@@ -110,14 +110,12 @@ public class MainActivity extends Activity {
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();}
  static class Item { String id,name,ext,art="",year="",tmdb=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
  static final int UI_TEXT=0xfff2f5fc, UI_SECONDARY=0xffb5c7e3, UI_ACCENT=0xff8dcaff, UI_GOLD=0xffffcf63;
- final android.graphics.Typeface uiRegular=android.graphics.Typeface.create("sans-serif-light",android.graphics.Typeface.NORMAL);
- final android.graphics.Typeface uiMedium=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
- final android.graphics.Typeface uiLight=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
+ android.graphics.Typeface uiRegular,uiMedium,uiLight;
  Drawable premiumFrame(boolean focused,boolean selected){return new PremiumVisuals.Glass(focused,selected);}
  StateListDrawable focus(){
   StateListDrawable d=new StateListDrawable();
@@ -779,13 +777,14 @@ public class MainActivity extends Activity {
   n.setVideoURI(Uri.parse(stream(i)));n.requestFocus();n.start();addRangeButton(host,i,null);
  }
  void removeRangeButton(){
+  if(playerDetails!=null){ViewGroup group=(ViewGroup)playerDetails.getParent();if(group!=null)group.removeView(playerDetails);playerDetails=null;}
   if(playerHeader!=null){ViewGroup group=(ViewGroup)playerHeader.getParent();if(group!=null)group.removeView(playerHeader);playerHeader=null;}
   if(rangeButton!=null){ViewGroup group=(ViewGroup)rangeButton.getParent();if(group!=null)group.removeView(rangeButton);rangeButton=null;}
   if(video!=null)video.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)null);
  }
  String rangeLabel(){return rangeName(rangeFor(page.equals("Live TV")));}
  TextView playerAction(LinearLayout bar,String label,Runnable action){
-  TextView b=text(label,13);b.setTypeface(uiMedium);b.setGravity(Gravity.CENTER);b.setPadding(dp(9),0,dp(9),0);b.setBackground(focus());premiumHomeFocus(b);b.setFocusable(true);b.setClickable(true);
+  TextView b=text(label,13);b.setTypeface(uiMedium);b.setGravity(Gravity.CENTER);b.setPadding(dp(12),0,dp(12),0);b.setBackground(playerGlass());premiumHomeFocus(b);b.setFocusable(true);b.setClickable(true);
   LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(37));lp.setMargins(dp(3),0,dp(3),0);bar.addView(b,lp);b.setOnClickListener(v->action.run());return b;
  }
  void chooseTrack(int type){
@@ -806,8 +805,28 @@ public class MainActivity extends Activity {
   if(video==null)return;String[] options={"Fit","Stretch","Zoom"};int[] modes={0,3,4};
   new AlertDialog.Builder(this).setTitle("Aspect ratio").setItems(options,(d,n)->{prefs.edit().putInt("resize_mode",modes[n]).apply();if(video!=null){video.setResizeMode(modes[n]);video.showController();}}).setNegativeButton("Cancel",null).show();
  }
+ Drawable playerGlass(){
+  GradientDrawable d=bg(0xcf254e8d,0xc4071737,0xff479af1,1);return d;
+ }
+ void paintPlayerDetails(LinearLayout panel,Item item,GuideData data){
+  panel.removeAllViews();TextView name=text(item.name,18);name.setTypeface(uiMedium);name.setMaxLines(2);panel.addView(name,new LinearLayout.LayoutParams(-1,-2));
+  TextView info=text(playbackDiagnostics,12);info.setMaxLines(3);panel.addView(info);
+  long now=System.currentTimeMillis();Programme current=currentProgramme(data,now),next=nextProgramme(data,now);
+  String[] heads={"Now playing","Next"};String[] titles={current==null?"Programme information unavailable":current.title,next==null?"No upcoming listing":next.title};
+  for(int i=0;i<2;i++){LinearLayout card=col();card.setPadding(dp(10),dp(6),dp(10),dp(8));card.setBackground(playerGlass());LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(10);panel.addView(card,lp);TextView heading=text(heads[i],13);heading.setTextColor(i==0?UI_GOLD:UI_ACCENT);card.addView(heading);TextView value=text(titles[i],15);value.setMaxLines(3);card.addView(value);}
+ }
+ void addPlayerDetails(FrameLayout host,Item item,PlayerView pv){
+  if(!page.equals("Live TV")||getResources().getConfiguration().screenWidthDp<650)return;
+  LinearLayout panel=col();panel.setPadding(dp(12),dp(12),dp(12),dp(12));panel.setBackground(bg(0xea122d5d,0xf2061330,0xff50a7ff,1));panel.setFocusable(false);
+  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(dp(238),-2,Gravity.RIGHT|Gravity.CENTER_VERTICAL);lp.rightMargin=dp(18);host.addView(panel,lp);playerDetails=panel;
+  GuideData cached=guideCache.get(guideKey(item,false));paintPlayerDetails(panel,item,cached);panel.setVisibility(pv.isControllerFullyVisible()?View.VISIBLE:View.GONE);
+  if(cached==null||System.currentTimeMillis()-cached.fetched>180000){
+   final String a=api("get_simple_data_table","&stream_id="+enc(item.id)),b=api("get_short_epg","&stream_id="+enc(item.id)+"&limit=12"),zone=prefs.getString("epg_zone",""),key=guideKey(item,false);
+   epgIo.submit(()->{try{GuideData result=fetchGuide(a,b,zone,false);ui.post(()->{if(playerDetails==panel&&video==pv&&full){guideCache.put(key,result);paintPlayerDetails(panel,item,result);}});}catch(Exception ignored){}});
+  }
+ }
  void stylePlayer(PlayerView pv){
-  View bottom=pv.findViewById(androidx.media3.ui.R.id.exo_bottom_bar);if(bottom!=null)bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xa90a2146,0xee030c20}));
+  View bottom=pv.findViewById(androidx.media3.ui.R.id.exo_bottom_bar);if(bottom!=null)bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00132d60,0xf0081b40}));
   View center=pv.findViewById(androidx.media3.ui.R.id.exo_center_controls);
   if(center!=null&&center.getLayoutParams() instanceof FrameLayout.LayoutParams){
    FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)center.getLayoutParams();lp.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;lp.bottomMargin=dp(70);center.setLayoutParams(lp);
@@ -816,7 +835,7 @@ public class MainActivity extends Activity {
    androidx.media3.ui.DefaultTimeBar bar=(androidx.media3.ui.DefaultTimeBar)progress;bar.setPlayedColor(UI_GOLD);bar.setScrubberColor(UI_GOLD);bar.setBufferedColor(0xff6a7890);bar.setUnplayedColor(0xff394458);
   }
   int[] controls={androidx.media3.ui.R.id.exo_play_pause,androidx.media3.ui.R.id.exo_prev,androidx.media3.ui.R.id.exo_next,androidx.media3.ui.R.id.exo_settings,androidx.media3.ui.R.id.exo_subtitle};
-  for(int id:controls){View v=pv.findViewById(id);if(v!=null){v.setBackground(focus());premiumHomeFocus(v);if(v instanceof ImageView)((ImageView)v).setColorFilter(UI_GOLD);}}
+  for(int id:controls){View v=pv.findViewById(id);if(v!=null){v.setBackground(playerGlass());premiumHomeFocus(v);if(v instanceof ImageView)((ImageView)v).setColorFilter(UI_TEXT);}}
  }
  void addRangeButton(FrameLayout host,Item item,PlayerView playerView){
   removeRangeButton();
@@ -824,7 +843,7 @@ public class MainActivity extends Activity {
    TextView button=text("Picture  •  "+rangeLabel(),14);button.setGravity(Gravity.CENTER);button.setPadding(dp(14),0,dp(14),0);button.setBackground(focus());premiumHomeFocus(button);button.setFocusable(true);button.setClickable(true);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,dp(40),Gravity.TOP|Gravity.RIGHT);lp.topMargin=dp(18);lp.rightMargin=dp(22);host.addView(button,lp);rangeButton=button;button.setOnClickListener(v->choosePlayerRange(item));return;
   }
   stylePlayer(playerView);
-  LinearLayout header=col();header.setPadding(dp(18),dp(8),dp(18),dp(10));header.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xe90a2146,0xaa07152c,0x0007152c}));
+  LinearLayout header=col();header.setPadding(dp(18),dp(8),dp(18),dp(10));header.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf012326a,0xcb10274c,0x0007152c}));
   LinearLayout titleRow=row();header.addView(titleRow,new LinearLayout.LayoutParams(-1,dp(38)));
   TextView title=text(item.name,21);title.setSingleLine();title.setEllipsize(android.text.TextUtils.TruncateAt.END);titleRow.addView(title,new LinearLayout.LayoutParams(0,-1,1));
   TextClock playerClock=new TextClock(this);playerClock.setFormat24Hour("HH:mm");playerClock.setFormat12Hour("h:mm a");playerClock.setTextColor(UI_TEXT);playerClock.setTextSize(18);playerClock.setTypeface(uiRegular);titleRow.addView(playerClock);
@@ -832,8 +851,9 @@ public class MainActivity extends Activity {
   playerAction(actions,"Audio",()->chooseTrack(C.TRACK_TYPE_AUDIO));playerAction(actions,"Subtitles",()->chooseTrack(C.TRACK_TYPE_TEXT));playerAction(actions,"Aspect",this::aspectDialog);
   playerAction(actions,"Video info",()->new AlertDialog.Builder(this).setTitle("Video information").setMessage(playbackDiagnostics).setPositiveButton("Close",null).show());
   TextView picture=playerAction(actions,"Picture • "+rangeLabel(),()->choosePlayerRange(item));rangeButton=picture;
+  addPlayerDetails(host,item,playerView);
   playerHeader=header;host.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));header.setVisibility(playerView.isControllerFullyVisible()?View.VISIBLE:View.GONE);
-  playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(playerHeader==header)header.setVisibility(visibility);});
+  playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(playerHeader==header){header.setVisibility(visibility);if(playerDetails!=null)playerDetails.setVisibility(visibility);}});
   playerView.showController();
  }
  @Override public boolean dispatchKeyEvent(KeyEvent event){

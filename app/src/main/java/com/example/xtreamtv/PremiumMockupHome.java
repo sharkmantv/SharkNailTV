@@ -11,6 +11,8 @@ final class PremiumMockupHome {
   PremiumVisuals.prepare(a);a.body.removeAllViews();a.body.setPadding(0,0,0,0);
   DesignLayout root=new DesignLayout(a);a.body.addView(root,new LinearLayout.LayoutParams(-1,-1));root.setBackground(new PremiumVisuals.Backdrop(true));
   View logo=PremiumVisuals.brand(a);if(PremiumVisuals.fourSharks!=null)((ImageView)logo).setImageDrawable(null);root.place(logo,24,18,380,67);
+  // Mouth coordinates calibrated against the real 1920x1080 Home screenshot.
+  int[] mouths={235,647,1033,1416};for(int i=0;i<4;i++)root.place(new PremiumVisuals.Drip(a,i),mouths[i]-13,264,26,66);
   TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextColor(Color.WHITE);clock.setTextSize(22);clock.setTypeface(a.uiRegular);root.place(clock,1250,20,345,52);
   String[] dests={"Live TV","Movies","Series","Settings"};View[] tiles=new View[4];
   for(int i=0;i<4;i++){String dest=dests[i];PremiumVisuals.Tile tile=new PremiumVisuals.Tile(a,dest,i,true);tile.setId(View.generateViewId());tile.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)v.requestFocus();return false;});tile.setOnClickListener(v->a.navigateHome(dest));root.place(tile,52+i*395,674,365,194);tiles[i]=tile;}
