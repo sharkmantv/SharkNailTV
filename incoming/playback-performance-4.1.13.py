@@ -332,3 +332,42 @@ if m:
 s=s[:a]+ui+s[b:]
 p.write_text(s)
 print("UI stability audit: fixed shared focus scale, Settings tiles, streaming icons, Home empty rows and Live preview layout.")
+
+
+# Dedicated Xtream engine: protocol settings apply only to Live TV URLs.
+# VOD uses its own container and Media3 extracts the actual file format.
+p=root/"PlaybackSettings.kt"
+s=p.read_text()
+s=swap(s,'var streamFormat by remember { mutableStateOf(p.getString("streamFormat","Auto").orEmpty()) }','var streamFormat by remember { mutableStateOf(sharkLiveFormat(context)) }')
+s=swap(s,'listOf("Auto","HLS (.m3u8)","MPEG-TS (.ts)","DASH (.mpd)","SmoothStreaming","RTSP","MP4 / progressive")','listOf("Auto","HLS (.m3u8)","MPEG-TS (.ts)")')
+s=s.replace('HLS, DASH, RTSP and progressive playback. Audio and subtitle controls are available during playback.','Xtream Live TV and automatic movie/series playback. Audio and subtitle controls are available during playback.')
+s=swap(s,'Text("Stream format",','Text("Live TV stream format",')
+s=swap(s,'Auto is recommended; forced formats require matching streams.','Auto recommended. Movies and series detect their own format.')
+a=s.index('internal fun streamMimeType(context:Context)')
+b=s.index('internal fun sharkMediaItem(',a)
+s=s[:a]+'''internal fun sharkLiveFormat(context:Context):String {
+    val prefs=playbackPrefs(context)
+    val saved=prefs.getString("streamFormat","Auto").orEmpty()
+    return if(saved in listOf("Auto","HLS (.m3u8)","MPEG-TS (.ts)")) saved
+    else {
+        prefs.edit().putString("streamFormat","Auto").apply()
+        "Auto"
+    }
+}
+'''+s[b:]
+# Keep the signature to preserve reviewed callers and preload integration.
+# URLs already have the correct Xtream extension; never force a VOD MIME.
+s=swap(s,'androidx.media3.common.MediaItem.Builder().setUri(url).apply { if (!inferFormat) streamMimeType(context)?.let { setMimeType(it) } }.build()','androidx.media3.common.MediaItem.Builder().setUri(url).build()')
+p.write_text(s)
+p=root/"MainActivity.kt"
+s=p.read_text()
+s=s.replace('playbackPrefs(context).getString("streamFormat", "Auto")','sharkLiveFormat(context)').replace('playbackPrefs(context).getString("streamFormat","Auto")','sharkLiveFormat(context)')
+p.write_text(s)
+p=Path("app/build.gradle.kts")
+s=p.read_text()
+for protocol in ("dash","smoothstreaming","rtsp"):
+    s,n=re.subn(r'(?m)^[ \t]*implementation\("androidx\.media3:media3-exoplayer-'+protocol+r':\$media3Version"\)[ \t]*\n','',s)
+    assert n==1,"Unexpected protocol module: "+protocol
+assert 'media3-exoplayer-hls' in s
+p.write_text(s)
+print("Xtream-only stream selection: Auto/HLS/TS, native progressive VOD; DASH, SmoothStreaming and RTSP dependencies removed.")
