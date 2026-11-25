@@ -91,7 +91,17 @@ s=swap(s,"GlassHeader(132.dp)",'''if(section=="Home" && selected==null) {
                         contentDescription="Shark holding Sky Premium", modifier=Modifier.fillMaxWidth().height(126.dp),
                         contentScale=ContentScale.Fit)
                 }''')
-s=swap(s,'Box(Modifier.fillMaxSize().hudBackdrop())','Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF082F88),Color(0xFF061E55),Color(0xFF071B43)))))')
+# The approved archive can have multiple uses of hudBackdrop; scope to the Home background.
+a=s.index('@Composable private fun HomeHeroBackground(')
+b=s.find('\n@Composable',a+1)
+if b<0: b=len(s)
+ui=s[a:b]
+if 'Box(Modifier.fillMaxSize().hudBackdrop())' in ui:
+    ui=swap(ui,'Box(Modifier.fillMaxSize().hudBackdrop())','Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF082F88),Color(0xFF061E55),Color(0xFF071B43)))))')
+else:
+    # Preserve the existing Sky-blue background if this revision already uses a custom fill.
+    print("Existing Home background retained")
+s=s[:a]+ui+s[b:]
 # Home uses the original navigation destinations with independent click
 # targets, not a flattened screenshot. Non-Home pages keep the old nav.
 # Header image and icon crops are prepared from the approved mockup.
