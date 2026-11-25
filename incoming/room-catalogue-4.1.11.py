@@ -103,7 +103,10 @@ end=s.index('@Composable private fun V4PosterRow(',start)
 ui=s[start:end]
 a=ui.index('    val visible=remember(unique,query,alphabetical)')
 b=ui.index('    val categoryState=',a)
-ui=ui[:a]+'    val paged=cataloguePages(unique,query,alphabetical)\n'+ui[b:]
+ui=ui[:a]+'''    var appliedQuery by remember { mutableStateOf("") }
+    LaunchedEffect(query) { if(query.isNotEmpty()) delay(180L); appliedQuery=query }
+    val paged=cataloguePages(unique,appliedQuery,alphabetical)
+'''+ui[b:]
 ui=ui.replace('visible.isNotEmpty()','paged.itemCount>0').replace('visible.isEmpty()','paged.itemCount==0').replace('visible.size','paged.itemCount')
 # Preserve stable provider IDs when loaded, and unique placeholder keys.
 ui=swap(ui,'gridItems(visible,key={it.kind+":"+it.id}) { entry ->','''items(count=paged.itemCount,key={ index -> paged.peek(index)?.let { it.kind+":"+it.id } ?: "placeholder:"+index }) { index ->
@@ -117,7 +120,20 @@ anchor='''                              }
 import re
 m=re.search(r'(\n[ ]*\}\n[ ]*\}\n)([ ]*if\(paged.itemCount==0\))',ui)
 assert m, "Could not find poster grid end"
-ui=ui[:m.start()]+'\n                            }'+ui[m.start():]
+ui=ui[:m.start()]+'\n                            } else { Box(Modifier.fillMaxWidth().aspectRatio(2f/3f).background(Color(0xFF101E33))) }'+ui[m.start():]
+# Independent implementation of the reference APK's fixed focus lanes and lightweight title information.
+ui=swap(ui,'var focusedTitle by remember(categoryId) { mutableStateOf("") }','var focusedEntry by remember(categoryId) { mutableStateOf<Entry?>(null) }')
+ui=swap(ui,'if(focused)focusedTitle=entry.title','if(focused)focusedEntry=entry')
+ui=swap(ui,'Text(focusedTitle.ifBlank { uniqueCategories.firstOrNull { it.first==categoryId }?.second.orEmpty() },','Text(focusedEntry?.let { e -> listOf(e.title,e.year,e.genre,e.rating.takeIf { it.isNotBlank() }?.let { "★ "+it }.orEmpty()).filter { it.isNotBlank() }.joinToString("  ·  ") } ?: uniqueCategories.firstOrNull { it.first==categoryId }?.second.orEmpty(),')
+ui=swap(ui,'LazyColumn(state=categoryState,modifier=Modifier.weight(1f).fillMaxWidth().clipToBounds(),','LazyColumn(state=categoryState,modifier=Modifier.weight(1f).fillMaxWidth().clipToBounds().focusRestorer(),')
+ui=swap(ui,'modifier=Modifier.fillMaxSize().clipToBounds(),\n', 'modifier=Modifier.fillMaxSize().clipToBounds().focusRestorer(),\n')
+ui=swap(ui,'LaunchedEffect(categoryId,paged.itemCount>0) { if(paged.itemCount>0) gridState.scrollToItem(0) }','LaunchedEffect(categoryId,appliedQuery,alphabetical) { gridState.scrollToItem(0) }')
+if 'import androidx.compose.ui.focus.focusRestorer' not in s:
+    s=s.replace('import androidx.compose.ui.focus.onFocusChanged','import androidx.compose.ui.focus.onFocusChanged\nimport androidx.compose.ui.focus.focusRestorer',1)
+    # Import insertion shifts the previously calculated source offsets.
+    start=s.index('@Composable private fun TvCatalogueBrowser(')
+    end=s.index('@Composable private fun V4PosterRow(',start)
+
 s=s[:start]+ui+s[end:]
 p.write_text(s)
 p=Path("app/build.gradle.kts")
