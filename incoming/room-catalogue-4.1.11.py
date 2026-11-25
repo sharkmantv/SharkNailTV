@@ -115,7 +115,7 @@ anchor='''                              }
 # Close the nullable-entry branch before closing the item lambda.
 # Match the actual source via indentation-independent local regex.
 import re
-m=re.search(r'(\n[ ]*\\}\n[ ]*\\}\n)([ ]*if\\(paged.itemCount==0\\))',ui)
+m=re.search(r'(\n[ ]*\}\n[ ]*\}\n)([ ]*if\(paged.itemCount==0\))',ui)
 assert m, "Could not find poster grid end"
 ui=ui[:m.start()]+'\n                            }'+ui[m.start():]
 s=s[:start]+ui+s[end:]
