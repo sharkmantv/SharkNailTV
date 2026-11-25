@@ -442,6 +442,23 @@ jobs:
           p.write_text(s)
           print("Movies and TV Series use a lazy poster grid, persistent sidebar, title search and sorting. Home unchanged.")
           PY
+            python "$GITHUB_WORKSPACE/incoming/room-catalogue-4.1.11.py"
+            # Seed baseline rules for the known startup path. Actual device benchmarks remain required.
+            mkdir -p app/src/main
+            cat > app/src/main/baseline-prof.txt <<'PROFILE'
+          Lcom/example/xtreamtv/MainActivity;
+          HSPLcom/example/xtreamtv/MainActivity;->onCreate(Landroid/os/Bundle;)V
+          Lcom/example/xtreamtv/PlaybackSettingsKt;
+          Lcom/example/xtreamtv/CatalogueDatabase;
+          PROFILE
+            python - <<'PY'
+          from pathlib import Path
+          p=Path("app/build.gradle.kts")
+          s=p.read_text()
+          assert s.count("dependencies {")==1
+          s=s.replace("dependencies {",'dependencies {\n    implementation("androidx.profileinstaller:profileinstaller:1.4.1")',1)
+          p.write_text(s)
+          PY
             grep -F 'orElse("4.1.11")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
