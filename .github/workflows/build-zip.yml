@@ -5,6 +5,7 @@ on:
     branches: [main, development/4.1.0-catalogue-ui]
     paths:
       - 'incoming/SharkNailTV.zip'
+      - 'incoming/room-catalogue-4.1.11.py'
       - '.github/workflows/build-zip.yml'
   workflow_dispatch:
     inputs:
@@ -389,6 +390,7 @@ jobs:
           s=swap(s,'.setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkPlaybackHttp)))','.setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, networkFactory))')
           s += '''
           // Reuse one optional Cronet engine; do not load extra native networking binaries.
+          private val sharkCronetExecutor by lazy { java.util.concurrent.Executors.newSingleThreadExecutor() }
           private var sharedSharkCronet: org.chromium.net.CronetEngine? = null
           @Synchronized private fun sharkCronetFactory(context: Context): androidx.media3.datasource.DataSource.Factory? {
               return try {
@@ -396,16 +398,15 @@ jobs:
                   if (engine == null) {
                       android.util.Log.d("SharkPlaybackStats","Cronet provider unavailable; using OkHttp")
                       null
-                  } else androidx.media3.datasource.cronet.CronetDataSource.Factory(engine, java.util.concurrent.Executor { it.run() })
+                  } else androidx.media3.datasource.cronet.CronetDataSource.Factory(engine, sharkCronetExecutor)
                       .setConnectionTimeoutMs(10_000).setReadTimeoutMs(20_000)
               } catch (_: Exception) { null } catch (_: LinkageError) { null }
           }
           '''
           # Experimental options live beside decoder fallback in Playback & Display.
-          anchor='                Text("Decoder Fallback: '
-          assert s.count(anchor)==1
-          s=s.replace(anchor,'''                SharkExperimentalPlaybackOptions(p)
-                          Text("Decoder Fallback: ''',1)
+          anchor='                PremiumButton(compact=true,onClick={fallback=!fallback;'
+          assert s.count(anchor)==1, "Decoder fallback button missing"
+          s=s.replace(anchor,'                SharkExperimentalPlaybackOptions(p)\n'+anchor,1)
           s += '''
           @Composable private fun SharkExperimentalPlaybackOptions(p: android.content.SharedPreferences) {
               Text("Advanced playback · experimental",color=Color.White,fontSize=12.sp)
