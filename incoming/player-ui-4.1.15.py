@@ -138,8 +138,13 @@ a=s.index("@Composable private fun SafePlayer(")
 b=s.find("\n@Composable",a+1)
 if b<0: b=len(s)
 ui=s[a:b]
-ui=swap(ui,'try { Result.success(configuredPlayer(context, live = liveStream)) }','''try { Result.success((if(liveStream) SharkPreviewHandoff.take(context,url) else null)
-            ?: configuredPlayer(context, live = liveStream)) }''')
+# Match the actual player creation call inside SafePlayer, preserving all
+# existing arguments and the surrounding exception/fallback handling.
+calls=list(re.finditer(r'\bconfiguredPlayer\(\s*context(?:\s*,[^()\n]*)?\)',ui))
+assert len(calls)==1,"Expected one SafePlayer creation call; found "+str(len(calls))
+m=calls[0]
+original=m.group(0)
+ui=ui[:m.start()]+'((if(liveStream) SharkPreviewHandoff.take(context,url) else null) ?: '+original+')'+ui[m.end():]
 # Do not reset the media item for a transferred, still-prepared stream.
 anchor='sharkSetChannelItem(player,sharkMediaItem(context,url,inferFormat));if(resumeMs>0L) player.seekTo(resumeMs);player.prepare();player.playWhenReady=true'
 ui=swap(ui,anchor,'''val alreadyPrepared=liveStream &&
