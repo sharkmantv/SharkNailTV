@@ -5,165 +5,56 @@ def swap(s,a,b):
     assert s.count(a)==1, "Unexpected 4.1.15 source: "+a[:150]
     return s.replace(a,b,1)
 
-# Main-thread handoff. Only an explicitly requested same-URL preview that has
-# actually rendered video may transfer ownership. No credentials are logged.
-(root/"SharkPreviewHandoff.kt").write_text('''package com.example.xtreamtv
-
-import android.content.Context
-import android.os.Handler
-import android.os.Looper
-import androidx.media3.common.C
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
-
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-internal object SharkPreviewHandoff {
-    private class Slot(val player:ExoPlayer,val url:String) {
-        var rendered=false
-        var disposed=false
-        var claimed=false
-        var view:PlayerView?=null
-    }
-    private var active:Slot?=null
-    private var pending:Slot?=null
-    private val handler=Handler(Looper.getMainLooper())
-
-    fun register(player:ExoPlayer,url:String) {
-        val previous=active
-        if(previous!=null && previous.player===player && previous.url==url) return
-        active=Slot(player,url).also { if(previous!=null && previous.player===player) it.view=previous.view }
-    }
-    fun bind(player:ExoPlayer,view:PlayerView):Boolean {
-        val slot=active?.takeIf { it.player===player } ?: return true
-        if(slot.claimed || pending===slot) return false
-        slot.view=view
-        return true
-    }
-    fun rendered(player:ExoPlayer,url:String) {
-        active?.takeIf { it.player===player && it.url==url }?.rendered=true
-    }
-    fun arm(context:Context,url:String) {
-        val prefs=playbackPrefs(context)
-        // These modes have different renderer, connection or track-selector
-        // configuration. Preserve them via the normal fullscreen path.
-        if(prefs.getBoolean("sharkTunneling",false) ||
-            prefs.getBoolean("sharkCronet",false) ||
-            prefs.getBoolean("sharkChannelPreload",false)) return
-        val slot=active ?: return
-        if(slot.url!=url || !slot.rendered || slot.disposed || slot.claimed ||
-           slot.player.playerError!=null || slot.player.playbackState!=Player.STATE_READY ||
-           slot.player.currentMediaItem?.localConfiguration?.uri?.toString()!=url ||
-           slot.view==null || pending!=null) return
-        pending=slot
-        // Detach the old view before the new view is attached. The player,
-        // buffered stream and decoder remain owned by the handoff.
-        slot.view?.player=null
-        handler.postDelayed({
-            if(pending===slot) {
-                pending=null
-                if(slot.disposed) sharkReleasePlayer(slot.player)
-                else if(active===slot) {
-                    // The original composition did not leave; its AndroidView
-                    // may be rebound by the next normal update.
-                    slot.rendered=false
-                    slot.view?.player=slot.player
-                }
-            }
-        },4000L)
-    }
-    fun take(context:Context,url:String):ExoPlayer? {
-        val slot=pending ?: return null
-        if(slot.url!=url || slot.player.playerError!=null) return null
-        pending=null
-        slot.claimed=true
-        val p=slot.player
-        return try {
-            val prefs=playbackPrefs(context)
-            p.trackSelectionParameters=p.trackSelectionParameters.buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO,false)
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles",true))
-                .build()
-            p.setVideoChangeFrameRateStrategy(if(prefs.getString("refreshRate","Auto")=="Auto")
-                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS else C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
-            p.volume=1f
-            android.util.Log.d("SharkPlayback","Same-channel preview player transferred")
-            p
-        } catch(e:Exception) {
-            // If ownership changed but transfer setup fails, release exactly
-            // once and let the caller create its ordinary fullscreen player.
-            sharkReleasePlayer(p)
-            null
-        }
-    }
-    fun dispose(player:ExoPlayer) {
-        val slot=active?.takeIf { it.player===player }
-        if(slot!=null) {
-            active=null
-            slot.disposed=true
-            slot.view=null
-            if(slot.claimed || pending===slot) return
-        }
-        sharkReleasePlayer(player)
-    }
-}
-''')
-
+# Restore the simple 4.0.7-style playback policy while keeping all
+# catalogue, graphics and navigation work. No preview ownership transfer.
+p=root/"PlaybackSettings.kt"
+s=p.read_text()
+s=swap(s,'    val load = DefaultLoadControl.Builder().build()','''    val load = if(preview) {
+        DefaultLoadControl.Builder()
+            .setBufferDurationsMs(6_000,15_000,1_000,2_500)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .setTargetBufferBytes((if((context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice) 12 else 24)*1024*1024)
+            .build()
+    } else DefaultLoadControl.Builder().build()''')
+s=swap(s,'val experimentalTunneling = !preview && p.getBoolean("sharkTunneling",false)','val experimentalTunneling = false')
+s=swap(s,'if (!preview && !live && p.getBoolean("sharkPrewarm",false))','if (false)')
+s=swap(s,'if (!preview && p.getBoolean("sharkCronet",false))','if (false)')
+s=swap(s,'if(live && !preview && !experimentalTunneling && p.getBoolean("sharkChannelPreload",false))','if(false)')
+s=swap(s,'                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, true)','''                setMaxVideoSize(960,540)
+                setMaxVideoBitrate(1_500_000)
+                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, true)''')
+s=swap(s,'                SharkExperimentalPlaybackOptions(p)','                Text("Stable playback mode · experimental features disabled",color=Color.White,fontSize=12.sp)')
+p.write_text(s)
 p=root/"MainActivity.kt"
 s=p.read_text()
-# Explicit play action arms the handoff before Compose removes the preview.
-s=swap(s,'lastLiveId=it.id;section="Shark TV";selected=it','''lastLiveId=it.id
-                                    api?.let { provider -> SharkPreviewHandoff.arm(context,provider.url(it,sharkLiveFormat(context))) }
-                                    section="Shark TV";selected=it''')
 a=s.index("@Composable private fun LivePreview(")
 b=s.find("\n@Composable",a+1)
 if b<0: b=len(s)
 ui=s[a:b]
-ui=swap(ui,'    DisposableEffect(player,url) {','''    DisposableEffect(player,url) {
-        SharkPreviewHandoff.register(player,url)''')
-ui=swap(ui,'                renderedFrame=true','''                renderedFrame=true
-                SharkPreviewHandoff.rendered(player,url)''')
-# Register the native view when it is attached. Retain ordinary release for
-# failed/dead/changed channels; only the armed slot survives disposal.
-ui=swap(ui,'DisposableEffect(player){onDispose{player.release()}}','DisposableEffect(player){onDispose{SharkPreviewHandoff.dispose(player)}}')
-ui=swap(ui,'update={it.player=player},onRelease={it.player=null}','update={SharkPreviewHandoff.bind(player,it);it.player=player},onRelease={it.player=null}')
-# AndroidView update may precede the effect; bind from the effect as well.
-ui=swap(ui,'    DisposableEffect(player,url) {','''    val previewNativeView=remember(player) { arrayOfNulls<androidx.media3.ui.PlayerView>(1) }
-    DisposableEffect(player,url) {''')
-ui=swap(ui,'        SharkPreviewHandoff.register(player,url)','''        SharkPreviewHandoff.register(player,url)
-        previewNativeView[0]?.let { SharkPreviewHandoff.bind(player,it) }''')
-ui=swap(ui,'update={SharkPreviewHandoff.bind(player,it);it.player=player}', 'update={previewNativeView[0]=it;if(SharkPreviewHandoff.bind(player,it)) it.player=player}')
+ui=swap(ui,'        player.setMediaItem(item)','''        val fixedSpeed=item.liveConfiguration.buildUpon()
+            .setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build()
+        player.setPlaybackSpeed(1f)
+        player.setMediaItem(item.buildUpon().setLiveConfiguration(fixedSpeed).build())''')
 s=s[:a]+ui+s[b:]
+# Keep native SurfaceView (SDR tone mapping opt-in only), and remove the
+# recently introduced repeated stop/prepare/surface switching watchdog.
 a=s.index("@Composable private fun SafePlayer(")
 b=s.find("\n@Composable",a+1)
 if b<0: b=len(s)
 ui=s[a:b]
-# Match the actual player creation call inside SafePlayer, preserving all
-# existing arguments and the surrounding exception/fallback handling.
-calls=list(re.finditer(r'\bconfiguredPlayer\(\s*context(?:\s*,[^()\n]*)?\)',ui))
-assert len(calls)==1,"Expected one SafePlayer creation call; found "+str(len(calls))
-m=calls[0]
-original=m.group(0)
-ui=ui[:m.start()]+'((if(liveStream) SharkPreviewHandoff.take(context,url) else null) ?: '+original+')'+ui[m.end():]
-# Do not reset the media item for a transferred, still-prepared stream.
-anchor='sharkSetChannelItem(player,sharkMediaItem(context,url,inferFormat));if(resumeMs>0L) player.seekTo(resumeMs);player.prepare();player.playWhenReady=true'
-ui=swap(ui,anchor,'''val alreadyPrepared=liveStream &&
-            player.currentMediaItem?.localConfiguration?.uri?.toString()==url &&
-            player.playbackState!=androidx.media3.common.Player.STATE_IDLE &&
-            player.playbackState!=androidx.media3.common.Player.STATE_ENDED &&
-            player.playerError==null
-        if(!alreadyPrepared) {
-            sharkSetChannelItem(player,sharkMediaItem(context,url,inferFormat))
-            if(resumeMs>0L) player.seekTo(resumeMs)
-            player.prepare()
-        }
-        player.playWhenReady=true''')
-# Recovery also covers an advertised video track that could not be selected.
-ui=swap(ui,'val videoSelected=player.currentTracks.isTypeSelected(androidx.media3.common.C.TRACK_TYPE_VIDEO)',
-    'val videoSelected=player.currentTracks.groups.any { it.type==androidx.media3.common.C.TRACK_TYPE_VIDEO }')
-# Clear stale error and track state on URL change; do not wait on unrelated
-# audio-only streams, which can legitimately have no advertised video.
+start=ui.index("    var videoRetry by remember(url)")
+end=ui.index("    BackHandler { when { panel.isNotEmpty()",start)
+ui=ui[:start]+ui[end:]
+# Do not request a new display rate while entering or leaving playback.
+# Keep explicit display-mode settings and let the TV perform its own cadence.
 s=s[:a]+ui+s[b:]
+p.write_text(s)
+p=root/"PlaybackSettings.kt"
+s=p.read_text()
+s,n=re.subn(r'setVideoChangeFrameRateStrategy\(if\([^\n]+\)', 'setVideoChangeFrameRateStrategy(androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)',s,count=1)
+assert n==1,"Frame rate strategy missing"
+p.write_text(s)
+print("Stable playback: fixed-speed preview, native fullscreen, disabled experimental playback paths.")
 
 # Keep search fields through a fullscreen round trip in the live browser.
 a=s.index("@Composable private fun LiveBrowser(")
@@ -223,134 +114,8 @@ s=swap(s,'insert.executeInsert()','''val obj=array.optJSONObject(i)
 # Index data on refresh; avoid rewriting the same snapshot for reads. The
 # old on-disk data is still valid and no provider credentials are migrated.
 p.write_text(s)
-print("4.1.15: same-channel preview transfer, bounded video recovery, saved Live search, draw-only focus, target-size image loading, persistent title index.")
+print("4.1.15: stable independent player paths, saved Live search, draw-only focus, target-size image loading, persistent title index.")
 
-
-# Fullscreen rendering regression: both Live and VOD use SafePlayer, while
-# the working preview uses a separate native view. Start fullscreen with a
-# TextureView to avoid a SurfaceView/Compose compositor attachment issue.
-# Fall back to SurfaceView once if a video track does not produce a frame.
-# Do not touch the working preview or the current buffer/decoder libraries.
-p=root/"MainActivity.kt"
-s=p.read_text()
-a=s.index("@Composable private fun SafePlayer(")
-b=s.find("\n@Composable",a+1)
-if b<0: b=len(s)
-ui=s[a:b]
-a0=ui.index('    var videoRetry by remember(url)')
-b0=ui.index('    BackHandler { when { panel.isNotEmpty()',a0)
-ui=ui[:a0]+'''    var videoRetry by remember(url) { mutableStateOf(0) }
-    var fullscreenTexture by remember(player) { mutableStateOf(true) }
-    LaunchedEffect(player,url,fullscreenTexture) {
-        // Do not ask Android TV to switch its video frame-rate hint while
-        // establishing the output surface. Keep the chosen display mode.
-        player.setVideoChangeFrameRateStrategy(androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
-    }
-    LaunchedEffect(player,url) {
-        var readyWithoutFrameMs=0L
-        while(!firstFrame && !failureSent) {
-            delay(500L)
-            val videoAdvertised=player.currentTracks.groups.any {
-                it.type==androidx.media3.common.C.TRACK_TYPE_VIDEO
-            }
-            if(player.isPlaying && !firstFrame && videoAdvertised) readyWithoutFrameMs+=500L
-            else readyWithoutFrameMs=0L
-            if(readyWithoutFrameMs>=4_000L) {
-                if(videoRetry==0) {
-                    videoRetry=1
-                    readyWithoutFrameMs=0L
-                    playerError="Recovering video…"
-                    android.util.Log.w("SharkPlayback","Fullscreen first frame missing; switching native video surface")
-                    val resume=player.currentPosition.coerceAtLeast(0L)
-                    val wasPlaying=player.playWhenReady
-                    val oldView=exitPlayerView[0]
-                    player.pause()
-                    player.stop()
-                    oldView?.player=null
-                    exitPlayerView[0]=null
-                    player.clearVideoSurface()
-                    fullscreenTexture=!fullscreenTexture
-                    // Wait only for the replacement AndroidView to be attached.
-                    var attempts=0
-                    while(exitPlayerView[0]==null && attempts++<40) delay(50L)
-                    if(exitPlayerView[0]==null) {
-                        playerError="Video surface unavailable — return and retry"
-                        break
-                    }
-                    if(liveStream) player.seekToDefaultPosition() else player.seekTo(resume)
-                    player.prepare()
-                    player.playWhenReady=wasPlaying
-                } else {
-                    playerError="Video unavailable — return and retry"
-                    player.pause()
-                    android.util.Log.w("SharkPlayback","No fullscreen first frame after surface retry")
-                    break
-                }
-            }
-        }
-        if(firstFrame && videoRetry>0) playerError=""
-    }
-'''+ui[b0:]
-m=re.search(r'AndroidView\(factory=\{ctx->[^\n]*?onRelease=\{it\.player=null;exitPlayerView\[0\]=null\},modifier=Modifier\.fillMaxSize\(\)\)',ui)
-assert m,"Fullscreen native view not found"
-old=m.group(0)
-# Use the already-shipped TextureView layout. Default surface fallback uses
-# a plain PlayerView rather than selecting the same TextureView again.
-new=old.replace('sharkPlayerView(ctx)', '(if(fullscreenTexture) android.view.LayoutInflater.from(ctx).inflate(R.layout.shark_sdr_player,null,false) as androidx.media3.ui.PlayerView else androidx.media3.ui.PlayerView(ctx))')
-assert new!=old,"Unexpected fullscreen view factory"
-new=new.replace('this.player=player;','exitPlayerView[0]=this;this.player=player;')
-new=new.replace('onRelease={it.player=null;exitPlayerView[0]=null}', 'onRelease={it.player=null;if(exitPlayerView[0]===it) exitPlayerView[0]=null}')
-ui=swap(ui,old,'key(fullscreenTexture) { '+new+' }')
-s=s[:a]+ui+s[b:]
-p.write_text(s)
-print("All fullscreen modes now use independent TextureView rendering with bounded SurfaceView recovery and VOD position preservation.")
-
-
-# 4K/HDR regression: retain the direct hardware SurfaceView path by default.
-# Prefer SDR retains its original TextureView selection on Android 13+.
-# Runtime decode failure uses the same bounded alternate-surface recovery
-# as a missing first frame. No forced software decoding of HEVC/4K.
-p=root/"MainActivity.kt"
-s=p.read_text()
-a=s.index("@Composable private fun SafePlayer(")
-b=s.find("\n@Composable",a+1)
-if b<0: b=len(s)
-ui=s[a:b]
-ui=swap(ui,'var fullscreenTexture by remember(player) { mutableStateOf(true) }','''var fullscreenTexture by remember(player) {
-        mutableStateOf(android.os.Build.VERSION.SDK_INT>=33 &&
-            playbackPrefs(context).getString("dynamicRange","Auto")=="Prefer SDR")
-    }''')
-# Declare retry state before the error listener so actual renderer failures can
-# request recovery instead of immediately terminating the session.
-ui=swap(ui,'    var videoRetry by remember(url) { mutableStateOf(0) }\n','')
-ui=swap(ui,'    var failureSent by remember(url) { mutableStateOf(false) }','''    var failureSent by remember(url) { mutableStateOf(false) }
-    var videoRetry by remember(url) { mutableStateOf(0) }
-    var decoderRecoveryRequested by remember(url) { mutableStateOf(false) }''')
-# Match the existing terminal error branch while preserving audio-track
-# recovery and behind-live-window handling above it.
-error=re.search(r'else\s*\{\s*playerError\s*=\s*"Playback failed \(\$\{error\.errorCodeName\}\)"\s*;\s*reportFailure\(\)\s*\}',ui)
-assert error,"Decoder terminal error branch not found"
-ui=swap(ui,error.group(0),'''else if(error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && videoRetry==0 &&
-                    (renderer?.rendererFormat?.sampleMimeType?.startsWith("video/")==true ||
-                     player.currentTracks.groups.any { it.type==androidx.media3.common.C.TRACK_TYPE_VIDEO })) {
-                    firstFrame=false
-                    decoderRecoveryRequested=true
-                    playerError="Recovering video decoder…"
-                    android.util.Log.w("SharkPlayback","Video decoder failed; requesting one alternate-surface recovery")
-                } else {playerError="Playback failed ("+error.errorCodeName+")";reportFailure()}''')
-ui=swap(ui,'while(!firstFrame && !failureSent) {\n            delay(500L)','''while(!failureSent) {
-            delay(500L)
-            if(firstFrame && !decoderRecoveryRequested) continue''')
-ui=swap(ui,'if(readyWithoutFrameMs>=4_000L) {','if(decoderRecoveryRequested || readyWithoutFrameMs>=4_000L) {')
-ui=swap(ui,'videoRetry=1\n                    readyWithoutFrameMs=0L','videoRetry=1\n                    decoderRecoveryRequested=false\n                    readyWithoutFrameMs=0L')
-ui=swap(ui,'if(firstFrame && !decoderRecoveryRequested) continue','''if(firstFrame && !decoderRecoveryRequested) {
-                if(videoRetry>0 && playerError=="Recovering video…") playerError=""
-                readyWithoutFrameMs=0L
-                continue
-            }''')
-s=s[:a]+ui+s[b:]
-p.write_text(s)
-print("4K/HDR compatibility: direct native output by default, bounded decoder-error recovery, no forced software HEVC.")
 
 # Return-to-menu stability: SaveableStateHolder already restores lazy list
 # positions. Do not immediately overwrite restored positions on re-entry.
