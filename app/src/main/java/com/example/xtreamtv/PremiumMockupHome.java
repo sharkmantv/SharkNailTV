@@ -12,6 +12,7 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -42,7 +43,7 @@ final class PremiumMockupHome {
   View[] rail=new View[nav.length];View[] tiles=new View[4];
   for(int i=0;i<nav.length;i++){
    String dest=nav[i];
-   LinearLayout row=a.row();row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(a.dp(12),0,a.dp(8),0);row.setBackground(a.focus());row.setFocusable(true);row.setClickable(true);row.setId(View.generateViewId());row.setContentDescription(dest);
+   LinearLayout row=a.row();row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(a.dp(12),0,a.dp(8),0);row.setBackground(a.focus());row.setFocusable(true);row.setFocusableInTouchMode(true);row.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);row.setClickable(true);row.setId(View.generateViewId());row.setContentDescription(dest);
    TextView icon=a.text(glyph[i],22);icon.setTextColor(Color.WHITE);icon.setGravity(Gravity.CENTER);row.addView(icon,new LinearLayout.LayoutParams(a.dp(30),-1));
    TextView label=a.text(dest,18);label.setTypeface(a.uiMedium);row.addView(label,new LinearLayout.LayoutParams(0,-1,1));
    if(i==0)row.setSelected(true);a.premiumHomeFocus(row);row.setOnClickListener(v->a.navigateHome(dest));
@@ -52,7 +53,7 @@ final class PremiumMockupHome {
   String[] dests={"Live TV","Movies","Series","Settings"};
   for(int i=0;i<4;i++){
    final String dest=dests[i];
-   FrameLayout tile=new FrameLayout(a);tile.setId(View.generateViewId());tile.setContentDescription(dest);tile.setFocusable(true);tile.setClickable(true);
+   FrameLayout tile=new FrameLayout(a);tile.setId(View.generateViewId());tile.setContentDescription(dest);tile.setFocusable(true);tile.setFocusableInTouchMode(true);tile.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);tile.setClickable(true);
    Bitmap artwork=crop(i*350,750,320,220);
    root.place(new FloorReflection(a,artwork),325+i*323,833,304,88);
    tile.addView(image(a,artwork),new FrameLayout.LayoutParams(-1,-1));a.premiumHomeFocus(tile);
@@ -60,7 +61,9 @@ final class PremiumMockupHome {
   }
   for(int i=0;i<rail.length;i++){rail[i].setNextFocusRightId(tiles[Math.max(0,i-1)].getId());if(i>0)rail[i].setNextFocusUpId(rail[i-1].getId());if(i+1<rail.length)rail[i].setNextFocusDownId(rail[i+1].getId());}
   for(int i=0;i<tiles.length;i++){tiles[i].setNextFocusLeftId(i==0?rail[1].getId():tiles[i-1].getId());if(i+1<tiles.length)tiles[i].setNextFocusRightId(tiles[i+1].getId());tiles[i].setNextFocusUpId(rail[i+1].getId());}
+  root.rail=rail;root.tiles=tiles;
   tiles[0].requestFocus();
+  root.post(()->{if(root.isAttachedToWindow()&&!root.hasFocus())tiles[0].requestFocus();});
  }
  /** Reflect only the real tile pixels, with a soft opacity fade. No layout animation. */
  private static final class FloorReflection extends View{
@@ -72,6 +75,23 @@ final class PremiumMockupHome {
  }
  private static final class DesignLayout extends ViewGroup{
   final List<int[]> coords=new ArrayList<>();
+  View[] rail,tiles;
+  @Override public boolean dispatchKeyEvent(KeyEvent event){
+   int key=event.getKeyCode();if(rail==null||tiles==null||(key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT&&key!=KeyEvent.KEYCODE_DPAD_UP&&key!=KeyEvent.KEYCODE_DPAD_DOWN))return super.dispatchKeyEvent(event);
+   if(event.getAction()==KeyEvent.ACTION_UP)return true;if(event.getAction()!=KeyEvent.ACTION_DOWN)return super.dispatchKeyEvent(event);
+   View focused=findFocus(),target=null;
+   for(int i=0;i<tiles.length;i++)if(focused==tiles[i]){
+    if(key==KeyEvent.KEYCODE_DPAD_LEFT)target=i>0?tiles[i-1]:rail[1];
+    else if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=tiles[Math.min(i+1,tiles.length-1)];
+    else if(key==KeyEvent.KEYCODE_DPAD_UP)target=rail[i+1];else target=tiles[i];break;
+   }
+   for(int i=0;i<rail.length;i++)if(focused==rail[i]){
+    if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=tiles[Math.max(0,i-1)];
+    else if(key==KeyEvent.KEYCODE_DPAD_UP)target=rail[Math.max(0,i-1)];
+    else if(key==KeyEvent.KEYCODE_DPAD_DOWN)target=rail[Math.min(i+1,rail.length-1)];else target=rail[i];break;
+   }
+   if(target==null)target=tiles[0];return target.requestFocus()||super.dispatchKeyEvent(event);
+  }
   DesignLayout(MainActivity a){super(a);setClipChildren(false);setClipToPadding(false);}
   void place(View v,int x,int y,int w,int h){coords.add(new int[]{x,y,w,h});addView(v,new LayoutParams(w,h));}
   int left(int[] p,int w){return Math.round(p[0]*w/1648f);}

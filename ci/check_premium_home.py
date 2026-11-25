@@ -29,9 +29,11 @@ r=[rect(n) for n in tiles.values()]
 assert all(y==r[0][1] and Y==r[0][3] and X>x for x,y,X,Y in r),r
 assert all(r[i][2]<=r[i+1][0] for i in range(3)),r
 assert not any(n.get("text") in ("TV Guide","Sports","Trending") for n in root.iter("node"))
+assert tiles["Live TV"].get("focused")=="true", "Initial focus missing: "+str([(n.get("text"),n.get("content-desc"),n.get("bounds")) for n in root.iter("node") if n.get("focused")=="true"])
 adb("shell","input","keyevent","22")
 time.sleep(.5)
-assert tile_nodes(dump())["Movies"].get("focused")=="true","Right remote navigation failed"
+right=dump()
+assert tile_nodes(right)["Movies"].get("focused")=="true","Right remote navigation failed: "+str([(n.get("text"),n.get("content-desc"),n.get("bounds")) for n in right.iter("node") if n.get("focused")=="true"])
 adb("shell","input","keyevent","21")
 time.sleep(.5)
 assert tile_nodes(dump())["Live TV"].get("focused")=="true","Left remote navigation failed"
