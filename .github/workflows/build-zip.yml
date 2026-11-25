@@ -2,7 +2,7 @@ name: Build SharkNailTV ZIP and publish OTA on upload
 
 on:
   push:
-    branches: [main, 'development/4.1.14-home']
+    branches: [main, 'development/4.1.15-performance']
     paths:
       - 'incoming/SharkNailTV.zip'
       - 'incoming/room-catalogue-4.1.11.py'
@@ -11,6 +11,7 @@ on:
       - 'incoming/performance-audit-4.1.12.py'
       - 'incoming/playback-performance-4.1.13.py'
       - 'incoming/home-performance-4.1.14.py'
+      - 'incoming/player-ui-4.1.15.py'
       - 'incoming/SharkNailTV-4.1.14-home-assets.zip'
       - '.github/workflows/build-zip.yml'
   workflow_dispatch:
@@ -85,7 +86,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.1.14 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.1.15 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -445,8 +446,8 @@ jobs:
           # Use a stable engine exactly matching the shipped, SHA-verified FFmpeg AAR.
           s=swap(s,'media3Version = "1.12.0-beta01"','media3Version = "1.11.1"')
           s=swap(s,'    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")','    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")\n    implementation("androidx.media3:media3-datasource-cronet:$media3Version")')
-          s=swap(s,'orElse("40009")','orElse("40114")')
-          s=swap(s,'orElse("4.0.9")','orElse("4.1.14")')
+          s=swap(s,'orElse("40009")','orElse("40115")')
+          s=swap(s,'orElse("4.0.9")','orElse("4.1.15")')
           p.write_text(s)
           print("Movies and TV Series use a lazy poster grid, persistent sidebar, title search and sorting. Home unchanged.")
           PY
@@ -471,7 +472,8 @@ jobs:
             python "$GITHUB_WORKSPACE/incoming/performance-audit-4.1.12.py"
             python "$GITHUB_WORKSPACE/incoming/playback-performance-4.1.13.py"
             python "$GITHUB_WORKSPACE/incoming/home-performance-4.1.14.py"
-            grep -F 'orElse("4.1.14")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/player-ui-4.1.15.py"
+            grep -F 'orElse("4.1.15")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -497,7 +499,7 @@ jobs:
         run: |
           set -euo pipefail
           floor=30000
-          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40113; fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40114; fi
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
             python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
           version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
@@ -582,11 +584,11 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.1.14 package and matching FFmpeg fallback
+      - name: Verify complete 4.1.15 package and matching FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          test "$VERSION_NAME" = "4.1.14"
+          test "$VERSION_NAME" = "4.1.15"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
           grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
@@ -709,4 +711,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated 4.1.14: approved static Home graphics, saved screen positions, preview-native buffering and record-based SQLite cache; cache-first Xtream, Room and Paging catalogue, indexed search, TV focus restoration and fixed-size posters; matched Media3 1.11.1 FFmpeg/AV1/VP9 extensions; optional tunneling, Cronet, prewarming and next-channel PreloadManager; native fullscreen buffer, preview recovery, EPG coalescing and bounded failure backoff, bounded Room search and cached Paging browsing, safer standard D-pad focus and paging keys, low-memory preload guard, per-channel timing, startup profile, separate Macrobenchmark test APK, package/dependency audit and playback metrics. Signed APK, native library presence and emulator launch verified by CI. Actual provider/device playback, IBO comparison and performance benefits require device validation. Experimental playback features remain opt-in." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated 4.1.15: same-channel preview player handover with conventional fullscreen fallback; draw-only focus pulse, saved Live search, display-sized image decoding, persistent title index for refreshed catalogue snapshots; approved static Home graphics, saved screen positions, preview-native buffering and record-based SQLite cache; cache-first Xtream, Room and Paging catalogue, indexed search, TV focus restoration and fixed-size posters; matched Media3 1.11.1 FFmpeg/AV1/VP9 extensions; optional tunneling, Cronet, prewarming and next-channel PreloadManager; native fullscreen buffer, preview recovery, EPG coalescing and bounded failure backoff, bounded Room search and cached Paging browsing, safer standard D-pad focus and paging keys, low-memory preload guard, per-channel timing, startup profile, separate Macrobenchmark test APK, package/dependency audit and playback metrics. Signed APK, native library presence and emulator launch verified by CI. Actual provider/device playback, IBO comparison and performance benefits require device validation. Experimental playback features remain opt-in." --latest
