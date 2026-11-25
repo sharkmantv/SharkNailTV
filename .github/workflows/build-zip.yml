@@ -199,16 +199,47 @@ jobs:
                       }
                       override fun onPlaybackStateChanged(state:Int) {''')
           # Draw an opaque error overlay above the existing preview surface; keep normal playback unchanged.
-          part,n=re.subn(r'if\s*\(failed\)\s*Text\([^\n]+', 'if(failed) Text("Channel unavailable — Press OK to retry", color=Color.White, fontSize=13.sp, textAlign=androidx.compose.ui.text.style.TextAlign.Center, modifier=Modifier.align(Alignment.Center).background(Color.Black).padding(12.dp))',part)
+          part,n=re.subn(r'if\s*\(failed\)\s*Text\([^\n]+', 'if(failed) Text("Channel unavailable — Press OK to retry", color=Color.White, fontSize=13.sp, modifier=Modifier.align(Alignment.Center).background(Color.Black).padding(12.dp))',part)
           assert n==1, "Existing preview failure label not found"
-          p.write_text(before+part+after)
+          s=before+part+after
+          # Extend the already-tested account-scoped disk cache to Live TV.
+          # Keep the same refresh rules and channel selection; cached data is provisional.
+          s=swap(s,'''            if(catalogueKind!="live") {
+                          a.cachedCategories(action)?.takeIf { it.isNotEmpty() }?.let {
+                              categories=it
+                              categoryId=it.first().first
+                              categoriesLoading=false
+                          }
+                      }''','''            a.cachedCategories(action)?.takeIf { it.isNotEmpty() }?.let {
+                          categories=it
+                          if(categoryId==null || it.none { c -> c.first==categoryId }) categoryId=it.first().first
+                          categoriesLoading=false
+                      }''')
+          s=swap(s,'''            if(catalogueKind!="live") {
+                          a.cachedEntries(action,catalogueKind,id)?.takeIf { it.isNotEmpty() }?.let {
+                              if(catalogueKind=="movie") movies=it else series=it
+                              entriesLoading=false
+                          }
+                      }''','''            a.cachedEntries(action,catalogueKind,id)?.takeIf { it.isNotEmpty() }?.let {
+                          when(catalogueKind) { "live" -> live=it; "movie" -> movies=it; else -> series=it }
+                          entriesLoading=false
+                      }''')
+          # De-duplicate only once per channel list, rather than on every search keystroke.
+          old='val filtered=remember(channels,query){channels.distinctBy { it.id }.filter { it.title.contains(query,true) }}'
+          if s.count(old)==1:
+              s=s.replace(old,'''val uniqueChannels=remember(channels) { channels.distinctBy { it.id } }
+              val filtered=remember(uniqueChannels,query) { if(query.isBlank()) uniqueChannels else uniqueChannels.filter { it.title.contains(query,true) } }''',1)
+              print("Channel search de-duplication moved outside per-query filtering")
+          else:
+              print("Channel search already differs from baseline; left unchanged")
+          p.write_text(s)
           p=Path("app/build.gradle.kts")
           s=p.read_text()
           s=swap(s,'orElse("40008")','orElse("40009")')
           s=swap(s,'orElse("4.0.8")','orElse("4.0.9")')
           assert 'media3Version = "1.12.0-beta01"' in s
           p.write_text(s)
-          print("Preview unavailable message and OK retry applied; Media3 and buffering unchanged")
+          print("Preview error feedback, live cache-first loading and OK retry applied; Media3 and buffering unchanged")
           PY
             grep -F 'orElse("4.0.9")' app/build.gradle.kts >/dev/null
           fi
@@ -398,4 +429,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME (Media3 beta test)" --notes "Preview failures now display Channel unavailable — Press OK to retry; OK retries the same failed channel, with a 20-second no-first-frame timeout. Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. EXPERIMENTAL Media3 1.12.0-beta01 with existing 1.11.1-built LGPL FFmpeg audio fallback; FFmpeg runtime compatibility is not yet verified, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME (Media3 beta test)" --notes "Live TV now uses account-scoped cache-first category and channel loading, retaining background refresh and selection. Preview failures display Channel unavailable — Press OK to retry; OK retries the same failed channel, with a 20-second no-first-frame timeout. Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. EXPERIMENTAL Media3 1.12.0-beta01 with existing 1.11.1-built LGPL FFmpeg audio fallback; FFmpeg runtime compatibility is not yet verified, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
