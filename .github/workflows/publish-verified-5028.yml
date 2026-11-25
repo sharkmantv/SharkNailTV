@@ -1,0 +1,63 @@
+name: Publish verified 5.0.28 test OTA
+on:
+  push:
+    branches: ['release/5.0.28-verified-candidate']
+    paths: ['.github/workflows/publish-verified-5028.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: shark-sky-verified-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify successful candidate and retrieve exact signed artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          run=45642017823
+          sha=4e8d9d99bd5d3d98a1364b41e819eb4d6f6d68c7
+          gh api "repos/$GH_REPO/actions/runs/$run" | jq -e --arg sha "$sha" '.conclusion=="success" and .head_sha==$sha and .head_branch=="design/four-screen-blue-candidate"'
+          gh api "repos/$GH_REPO/actions/runs/$run/artifacts" | jq -e '.artifacts[] | select(.id==15036104766 and .name=="SharkSky-5.0.28-signed" and .expired==false)'
+          gh run download "$run" --repo "$GH_REPO" --name SharkSky-5.0.28-signed
+          test -s SharkNailTV.apk
+          test -s ffmpeg-source.tar.gz
+      - name: Verify signature, package and integrity again
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50028'"
+          unzip -tq SharkNailTV.apk
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
+          done
+          gh release download v5.0.26 --repo "$GH_REPO" --pattern SharkNailTV.apk --output previous.apk
+          prev=$("$tools/apksigner" verify --print-certs previous.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$prev" = "$cert"
+      - name: Publish OTA candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest=$(gh release view --repo "$GH_REPO" --json tagName --jq .tagName)
+          test "$latest" = v5.0.26
+          if gh release view v5.0.28 --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "Release already exists; refusing overwrite."
+            exit 1
+          fi
+          checksum=$(sha256sum SharkNailTV.apk | cut -d' ' -f1)
+          bytes=$(stat -c %s SharkNailTV.apk)
+          jq -n --arg tag v5.0.28 --arg link "https://github.com/$GH_REPO/releases/download/v5.0.28/SharkNailTV.apk" --arg digest "sha256:$checksum" --argjson size "$bytes" '{tag_name:$tag,assets:[{name:"SharkNailTV.apk",browser_download_url:$link,size:$size,digest:$digest}]}' > update.json
+          gh release create v5.0.28 SharkNailTV.apk update.json ffmpeg-source.tar.gz --repo "$GH_REPO" --target 4e8d9d99bd5d3d98a1364b41e819eb4d6f6d68c7 --title "Shark Sky 5.0.28 (test UI)" --notes "Signed candidate from successful run 45642017823. Four-tile Home without sidebar, blue translucent panels, gold focus, settings grid and player styling; existing playback retained. APK signature and emulator upgrade/UI checks passed. Real-device playback and final mockup fidelity pending user testing; not final visual quality." --latest
+          gh release view v5.0.28 --repo "$GH_REPO" --json assets,tagName --jq '.tagName, [.assets[].name]'
