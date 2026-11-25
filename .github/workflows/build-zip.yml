@@ -6,6 +6,7 @@ on:
     paths:
       - 'incoming/SharkNailTV.zip'
       - 'incoming/room-catalogue-4.1.11.py'
+      - 'incoming/preload-4.1.11.py'
       - '.github/workflows/build-zip.yml'
   workflow_dispatch:
     inputs:
@@ -443,6 +444,7 @@ jobs:
           p.write_text(s)
           print("Movies and TV Series use a lazy poster grid, persistent sidebar, title search and sorting. Home unchanged.")
           PY
+            python "$GITHUB_WORKSPACE/incoming/preload-4.1.11.py"
             python "$GITHUB_WORKSPACE/incoming/room-catalogue-4.1.11.py"
             # Seed baseline rules for the known startup path. Actual device benchmarks remain required.
             mkdir -p app/src/main
