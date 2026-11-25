@@ -12,7 +12,7 @@ import android.widget.ImageView;
 final class PremiumVisuals {
  static final int GOLD=0xffffd34e, BLUE=0xff66b8ff;
  static final Paint bitmapPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
- static Bitmap hero,logo;
+ static Bitmap hero,logo,fourSharks;
  static final Bitmap[] homeArt=new Bitmap[4];
  static void prepare(Context c){
   if(hero!=null&&logo!=null)return;
@@ -27,6 +27,8 @@ final class PremiumVisuals {
   logo=BitmapFactory.decodeResource(c.getResources(),R.drawable.premium_cut_brand,o);
   int[] ids={R.drawable.premium_cut_live,R.drawable.premium_cut_movies,R.drawable.premium_cut_series,R.drawable.premium_cut_settings};
   for(int i=0;i<ids.length;i++)homeArt[i]=BitmapFactory.decodeResource(c.getResources(),ids[i],o);
+  int atlasId=c.getResources().getIdentifier("four_sharks_atlas","drawable",c.getPackageName());
+  if(atlasId!=0)fourSharks=BitmapFactory.decodeResource(c.getResources(),atlasId,o);
   a.recycle();
  }
  static View brand(MainActivity a){prepare(a);ImageView v=new ImageView(a);v.setImageBitmap(logo);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
@@ -43,7 +45,7 @@ final class PremiumVisuals {
    p.setShader(new RadialGradient(w*.53f,h*.38f,Math.max(w,h)*.51f,new int[]{0x8c155ed6,0x35133f99,0x00133f99},new float[]{0,.52f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
    p.setShader(new LinearGradient(0,0,w,0,new int[]{0x000c61ce,0x603168ca,0x000c61ce},null,Shader.TileMode.CLAMP));Path ribbon=new Path();ribbon.moveTo(0,h*.53f);ribbon.cubicTo(w*.38f,h*.22f,w*.65f,h*.66f,w,h*.18f);ribbon.lineTo(w,h*.25f);ribbon.cubicTo(w*.62f,h*.73f,w*.32f,h*.31f,0,h*.58f);ribbon.close();c.drawPath(ribbon,p);
    }
-   p.setShader(null);if(withHero&&hero!=null){float bw=w*.98f,bh=bw*hero.getHeight()/hero.getWidth();float max=h*.69f;if(bh>max){bw*=max/bh;bh=max;}c.drawBitmap(hero,null,new RectF((w-bw)/2,0,(w+bw)/2,bh),bitmapPaint);}
+   p.setShader(null);if(withHero&&fourSharks!=null){c.drawBitmap(fourSharks,new Rect(0,0,fourSharks.getWidth(),Math.round(fourSharks.getHeight()*.723f)),new RectF(0,0,w,h*.723f),bitmapPaint);}else if(withHero&&hero!=null){float bw=w*.98f,bh=bw*hero.getHeight()/hero.getWidth();float max=h*.69f;if(bh>max){bw*=max/bh;bh=max;}c.drawBitmap(hero,null,new RectF((w-bw)/2,0,(w+bw)/2,bh),bitmapPaint);}
    if(!withHero){p.setShader(new LinearGradient(0,h*.76f,0,h,new int[]{0x00030b1d,0xcb06142e,0xff030a18},new float[]{0,.53f,1},Shader.TileMode.CLAMP));c.drawRect(0,h*.76f,w,h,p);}p.setShader(null);c.restoreToCount(save);
   }
   @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.OPAQUE;}
@@ -122,11 +124,25 @@ final class PremiumVisuals {
     p.setAlpha((int)(f?205+50*phase:155+65*phase));c.drawRect(panel.left,panel.top,panel.right,panel.top+band,p);
     p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,panel.top+band,panel.right,panel.top+band*2.2f,p);
     p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
+    if(fourSharks!=null){
+     int[][] bounds={{167,701,312,792},{562,701,715,792},{964,701,1100,792},{1366,701,1517,792}};
+     int[] a=bounds[k];Rect src=new Rect(a[0],a[1],a[2],a[3]);
+     float ih=h*.42f,iw=ih*src.width()/src.height();
+     c.drawBitmap(fourSharks,src,new RectF((w-iw)/2,h*.12f,(w+iw)/2,h*.12f+ih),bitmapPaint);
+    }
     p.setTypeface(Typeface.create(f?"sans-serif-medium":"sans-serif",Typeface.NORMAL));
-    p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(h*.22f,w*.105f));
-    p.setColor(0xfff4f5ff);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.5f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
+    p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(h*.21f,w*.105f));
+    p.setColor(0xfff4f5ff);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.5f,h*.76f-(fm.ascent+fm.descent)*.5f,p);
     if(animate&&isShown())postInvalidateDelayed(50);
     return;
+   }
+   if(!reflection){
+    float in=Math.max(2,h*.035f);RectF panel=new RectF(in,in,w-in,h-in);
+    p.setStyle(Paint.Style.FILL);p.setShader(new LinearGradient(0,0,0,h,new int[]{0xff193868,0xff101d42},null,Shader.TileMode.CLAMP));c.drawRect(panel,p);p.setShader(null);
+    p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1,h*.026f));p.setColor(f?Color.argb((int)(190+65*phase),255,208,80):0x805d95ce);c.drawRect(panel,p);p.setStyle(Paint.Style.FILL);
+    float is=Math.min(h*.59f,w*.18f);icon(c,p,icon,f,w*.07f,(h-is)/2,is);
+    p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
+    if(f&&animate&&isShown())postInvalidateDelayed(50);return;
    }
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);
    float iconSize=Math.min(w*.55f,body*.57f);float iy=body*.08f;

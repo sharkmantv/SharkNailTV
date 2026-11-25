@@ -106,6 +106,10 @@ try:
         assert width>0 and height>width, "Poster is not portrait"
         assert 1.15<=height/width<=1.95, "Poster ratio outside acceptable portrait range"
     print("PASS: home, settings, test Xtream login and two portrait rows")
+    assert not any(find(ui(),label) is not None for label in ("Home","Search","Retry")), "Movies bottom actions still visible"
+    tap(expect("Movies options"))
+    for label in ("Home","Search","Retry"):
+        expect(label)
     tap(expect("Home"))
     tap(expect("Live TV"))
     expect("Fixture channels")

@@ -10,10 +10,10 @@ final class PremiumMockupHome {
  static void show(MainActivity a){
   PremiumVisuals.prepare(a);a.body.removeAllViews();a.body.setPadding(0,0,0,0);
   DesignLayout root=new DesignLayout(a);a.body.addView(root,new LinearLayout.LayoutParams(-1,-1));root.setBackground(new PremiumVisuals.Backdrop(true));
-  View logo=PremiumVisuals.brand(a);root.place(logo,45,23,350,65);
+  View logo=PremiumVisuals.brand(a);if(PremiumVisuals.fourSharks!=null)((ImageView)logo).setImageDrawable(null);root.place(logo,24,18,380,67);
   TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextColor(Color.WHITE);clock.setTextSize(22);clock.setTypeface(a.uiRegular);root.place(clock,1250,20,345,52);
   String[] dests={"Live TV","Movies","Series","Settings"};View[] tiles=new View[4];
-  for(int i=0;i<4;i++){String dest=dests[i];PremiumVisuals.Tile tile=new PremiumVisuals.Tile(a,dest,i,true);tile.setId(View.generateViewId());tile.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)v.requestFocus();return false;});tile.setOnClickListener(v->a.navigateHome(dest));root.place(tile,72+i*379,704,367,153);tiles[i]=tile;}
+  for(int i=0;i<4;i++){String dest=dests[i];PremiumVisuals.Tile tile=new PremiumVisuals.Tile(a,dest,i,true);tile.setId(View.generateViewId());tile.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)v.requestFocus();return false;});tile.setOnClickListener(v->a.navigateHome(dest));root.place(tile,52+i*395,674,365,194);tiles[i]=tile;}
   for(int i=0;i<4;i++){tiles[i].setNextFocusLeftId(tiles[Math.max(0,i-1)].getId());tiles[i].setNextFocusRightId(tiles[Math.min(3,i+1)].getId());}
   tiles[0].requestFocus();root.post(()->{if(root.isAttachedToWindow()&&!root.hasFocus())tiles[0].requestFocus();});
  }

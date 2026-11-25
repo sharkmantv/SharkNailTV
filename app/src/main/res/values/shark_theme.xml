@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <style name="SharkTheme" parent="android:style/Theme.Material.NoActionBar">
-    <item name="android:fontFamily">sans-serif-medium</item>
+    <item name="android:fontFamily">sans-serif</item>
     <item name="android:colorAccent">#FFCF63</item>
     <item name="android:colorControlActivated">#FFCF63</item>
     <item name="android:textColorPrimary">#F2F5FC</item>
