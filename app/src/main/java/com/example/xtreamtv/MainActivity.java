@@ -49,6 +49,8 @@ public class MainActivity extends Activity {
  ExoPlayer player;
  PlayerView video;
  TextView rangeButton;
+ LinearLayout playerHeader;
+ ProgressBar programmeProgress;
  String playbackDiagnostics="No video information yet";
  int activeSdrPath=-1;
  Item playbackItem;
@@ -126,13 +128,13 @@ public class MainActivity extends Activity {
   d.addState(new int[]{},premiumFrame(false,false));
   return d;
  }
- // One short home-tile highlight. Draw-only animation, never scales or reflows the layout.
+ // Draw-only focused border, no scale, padding, or layout animation.
  void premiumHomeFocus(View tile){
-  final GradientDrawable shine=bg(0x00000000,0x00000000,UI_GOLD,2);
-  final android.animation.ValueAnimator pulse=android.animation.ValueAnimator.ofInt(125,255,175,255);
-  pulse.setDuration(650);
-  pulse.addUpdateListener(a->shine.setAlpha((Integer)a.getAnimatedValue()));
-  tile.setOnFocusChangeListener((v,focused)->{pulse.cancel();if(focused){tile.setForeground(shine);shine.setAlpha(255);if(Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled())pulse.start();}else tile.setForeground(null);});
+  final GradientDrawable shine=bg(0x00000000,0x00000000,UI_GOLD,3);
+  final android.animation.ValueAnimator pulse=android.animation.ValueAnimator.ofArgb(UI_GOLD,0xffff3c22,UI_GOLD);
+  pulse.setDuration(1800);pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+  pulse.addUpdateListener(anim->shine.setStroke(dp(3),(Integer)anim.getAnimatedValue()));
+  tile.setOnFocusChangeListener((v,focused)->{pulse.cancel();if(focused){shine.setStroke(dp(3),UI_GOLD);tile.setForeground(shine);if(Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled())pulse.start();}else tile.setForeground(null);});
   tile.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){}public void onViewDetachedFromWindow(View v){pulse.cancel();v.setForeground(null);}});
  }
  StateListDrawable posterFocus(){StateListDrawable d=new StateListDrawable();d.addState(new int[]{android.R.attr.state_focused},bg(0xff223c60,0xff142642,UI_GOLD,3));d.addState(new int[]{},bg(0xff111d34,0xff0b1428,0xff397eb9,2));return d;}
@@ -146,8 +148,43 @@ public class MainActivity extends Activity {
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
- void screen(String title){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();head.addView(art(R.drawable.shark_logo),new LinearLayout.LayoutParams(dp(90),dp(43)));TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.025f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));body.addView(head);}
- void home(){page="Home";screen("SHARK SKY");body.addView(art(R.drawable.shark_brand),new LinearLayout.LayoutParams(-1,0,1));LinearLayout r=row();String[] names={"Live TV","Movies","Series","Settings"};int[] icons={R.drawable.metal48_live,R.drawable.metal48_movies,R.drawable.metal48_series,R.drawable.metal48_settings};for(int i=0;i<4;i++){String dest=names[i];LinearLayout tile=col();tile.setGravity(Gravity.CENTER);tile.setPadding(dp(8),dp(6),dp(8),dp(6));tile.setBackground(focus());tile.setFocusable(true);tile.setClickable(true);premiumHomeFocus(tile);tile.addView(art(icons[i]),new LinearLayout.LayoutParams(-1,0,1));TextView t=text(dest,19);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setLetterSpacing(0.018f);tile.addView(t,new LinearLayout.LayoutParams(-1,dp(36)));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(140),1);p.setMargins(dp(4),dp(4),dp(4),dp(4));r.addView(tile,p);tile.setOnClickListener(v->{if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);});}body.addView(r);r.getChildAt(0).requestFocus();}
+ void screen(String title){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();head.addView(art(R.drawable.shark_logo),new LinearLayout.LayoutParams(dp(90),dp(43)));TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.025f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));body.addView(head);}
+ void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
+ void home(){
+  page="Home";screen("SHARK SKY");
+  boolean wide=getResources().getConfiguration().screenWidthDp>=650;
+  LinearLayout shell=wide?row():col();body.addView(shell,new LinearLayout.LayoutParams(-1,0,1));
+  String[] names={"Live TV","Movies","Series","Settings"};
+  int[] icons={R.drawable.metal48_live,R.drawable.metal48_movies,R.drawable.metal48_series,R.drawable.metal48_settings};
+  LinearLayout main=col();
+  if(wide){
+   LinearLayout rail=col();rail.setPadding(dp(8),dp(8),dp(8),dp(8));rail.setBackground(bg(0xff122747,0xff081429,0xff325786,1));
+   shell.addView(rail,new LinearLayout.LayoutParams(dp(160),-1));
+   TextView brand=text("PREMIUM",12);brand.setTextColor(UI_GOLD);brand.setLetterSpacing(.16f);rail.addView(brand,new LinearLayout.LayoutParams(-1,dp(35)));
+   String[] nav={"Home","Live TV","Movies","Series","Settings"};
+   for(String dest:nav){
+    TextView label=text(dest,16);label.setGravity(Gravity.CENTER_VERTICAL);label.setPadding(dp(12),0,dp(8),0);label.setFocusable(true);label.setClickable(true);label.setBackground(focus());premiumHomeFocus(label);label.setSelected(dest.equals("Home"));
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(44));lp.setMargins(0,dp(3),0,dp(3));rail.addView(label,lp);label.setOnClickListener(v->navigateHome(dest));
+   }
+   main.setPadding(dp(12),0,0,0);shell.addView(main,new LinearLayout.LayoutParams(0,-1,1));
+  }else shell.addView(main,new LinearLayout.LayoutParams(-1,-1));
+  LinearLayout hero=wide?row():col();hero.setGravity(Gravity.CENTER_VERTICAL);hero.setPadding(dp(12),dp(8),dp(8),dp(8));hero.setBackground(bg(0xff173b67,0xff07172f,0xff29568c,1));
+  main.addView(hero,new LinearLayout.LayoutParams(-1,0,1));
+  LinearLayout welcome=col();welcome.setGravity(Gravity.CENTER_VERTICAL);
+  TextView eyebrow=text("WELCOME TO",12);eyebrow.setTextColor(UI_GOLD);eyebrow.setLetterSpacing(.15f);welcome.addView(eyebrow);
+  TextView title=text("Shark Sky Premium",wide?28:23);title.setMaxLines(2);welcome.addView(title);
+  TextView sub=text("Live TV, movies and series",14);sub.setTextColor(UI_SECONDARY);welcome.addView(sub);
+  if(wide)hero.addView(welcome,new LinearLayout.LayoutParams(0,-1,1));else hero.addView(welcome,new LinearLayout.LayoutParams(-1,-2));
+  ImageView mascot=art(R.drawable.shark_brand);hero.addView(mascot,wide?new LinearLayout.LayoutParams(0,-1,1.35f):new LinearLayout.LayoutParams(-1,0,1));
+  LinearLayout tiles=row();main.addView(tiles,new LinearLayout.LayoutParams(-1,wide?dp(132):dp(108)));
+  for(int i=0;i<names.length;i++){
+   String dest=names[i];LinearLayout tile=col();tile.setGravity(Gravity.CENTER);tile.setPadding(dp(5),dp(5),dp(5),dp(5));tile.setBackground(focus());tile.setFocusable(true);tile.setClickable(true);premiumHomeFocus(tile);
+   tile.addView(art(icons[i]),new LinearLayout.LayoutParams(-1,0,1));TextView label=text(dest,wide?18:14);label.setTypeface(uiMedium);label.setGravity(Gravity.CENTER);tile.addView(label,new LinearLayout.LayoutParams(-1,dp(30)));
+   LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(3),dp(6),dp(3),dp(4));tiles.addView(tile,lp);tile.setOnClickListener(v->navigateHome(dest));
+  }
+  TextView footer=text("SHARK SKY  •  "+(server.isEmpty()?"Connect your playlist":"Playlist saved")+"  •  "+BuildConfig.VERSION_NAME,12);footer.setGravity(Gravity.CENTER_VERTICAL);main.addView(footer,new LinearLayout.LayoutParams(-1,dp(25)));
+  tiles.getChildAt(0).requestFocus();
+ }
  void msg(String s){if(status!=null)status.setText(s);else Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
  static String enc(String s){try{return URLEncoder.encode(s,"UTF-8").replace("+","%20");}catch(Exception e){throw new IllegalArgumentException(e);}}
  static String get(String u)throws Exception{HttpURLConnection c=(HttpURLConnection)new URL(u).openConnection();c.setConnectTimeout(10000);c.setReadTimeout(25000);c.setRequestProperty("User-Agent","SharkSky/5.0");try{if(c.getResponseCode()!=200)throw new IOException("HTTP");try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(out.size()+n>48*1024*1024)throw new IOException("Response too large");out.write(buf,0,n);}return out.toString("UTF-8");}}finally{c.disconnect();}}
@@ -155,7 +192,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);styleInput(e);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;clearCatalogue();guideCache.evictAll();JSONObject serverInfo=j.optJSONObject("server_info");String zone=serverInfo==null?"":serverInfo.optString("timezone","");prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).putString("epg_zone",zone).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.22  ·  Media3 1.12.0-beta01  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.23  ·  Media3 1.12.0-beta01  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -268,9 +305,9 @@ public class MainActivity extends Activity {
  }
  void focusAt(RecyclerView r,int p){if(r.getAdapter()==null||r.getAdapter().getItemCount()==0)return;int i=Math.max(0,Math.min(p,r.getAdapter().getItemCount()-1));r.scrollToPosition(i);r.post(()->{RecyclerView.ViewHolder h=r.findViewHolderForAdapterPosition(i);if(h!=null)h.itemView.requestFocus();else r.requestFocus();});}
  void catAdapter(){left.setAdapter(new Rows(cats,(i,p)->{catPos=p;itemPos=0;cat=i.id;seriesId="";loadItems();}));}
- void browser(boolean restore){screen(page);LinearLayout heads=row();heads.addView(text("Categories",14),new LinearLayout.LayoutParams(0,dp(25),1));heads.addView(text(page.equals("Live TV")?"Channels":"Titles",14),new LinearLayout.LayoutParams(0,dp(25),1.4f));boolean live=page.equals("Live TV");if(live)heads.addView(new View(this),new LinearLayout.LayoutParams(0,dp(25),1.6f));body.addView(heads);LinearLayout r=row();body.addView(r,new LinearLayout.LayoutParams(-1,0,1));left=list();right=list();final RecyclerView grid=right;grid.addOnLayoutChangeListener((v,l,t,rr,b,ol,ot,orr,ob)->{if(rr-l!=orr-ol||b-t!=ob-ot)grid.post(()->updatePosterGeometry(grid));});r.addView(left,new LinearLayout.LayoutParams(0,-1,1));r.addView(right,new LinearLayout.LayoutParams(0,-1,live?1.4f:2.5f));catAdapter();setItemsAdapter(items,this::pick);if(live){LinearLayout c=col();c.setPadding(dp(4),0,0,0);r.addView(c,new LinearLayout.LayoutParams(0,-1,1.6f));preview=new FrameLayout(this);preview.setBackgroundColor(Color.BLACK);c.addView(preview,new LinearLayout.LayoutParams(-1,0,1.7f));TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));epg=text(selected==null?"Programme information":selected.name,13);epg.setMaxLines(7);epg.setGravity(Gravity.TOP);epg.setPadding(dp(5),dp(7),dp(5),0);c.addView(epg,new LinearLayout.LayoutParams(-1,0,1));LinearLayout b=row();button(b,"Full screen",()->{if(selected!=null)playFull(selected);});button(b,"Favourite",this::fav);c.addView(b);}status=text("",12);body.addView(status,new LinearLayout.LayoutParams(-1,dp(23)));LinearLayout b=row();button(b,"Home",this::home);button(b,"Search",this::search);if(live)button(b,"TV Guide",this::openGuide);button(b,"Retry",()->{clearCatalogue();if(cats.isEmpty())loadCats();else loadItems();});body.addView(b);if(restore){left.scrollToPosition(catPos);focusAt(right,itemPos);}}
+ void browser(boolean restore){screen(page);LinearLayout heads=row();heads.addView(text("Categories",14),new LinearLayout.LayoutParams(0,dp(25),1));heads.addView(text(page.equals("Live TV")?"Channels":"Titles",14),new LinearLayout.LayoutParams(0,dp(25),1.4f));boolean live=page.equals("Live TV");if(live)heads.addView(new View(this),new LinearLayout.LayoutParams(0,dp(25),1.6f));body.addView(heads);LinearLayout r=row();body.addView(r,new LinearLayout.LayoutParams(-1,0,1));left=list();right=list();final RecyclerView grid=right;grid.addOnLayoutChangeListener((v,l,t,rr,b,ol,ot,orr,ob)->{if(rr-l!=orr-ol||b-t!=ob-ot)grid.post(()->updatePosterGeometry(grid));});r.addView(left,new LinearLayout.LayoutParams(0,-1,1));r.addView(right,new LinearLayout.LayoutParams(0,-1,live?1.4f:2.5f));catAdapter();setItemsAdapter(items,this::pick);if(live){LinearLayout c=col();c.setPadding(dp(4),0,0,0);r.addView(c,new LinearLayout.LayoutParams(0,-1,1.6f));preview=new FrameLayout(this);preview.setBackgroundColor(Color.BLACK);preview.setForeground(bg(0x00000000,0x00000000,0xff399df4,2));c.addView(preview,new LinearLayout.LayoutParams(-1,0,1.7f));TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));epg=text(selected==null?"Programme information":selected.name,13);epg.setMaxLines(7);epg.setGravity(Gravity.TOP);epg.setPadding(dp(9),dp(5),dp(9),dp(3));LinearLayout guidePanel=col();guidePanel.setBackground(bg(0xff193554,0xff0b172e,0xff3b78b5,1));LinearLayout.LayoutParams guideLp=new LinearLayout.LayoutParams(-1,0,1);guideLp.topMargin=dp(4);c.addView(guidePanel,guideLp);guidePanel.addView(epg,new LinearLayout.LayoutParams(-1,0,1));programmeProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);programmeProgress.setMax(100);programmeProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(UI_GOLD));programmeProgress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff335175));programmeProgress.setVisibility(View.INVISIBLE);LinearLayout.LayoutParams barLp=new LinearLayout.LayoutParams(-1,dp(6));barLp.setMargins(dp(9),0,dp(9),dp(6));guidePanel.addView(programmeProgress,barLp);LinearLayout b=row();button(b,"Full screen",()->{if(selected!=null)playFull(selected);});button(b,"Favourite",this::fav);c.addView(b);}status=text("",12);body.addView(status,new LinearLayout.LayoutParams(-1,dp(23)));LinearLayout b=row();button(b,"Home",this::home);button(b,"Search",this::search);if(live)button(b,"TV Guide",this::openGuide);button(b,"Retry",()->{clearCatalogue();if(cats.isEmpty())loadCats();else loadItems();});body.addView(b);if(restore){left.scrollToPosition(catPos);focusAt(right,itemPos);}}
  void loadCats(){String k=prefix(),url=api("get_"+k+"_categories","");int req=++loadToken;msg("Loading categories…");catalogueTask("cats:"+k,CATEGORY_TTL,false,req,()->parse(new JSONArray(get(url)),"category_id","category_name"),a->{cats=new ArrayList<>();cats.add(new Item("","All",""));if(page.equals("Live TV"))cats.add(new Item("@fav","Favourites",""));cats.addAll(a);catAdapter();focusAt(left,0);loadItems();});}
- void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(page.equals("Live TV")&&right!=null)right.setAdapter(new Rows(Collections.emptyList(),this::pick));msg("Loading…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
+ void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(page.equals("Live TV")&&right!=null)right.setAdapter(new Rows(Collections.emptyList(),this::pick));msg("Loading…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
  void search(){EditText e=new EditText(this);e.setSingleLine();styleInput(e);new AlertDialog.Builder(this).setTitle("Search current list").setView(e).setPositiveButton("Search",(d,w)->{String q=e.getText().toString().toLowerCase(Locale.ROOT);List<Item>a=new ArrayList<>();for(Item i:items)if(i.name.toLowerCase(Locale.ROOT).contains(q))a.add(i);setItemsAdapter(a,(i,p)->pick(i,items.indexOf(i)));focusAt(right,0);}).setNegativeButton("Cancel",null).show();}
  void pick(Item i,int p){itemPos=p;if(page.equals("Live TV")){if(selected!=null&&selected.id.equals(i.id)&&player!=null){playFull(i);return;}selected=i;attach(preview,i,false);loadEpg(i);return;}if(page.equals("Series")&&seriesId.isEmpty()){episodes(i);return;}playFull(i);}
  void episodes(Item s){int req=++loadToken;String url=api("get_series_info","&series_id="+enc(s.id));catalogueTask("episodes:"+s.id,STREAM_TTL,false,req,()->{JSONObject j=new JSONObject(get(url)).optJSONObject("episodes");List<Item>a=new ArrayList<>();if(j!=null){List<String> keys=new ArrayList<>();j.keys().forEachRemaining(keys::add);Collections.sort(keys);for(String k:keys){JSONArray e=j.optJSONArray(k);if(e!=null)for(int n=0;n<e.length();n++){JSONObject o=e.optJSONObject(n);if(o!=null&&!o.optString("id").isEmpty())a.add(new Item(o.optString("id"),"S"+k+" E"+o.optString("episode_num")+" · "+o.optString("title"),o.optString("container_extension","mp4")));}}}return a;},a->{if(req!=loadToken)return;seriesId=s.id;items=a;setItemsAdapter(items,this::pick);msg(s.name);focusAt(right,0);});}
@@ -334,7 +371,7 @@ public class MainActivity extends Activity {
   if(i==null||epg==null||full||!page.equals("Live TV"))return;
   if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);
   if(previewGuideJob!=null)previewGuideJob.cancel(true);epgToken++;
-  highlightedGuideItem=i;
+  highlightedGuideItem=i;if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);
   GuideData data=cached!=null?cached:guideCache.get(guideKey(i,false));
   if(data!=null)paintPreviewGuide(i,data);else epg.setText(i.name+"\nLoading programme information…");
   int token=screenToken;pendingGuideFocus=()->{pendingGuideFocus=null;if(token==screenToken&&!full&&highlightedGuideItem==i&&epg!=null)loadEpg(i);};
@@ -347,13 +384,13 @@ public class MainActivity extends Activity {
   if(current!=null)b.append("\nNOW ").append(guideTimes(current)).append("\n").append(current.title);
   if(next!=null)b.append("\nNEXT ").append(guideTimes(next)).append("\n").append(next.title);
   if(current==null&&next==null){int n=0;for(Programme p:data.shows){if(p.end>0&&p.end<=now)continue;b.append("\n").append(guideTimes(p)).append("  ").append(p.title);if(++n==3)break;}if(n==0)b.append("\nNo current programme information");}
-  epg.setText(b.toString());
+  epg.setText(b.toString());if(programmeProgress!=null){if(current!=null&&current.end>current.start){programmeProgress.setProgress((int)Math.max(0,Math.min(100,100L*(now-current.start)/(current.end-current.start))));programmeProgress.setVisibility(View.VISIBLE);}else programmeProgress.setVisibility(View.INVISIBLE);}
  }
  void loadEpg(Item i){
   if(epg==null||i==null)return;highlightedGuideItem=i;if(pendingGuideFocus!=null){ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;}ui.removeCallbacks(refreshEpg);ui.postDelayed(refreshEpg,60000);
   int req=++epgToken,token=screenToken;String key=guideKey(i,false),fullUrl=api("get_simple_data_table","&stream_id="+enc(i.id)),shortUrl=api("get_short_epg","&stream_id="+enc(i.id)+"&limit=12"),zone=prefs.getString("epg_zone","");
   if(previewGuideJob!=null)previewGuideJob.cancel(true);
-  GuideData cached=guideCache.get(key);if(cached!=null){paintPreviewGuide(i,cached);if(System.currentTimeMillis()-cached.fetched<180000)return;}else epg.setText(i.name+"\nLoading programme information…");
+  if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);GuideData cached=guideCache.get(key);if(cached!=null){paintPreviewGuide(i,cached);if(System.currentTimeMillis()-cached.fetched<180000)return;}else epg.setText(i.name+"\nLoading programme information…");
   previewGuideJob=epgIo.submit(()->{try{GuideData data=fetchGuide(fullUrl,shortUrl,zone,false);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(token!=screenToken||req!=epgToken||isFinishing())return;guideCache.put(key,data);paintPreviewGuide(i,data);});}
    catch(Exception e){ui.post(()->{if(token==screenToken&&req==epgToken&&epg!=null&&cached==null)epg.setText(i.name+"\nProgramme information unavailable");});}});
  }
@@ -364,7 +401,7 @@ public class MainActivity extends Activity {
   final List<Item> data;final Pick pick;final boolean timeline;long from;final TextView info;boolean disposed=false;
   LiveGuideRows(List<Item>d,Pick p,boolean grid,long start,TextView details){data=d;pick=p;timeline=grid;from=start;info=details;}
   class H extends RecyclerView.ViewHolder{
-   LinearLayout root,slots;TextView name,sub;Item item;Future<?> job;GuideData guide;int request;
+   LinearLayout root,slots;TextView name,sub,next;Item item;Future<?> job;GuideData guide;int request;
    H(LinearLayout r,TextView n,TextView s,LinearLayout cells){super(r);root=r;name=n;sub=s;slots=cells;}
   }
   @Override public H onCreateViewHolder(ViewGroup parent,int type){
@@ -372,15 +409,15 @@ public class MainActivity extends Activity {
    TextView name=text("",14);name.setTypeface(uiMedium);name.setSingleLine();name.setEllipsize(android.text.TextUtils.TruncateAt.END);
    TextView sub=text("",11);sub.setSingleLine();sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
    LinearLayout slots=row();if(timeline){root.addView(name,new LinearLayout.LayoutParams(0,-1,1.15f));root.addView(slots,new LinearLayout.LayoutParams(0,-1,3f));}
-   else{root.addView(name,new LinearLayout.LayoutParams(-1,0,1));root.addView(sub,new LinearLayout.LayoutParams(-1,0,1));}
+   else{root.addView(name,new LinearLayout.LayoutParams(-1,0,1));LinearLayout detail=row();root.addView(detail,new LinearLayout.LayoutParams(-1,0,1));detail.addView(sub,new LinearLayout.LayoutParams(0,-1,1));TextView next=text("",11);next.setSingleLine();next.setEllipsize(android.text.TextUtils.TruncateAt.END);next.setPadding(dp(4),0,0,0);next.setTextColor(UI_SECONDARY);detail.addView(next,new LinearLayout.LayoutParams(0,-1,1));next.setTag("next_programme");}
    RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,dp(timeline?58:44));lp.setMargins(dp(2),dp(1),dp(2),dp(2));root.setLayoutParams(lp);
-   H h=new H(root,name,sub,slots);root.setOnClickListener(v->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});
+   H h=new H(root,name,sub,slots);h.next=root.findViewWithTag("next_programme");root.setOnClickListener(v->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});
    root.setOnFocusChangeListener((v,focused)->{if(focused&&h.item!=null){if(timeline)describe(h);else highlightGuide(h.item,h.guide);}});return h;
   }
   void describe(H h){if(info==null||h.item==null)return;Programme p=currentProgramme(h.guide,System.currentTimeMillis());if(p==null)p=nextProgramme(h.guide,System.currentTimeMillis());info.setText(h.item.name+(p==null?"  •  Programme information unavailable":"  •  "+guideTimes(p)+"  "+p.title+(p.description.isEmpty()?"":"\n"+p.description)));}
   void paint(H h,GuideData d,boolean loading){
    h.guide=d;long now=System.currentTimeMillis();Programme p=currentProgramme(d,now),next=nextProgramme(d,now);
-   if(!timeline){h.sub.setText(p!=null?guideTimes(p)+"  "+p.title:next!=null?"Next "+guideTimes(next)+"  "+next.title:loading?"Loading guide…":"No current listings");if(d!=null&&h.root.hasFocus()&&!full&&highlightedGuideItem==h.item)paintPreviewGuide(h.item,d);return;}
+   if(!timeline){h.sub.setText(p!=null?"Now  "+p.title:loading?"Loading guide…":"No current listings");if(h.next!=null)h.next.setText(next==null?"":"Next  "+next.title);if(d!=null&&h.root.hasFocus()&&!full&&highlightedGuideItem==h.item)paintPreviewGuide(h.item,d);return;}
    h.slots.removeAllViews();long end=from+6*GUIDE_SLOT,cursor=from;
    if(d!=null)for(Programme show:d.shows){if(show.start<=0||show.end<=show.start||show.end<=cursor||show.start>=end)continue;long a=Math.max(cursor,show.start),b=Math.min(end,show.end);if(a>cursor)cell(h,"",a-cursor,false);if(b>a){cell(h,show.title,b-a,show.start<=now&&show.end>now);cursor=b;}if(cursor>=end)break;}
    if(cursor<end)cell(h,cursor==from?(loading?"Loading guide…":"No listings for this time"):"",end-cursor,false);
@@ -636,30 +673,70 @@ public class MainActivity extends Activity {
   n.setVideoURI(Uri.parse(stream(i)));n.requestFocus();n.start();addRangeButton(host,i,null);
  }
  void removeRangeButton(){
+  if(playerHeader!=null){ViewGroup group=(ViewGroup)playerHeader.getParent();if(group!=null)group.removeView(playerHeader);playerHeader=null;}
   if(rangeButton!=null){ViewGroup group=(ViewGroup)rangeButton.getParent();if(group!=null)group.removeView(rangeButton);rangeButton=null;}
   if(video!=null)video.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)null);
  }
  String rangeLabel(){return rangeName(rangeFor(page.equals("Live TV")));}
+ TextView playerAction(LinearLayout bar,String label,Runnable action){
+  TextView b=text(label,13);b.setTypeface(uiMedium);b.setGravity(Gravity.CENTER);b.setPadding(dp(9),0,dp(9),0);b.setBackground(focus());b.setFocusable(true);b.setClickable(true);
+  LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(37));lp.setMargins(dp(3),0,dp(3),0);bar.addView(b,lp);b.setOnClickListener(v->action.run());return b;
+ }
+ void chooseTrack(int type){
+  ExoPlayer p=player;if(p==null)return;
+  List<String> labels=new ArrayList<>();List<TrackSelectionOverride> overrides=new ArrayList<>();
+  labels.add("Automatic");overrides.add(null);
+  if(type==C.TRACK_TYPE_TEXT){labels.add("Off");overrides.add(null);}
+  for(Tracks.Group group:p.getCurrentTracks().getGroups())if(group.getType()==type)for(int n=0;n<group.length;n++)if(group.isTrackSupported(n)){
+   Format f=group.getTrackFormat(n);String lang=f.language==null?"Undetermined":f.language;
+   labels.add((f.label==null||f.label.isEmpty()?lang:f.label)+(type==C.TRACK_TYPE_AUDIO&&f.channelCount>0?" · "+f.channelCount+" ch":"")+(group.isTrackSelected(n)?" ✓":""));overrides.add(new TrackSelectionOverride(group.getMediaTrackGroup(),n));
+  }
+  new AlertDialog.Builder(this).setTitle(type==C.TRACK_TYPE_AUDIO?"Audio tracks":"Subtitles").setItems(labels.toArray(new String[0]),(d,n)->{
+   if(player!=p)return;TrackSelectionParameters.Builder b=p.getTrackSelectionParameters().buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type,type==C.TRACK_TYPE_TEXT&&n==1);
+   if(overrides.get(n)!=null)b.setOverrideForType(overrides.get(n));p.setTrackSelectionParameters(b.build());if(video!=null)video.showController();
+  }).setNegativeButton("Cancel",null).show();
+ }
+ void aspectDialog(){
+  if(video==null)return;String[] options={"Fit","Stretch","Zoom"};int[] modes={0,3,4};
+  new AlertDialog.Builder(this).setTitle("Aspect ratio").setItems(options,(d,n)->{prefs.edit().putInt("resize_mode",modes[n]).apply();if(video!=null){video.setResizeMode(modes[n]);video.showController();}}).setNegativeButton("Cancel",null).show();
+ }
+ void stylePlayer(PlayerView pv){
+  View bottom=pv.findViewById(androidx.media3.ui.R.id.exo_bottom_bar);if(bottom!=null)bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xcc101d31,0xf4070b16}));
+  View center=pv.findViewById(androidx.media3.ui.R.id.exo_center_controls);
+  if(center!=null&&center.getLayoutParams() instanceof FrameLayout.LayoutParams){
+   FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)center.getLayoutParams();lp.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;lp.bottomMargin=dp(70);center.setLayoutParams(lp);
+  }
+  View progress=pv.findViewById(androidx.media3.ui.R.id.exo_progress);if(progress instanceof androidx.media3.ui.DefaultTimeBar){
+   androidx.media3.ui.DefaultTimeBar bar=(androidx.media3.ui.DefaultTimeBar)progress;bar.setPlayedColor(UI_GOLD);bar.setScrubberColor(UI_GOLD);bar.setBufferedColor(0xff6a7890);bar.setUnplayedColor(0xff394458);
+  }
+  int[] controls={androidx.media3.ui.R.id.exo_play_pause,androidx.media3.ui.R.id.exo_prev,androidx.media3.ui.R.id.exo_next,androidx.media3.ui.R.id.exo_settings,androidx.media3.ui.R.id.exo_subtitle};
+  for(int id:controls){View v=pv.findViewById(id);if(v!=null){v.setBackground(focus());if(v instanceof ImageView)((ImageView)v).setColorFilter(UI_GOLD);}}
+ }
  void addRangeButton(FrameLayout host,Item item,PlayerView playerView){
   removeRangeButton();
-  TextView button=text("Picture  •  "+rangeLabel(),14);button.setTypeface(uiMedium);button.setGravity(Gravity.CENTER);button.setPadding(dp(14),0,dp(14),0);button.setBackground(focus());button.setFocusable(true);button.setClickable(true);
-  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,dp(40),Gravity.TOP|Gravity.RIGHT);lp.topMargin=dp(18);lp.rightMargin=dp(22);
-  host.addView(button,lp);rangeButton=button;
-  button.setOnClickListener(view->choosePlayerRange(item));
-  if(playerView!=null){
-   button.setVisibility(playerView.isControllerFullyVisible()?View.VISIBLE:View.GONE);
-   playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(rangeButton==button)button.setVisibility(visibility);});
-   button.setOnFocusChangeListener((v,focused)->{if(focused)playerView.showController();});
-   playerView.showController();
+  if(playerView==null){
+   TextView button=text("Picture  •  "+rangeLabel(),14);button.setGravity(Gravity.CENTER);button.setPadding(dp(14),0,dp(14),0);button.setBackground(focus());button.setFocusable(true);button.setClickable(true);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,dp(40),Gravity.TOP|Gravity.RIGHT);lp.topMargin=dp(18);lp.rightMargin=dp(22);host.addView(button,lp);rangeButton=button;button.setOnClickListener(v->choosePlayerRange(item));return;
   }
+  stylePlayer(playerView);
+  LinearLayout header=col();header.setPadding(dp(18),dp(8),dp(18),dp(10));header.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf0060c18,0xcc111d32,0x00111d32}));
+  LinearLayout titleRow=row();header.addView(titleRow,new LinearLayout.LayoutParams(-1,dp(38)));
+  TextView title=text(item.name,21);title.setSingleLine();title.setEllipsize(android.text.TextUtils.TruncateAt.END);titleRow.addView(title,new LinearLayout.LayoutParams(0,-1,1));
+  TextView brand=text("SHARK SKY",12);brand.setTextColor(UI_GOLD);brand.setTypeface(uiMedium);titleRow.addView(brand);
+  LinearLayout actions=row();header.addView(actions,new LinearLayout.LayoutParams(-1,dp(42)));actions.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);
+  playerAction(actions,"Audio",()->chooseTrack(C.TRACK_TYPE_AUDIO));playerAction(actions,"Subtitles",()->chooseTrack(C.TRACK_TYPE_TEXT));playerAction(actions,"Aspect",this::aspectDialog);
+  playerAction(actions,"Video info",()->new AlertDialog.Builder(this).setTitle("Video information").setMessage(playbackDiagnostics).setPositiveButton("Close",null).show());
+  TextView picture=playerAction(actions,"Picture • "+rangeLabel(),()->choosePlayerRange(item));rangeButton=picture;
+  playerHeader=header;host.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));header.setVisibility(playerView.isControllerFullyVisible()?View.VISIBLE:View.GONE);
+  playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(playerHeader==header)header.setVisibility(visibility);});
+  playerView.showController();
  }
  @Override public boolean dispatchKeyEvent(KeyEvent event){
   if(full&&event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0&&rangeButton!=null&&playbackItem!=null){
    if(event.getKeyCode()==KeyEvent.KEYCODE_MENU){choosePlayerRange(playbackItem);return true;}
-   if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&getCurrentFocus()!=rangeButton){
-    if(video!=null)video.showController();rangeButton.setVisibility(View.VISIBLE);rangeButton.requestFocus();return true;
+   if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&getCurrentFocus()!=rangeButton&&(playerHeader==null||getCurrentFocus()==null||getCurrentFocus().getParent()!=rangeButton.getParent())){
+    if(video!=null)video.showController();if(playerHeader!=null)playerHeader.setVisibility(View.VISIBLE);rangeButton.setVisibility(View.VISIBLE);rangeButton.requestFocus();return true;
    }
-   if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&getCurrentFocus()==rangeButton&&video!=null){video.requestFocus();video.showController();return true;}
+   if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&video!=null&&getCurrentFocus()!=null&&(getCurrentFocus()==rangeButton||getCurrentFocus().getParent()==rangeButton.getParent())){video.requestFocus();video.showController();return true;}
   }return super.dispatchKeyEvent(event);
  }
  void choosePlayerRange(Item item){
@@ -694,7 +771,7 @@ public class MainActivity extends Activity {
   int[] target=new int[2],origin=new int[2];preview.getLocationInWindow(target);root.getLocationInWindow(origin);
   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(preview.getWidth(),preview.getHeight(),Gravity.TOP|Gravity.LEFT);
   lp.leftMargin=target[0]-origin[0];lp.topMargin=target[1]-origin[1];
-  liveSurfaceHost.setLayoutParams(lp);
+  liveSurfaceHost.setLayoutParams(lp);liveSurfaceHost.setForeground(bg(0x00000000,0x00000000,0xff399df4,2));
  }
  boolean enterLiveFullscreen(){
   if(liveSurfaceHost==null||video==null||player==null)return false;
@@ -702,7 +779,7 @@ public class MainActivity extends Activity {
   full=true;status=null;
   if(body!=null){liveBodyFocusMode=body.getDescendantFocusability();liveBodyAccessibility=body.getImportantForAccessibility();body.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);}
   // Do not detach the video surface or create a second PlayerView.
-  liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));
+  liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));liveSurfaceHost.setForeground(null);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
   video.setFocusable(true);video.setUseController(true);video.setControllerAutoShow(true);
   player.setVolume(1f);if(!player.getPlayWhenReady())player.play();video.requestFocus();if(playbackItem!=null)addRangeButton(liveSurfaceHost,playbackItem,video);
