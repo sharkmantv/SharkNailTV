@@ -68,5 +68,5 @@ jobs:
           url=f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/v4.0.9/SharkNailTV.apk"
           Path('verified/update.json').write_text(json.dumps({'tag_name':'v4.0.9','draft':False,'prerelease':False,'assets':[{'name':'SharkNailTV.apk','browser_download_url':url}]}))
           PY
-          gh release create v4.0.9 verified/SharkNailTV.apk verified/update.json --target da311f7ca57341991b717f78632780787ca9fa46 --title 'SharkNailTV 4.0.9 (Media3 beta test)' --notes 'Recovered the original signed and emulator-verified APK from run 45561015783. Live TV cache-first loading and unavailable-channel feedback. Media3 beta and existing player settings retained. TV playback still requires device testing.' --latest
-          gh release view v4.0.9 --json tagName,assets,url
+          gh release create v4.0.9 --repo "$GITHUB_REPOSITORY" verified/SharkNailTV.apk verified/update.json --target da311f7ca57341991b717f78632780787ca9fa46 --title 'SharkNailTV 4.0.9 (Media3 beta test)' --notes 'Recovered the original signed and emulator-verified APK from run 45561015783. Live TV cache-first loading and unavailable-channel feedback. Media3 beta and existing player settings retained. TV playback still requires device testing.' --latest
+          gh release view v4.0.9 --repo "$GITHUB_REPOSITORY" --json tagName,assets,url
