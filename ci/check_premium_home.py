@@ -15,9 +15,22 @@ def tile_nodes(root):
         assert len(nodes)>=2, "Missing side rail or tile: "+label
         matches[label]=max(nodes,key=lambda n:(rect(n)[2]-rect(n)[0])*(rect(n)[3]-rect(n)[1]))
     return matches
-deadline=time.monotonic()+40
+deadline=time.monotonic()+90
 while True:
+    if time.monotonic()>deadline: raise AssertionError('Premium home did not become ready')
     root=dump()
+    # The phone emulator's Pixel Launcher can ANR independently of Shark Sky.
+    # Dismiss only that known external dialog; never dismiss an app crash.
+    if any("Pixel Launcher isn't responding" in n.get("text","") for n in root.iter("node")):
+        close=next((n for n in root.iter("node") if n.get("text")=="Close app"),None)
+        if close is not None:
+            x,y,X,Y=rect(close)
+            adb("shell","input","tap",(x+X)//2,(y+Y)//2)
+            adb("shell","am","force-stop","com.example.xtreamtv")
+            adb("shell","am","start","-W","-n","com.example.xtreamtv/.MainActivity")
+            time.sleep(3)
+            print("Dismissed unrelated Pixel Launcher ANR; restarted Shark Sky")
+            continue
     try:
         tiles=tile_nodes(root)
         break
