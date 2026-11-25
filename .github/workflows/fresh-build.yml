@@ -1,12 +1,12 @@
 name: Shark Sky clean candidate
 on:
   push:
-    branches: ['fresh/shark-sky-5.0.0']
+    branches: ['design/four-screen-blue-candidate']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
-  group: shark-sky-verified-release
+  group: shark-sky-four-screen-candidate
   cancel-in-progress: false
 jobs:
   build:
@@ -74,7 +74,7 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50027'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50028'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
             unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
@@ -82,7 +82,7 @@ jobs:
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.27-candidate-install-untested
+          name: SharkSky-5.0.28-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Fetch last published APK for upgrade test
@@ -127,7 +127,7 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
             adb shell pidof com.example.xtreamtv
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50027'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50028'
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_premium_home.py
             adb exec-out screencap -p > premium-home-preview.png
@@ -136,7 +136,7 @@ jobs:
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.27-signed
+          name: SharkSky-5.0.28-signed
           path: |
             SharkNailTV.apk
             ffmpeg-source.tar.gz
@@ -144,29 +144,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: SharkSky-5.0.27-home-preview
+          name: SharkSky-5.0.28-home-preview
           path: |
             premium-home-preview.png
             failed-ui.xml
             failed-ui.png
           if-no-files-found: ignore
-      - name: Publish OTA after successful upgrade and UI test
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
-          if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" v5.0.27 | sort -V | tail -1)" != v5.0.27 ]; then
-            echo "A newer release exists; skipping OTA publication."
-            exit 0
-          fi
-          checksum=$(sha256sum SharkNailTV.apk | cut -d' ' -f1)
-          bytes=$(stat -c %s SharkNailTV.apk)
-          jq -n --arg tag v5.0.27 --arg link "https://github.com/$GITHUB_REPOSITORY/releases/download/v5.0.27/SharkNailTV.apk" --arg digest "sha256:$checksum" --argjson size "$bytes" '{tag_name:$tag,assets:[{name:"SharkNailTV.apk",browser_download_url:$link,size:$size,digest:$digest}]}' > update.json
-          for attempt in 1 2 3; do
-            if gh release create v5.0.27 SharkNailTV.apk update.json ffmpeg-source.tar.gz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.27" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; first-video-frame recovery for movies and series; reuse the existing Live TV player for fullscreen transitions; restore SDR/HDR preferences and two-row poster browsing; resize the same Live TV surface instead of switching surfaces; add timed Now/Next and full per-channel EPG with caching; unified dark navy theme and TV-friendly typography; request native decoder HDR-to-SDR tone mapping and report actual output transfer; add fullscreen picture range selection with VOD position retention; multi-channel EPG timeline and current programme information in visible channel rows; enlarged preview and highlighted channel EPG without autoplay; two measured portrait poster rows with edge-to-edge artwork; Media3 beta01, separate Live/VOD range preferences, OpenGL SDR path with TextureView fallback and silent decoder recovery; bounded in-memory category, stream and episode caching, forced Retry refresh, account-change invalidation and low-memory eviction. Player and picture-mode implementation unchanged. Direct release manifest updater with REST fallback and explicit HTTP diagnostics. Exact-beta FFmpeg audio-only extension, hardware-first, four verified ABIs; corresponding source included. Premium navy UI, blue frames, gold focus, refined typography, home focus animation without scaling; preserved two-row geometry and same Live TV surface; sidebar home with shark hero and no poster or guide rows; Live TV now/next panel and progress; gold fullscreen transport and audio/subtitle/aspect/picture controls; original approved design 3 artwork, functional side rail and four metallic tiles, draw-only gold/red focus and mirrored floor reflections; landscape home focus and geometry test. APK signature, upgrade from 5.0.26, Home/Settings and two-row poster geometry smoke test verified by CI. Square native frames, yellow focus pulse, preview pulse, and removal of Live TV bottom action row with compact touch/remote menu. Physical-device playback verification pending." --latest; then exit 0; fi
-            if gh release view v5.0.27 --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name] | contains(["SharkNailTV.apk","update.json","ffmpeg-source.tar.gz"])' | grep -Fx true; then exit 0; fi
-            sleep $((attempt*10))
-          done
-          echo "OTA publication failed; verified artifact remains available."
-          exit 1
+      # Review candidate screenshots and device playback before any OTA publication.

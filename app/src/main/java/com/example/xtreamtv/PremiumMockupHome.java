@@ -36,40 +36,24 @@ final class PremiumMockupHome {
  }
  static void show(MainActivity a){
   if(atlas==null){BitmapFactory.Options opts=new BitmapFactory.Options();opts.inScaled=false;atlas=BitmapFactory.decodeResource(a.getResources(),R.drawable.premium_mockup3,opts);}
-  if(atlas==null||atlas.getWidth()!=1400||atlas.getHeight()!=1000)throw new IllegalStateException("Design 3 artwork atlas missing or incorrect");
+  if(atlas==null||atlas.getWidth()!=1400||atlas.getHeight()!=1000)throw new IllegalStateException("Design artwork atlas missing or incorrect");
   a.body.removeAllViews();a.body.setPadding(0,0,0,0);
   DesignLayout root=new DesignLayout(a);a.body.addView(root,new LinearLayout.LayoutParams(-1,-1));
-  root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff030919,0xff061b43,0xff050b19}));
-  root.place(image(a,crop(0,0,1388,612)),260,0,1388,612);
-  ImageView logo=image(a,crop(0,620,537,98));logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);logo.setContentDescription("SHARK SKY");root.place(logo,28,13,537,98);
-  TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextColor(Color.WHITE);clock.setTextSize(22);root.place(clock,1260,15,300,54);
-  TextView version=a.text("PREMIUM  •  "+BuildConfig.VERSION_NAME,12);version.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);root.place(version,1250,75,310,36);
-  String[] nav={"Home","Live TV","Movies","Series","Settings"};
-  String[] glyph={"⌂","▣","▤","▥","⚙"};
-  View[] rail=new View[nav.length];View[] tiles=new View[4];
-  for(int i=0;i<nav.length;i++){
-   String dest=nav[i];
-   LinearLayout row=a.row();row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(a.dp(12),0,a.dp(8),0);row.setBackground(a.focus());row.setFocusable(true);row.setFocusableInTouchMode(true);row.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);row.setClickable(true);row.setId(View.generateViewId());row.setContentDescription(dest);
-   TextView icon=a.text(glyph[i],22);icon.setTextColor(Color.WHITE);icon.setGravity(Gravity.CENTER);row.addView(icon,new LinearLayout.LayoutParams(a.dp(30),-1));
-   TextView label=a.text(dest,18);label.setTypeface(a.uiMedium);row.addView(label,new LinearLayout.LayoutParams(0,-1,1));
-   if(i==0)row.setSelected(true);a.premiumHomeFocus(row);bindNavigation(row,a,dest);
-   root.place(row,20,202+i*82,265,70);rail[i]=row;
-  }
-  View floor=new View(a);floor.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xff0e2343,0xff020712,0xff071024}));root.place(floor,260,829,1388,99);
+  root.setBackground(a.screenBackground());
+  ImageView hero=image(a,crop(0,0,1388,612));hero.setScaleType(ImageView.ScaleType.FIT_CENTER);root.place(hero,70,0,1508,665);
+  ImageView logo=image(a,crop(0,620,537,98));logo.setScaleType(ImageView.ScaleType.FIT_CENTER);logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);logo.setContentDescription("SHARK SKY");root.place(logo,28,18,340,66);
+  TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextColor(Color.WHITE);clock.setTextSize(22);root.place(clock,1260,15,350,54);
   String[] dests={"Live TV","Movies","Series","Settings"};
+  int[] icons={R.drawable.metal48_live,R.drawable.metal48_movies,R.drawable.metal48_series,R.drawable.metal48_settings};
+  View[] tiles=new View[4];
   for(int i=0;i<4;i++){
-   final String dest=dests[i];
-   FrameLayout tile=new FrameLayout(a);tile.setId(View.generateViewId());tile.setContentDescription(dest);tile.setFocusable(true);tile.setFocusableInTouchMode(true);tile.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);tile.setClickable(true);
-   Bitmap artwork=crop(i*350,750,320,220);
-   root.place(new FloorReflection(a,artwork),325+i*323,833,304,88);
-   tile.addView(image(a,artwork),new FrameLayout.LayoutParams(-1,-1));a.premiumHomeFocus(tile);
-   bindNavigation(tile,a,dest);root.place(tile,325+i*323,613,304,218);tiles[i]=tile;
+   final String dest=dests[i];LinearLayout tile=a.col();tile.setId(View.generateViewId());tile.setContentDescription(dest);tile.setFocusable(true);tile.setFocusableInTouchMode(true);tile.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);tile.setClickable(true);tile.setGravity(Gravity.CENTER);tile.setPadding(a.dp(10),a.dp(8),a.dp(10),a.dp(4));tile.setBackground(a.focus());
+   ImageView icon=a.art(icons[i]);icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);tile.addView(icon,new LinearLayout.LayoutParams(-1,0,1));
+   TextView name=a.text(dest.toUpperCase(java.util.Locale.ROOT),19);name.setGravity(Gravity.CENTER);name.setTypeface(a.uiMedium);name.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);tile.addView(name,new LinearLayout.LayoutParams(-1,a.dp(32)));
+   a.premiumHomeFocus(tile);bindNavigation(tile,a,dest);root.place(tile,52+i*390,650,374,232);tiles[i]=tile;
   }
-  for(int i=0;i<rail.length;i++){rail[i].setNextFocusRightId(tiles[Math.max(0,i-1)].getId());if(i>0)rail[i].setNextFocusUpId(rail[i-1].getId());if(i+1<rail.length)rail[i].setNextFocusDownId(rail[i+1].getId());}
-  for(int i=0;i<tiles.length;i++){tiles[i].setNextFocusLeftId(i==0?rail[1].getId():tiles[i-1].getId());if(i+1<tiles.length)tiles[i].setNextFocusRightId(tiles[i+1].getId());tiles[i].setNextFocusUpId(rail[i+1].getId());}
-  root.rail=rail;root.tiles=tiles;
-  tiles[0].requestFocus();
-  root.post(()->{if(root.isAttachedToWindow()&&!root.hasFocus())tiles[0].requestFocus();});
+  for(int i=0;i<tiles.length;i++){tiles[i].setNextFocusLeftId(tiles[Math.max(0,i-1)].getId());tiles[i].setNextFocusRightId(tiles[Math.min(i+1,tiles.length-1)].getId());}
+  tiles[0].requestFocus();root.post(()->{if(root.isAttachedToWindow()&&!root.hasFocus())tiles[0].requestFocus();});
  }
  /** Reflect only the real tile pixels, with a soft opacity fade. No layout animation. */
  private static final class FloorReflection extends View{
