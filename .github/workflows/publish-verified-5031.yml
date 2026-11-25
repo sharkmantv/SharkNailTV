@@ -1,0 +1,71 @@
+name: Publish verified 5.0.31 test OTA
+on:
+  push:
+    branches: ['release/5.0.31-verified-candidate']
+    paths: ['.github/workflows/publish-verified-5031.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: shark-sky-verified-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Retrieve exact successfully tested signed artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          run=45680007349
+          sha=aa20aa52cd73d6111c310af7ff6fec871f5f8e67
+          gh api "repos/$GH_REPO/actions/runs/$run" | jq -e --arg sha "$sha" '.conclusion=="success" and .head_sha==$sha and .head_branch=="design/premium-5.0.30-four-sharks"'
+          gh api "repos/$GH_REPO/actions/runs/$run/artifacts" | jq -e '.artifacts[] | select(.id==15055001161 and .name=="SharkSky-5.0.31-signed" and .expired==false)'
+          gh run download "$run" --repo "$GH_REPO" --name SharkSky-5.0.31-signed
+          test -s SharkNailTV.apk
+          test -s ffmpeg-source.tar.gz
+      - name: Verify signature, package and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50031'"
+          unzip -tq SharkNailTV.apk
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
+          done
+          mkdir -p prior28
+          gh run download 45672831279 --repo "$GH_REPO" --name SharkSky-5.0.30-candidate-install-untested --dir prior28
+          prev=$("$tools/apksigner" verify --print-certs prior28/SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$prev" = "$cert"
+          "$tools/aapt" dump badging prior28/SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50030'"
+      - name: Stage and publish OTA after asset verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=v5.0.31
+          latest=$(gh release view --repo "$GH_REPO" --json tagName --jq .tagName)
+          case "$latest" in v5.0.29) ;; *) echo "Unexpected latest release: $latest"; exit 1;; esac
+          if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "Release already exists; refusing overwrite."
+            exit 1
+          fi
+          checksum=$(sha256sum SharkNailTV.apk | cut -d' ' -f1)
+          bytes=$(stat -c %s SharkNailTV.apk)
+          jq -n --arg tag "$tag" --arg link "https://github.com/$GH_REPO/releases/download/$tag/SharkNailTV.apk" --arg digest "sha256:$checksum" --argjson size "$bytes" '{tag_name:$tag,assets:[{name:"SharkNailTV.apk",browser_download_url:$link,size:$size,digest:$digest}]}' > update.json
+          gh release create "$tag" --draft --repo "$GH_REPO" --target aa20aa52cd73d6111c310af7ff6fec871f5f8e67 --title "Shark Sky 5.0.31 (test UI)" --notes "Exact signed candidate from successful run 45680007349. Four-shark Home, yellow focus, lighter font, consistent blue backgrounds, centered Settings and Cleaner. Signature, package, native decoder and emulator upgrade from 5.0.29 passed; signing checked against manual 5.0.30. Real TV playback and visual fidelity remain unverified."
+          for asset in SharkNailTV.apk update.json ffmpeg-source.tar.gz; do
+            gh release upload "$tag" "$asset" --repo "$GH_REPO"
+          done
+          gh release view "$tag" --repo "$GH_REPO" --json assets | jq -e --arg digest "sha256:$checksum" --argjson size "$bytes" '(.assets | length)==3 and any(.assets[]; .name=="SharkNailTV.apk" and .size==$size and .digest==$digest) and any(.assets[]; .name=="update.json" and .size>0) and any(.assets[]; .name=="ffmpeg-source.tar.gz" and .size>0)'
+          gh release edit "$tag" --repo "$GH_REPO" --draft=false --latest
+          gh release view --repo "$GH_REPO" --json tagName,isDraft,assets | jq -e --arg tag "$tag" '.tagName==$tag and .isDraft==false and any(.assets[]; .name=="SharkNailTV.apk") and any(.assets[]; .name=="update.json")'
