@@ -110,14 +110,28 @@ public class MainActivity extends Activity {
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();}
  static class Item { String id,name,ext,art="",year="",tmdb=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);initTypography();getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
  static final int UI_TEXT=0xfff2f5fc, UI_SECONDARY=0xffb5c7e3, UI_ACCENT=0xff8dcaff, UI_GOLD=0xffffcf63;
- final android.graphics.Typeface uiRegular=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
- final android.graphics.Typeface uiMedium=android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL);
- final android.graphics.Typeface uiLight=android.graphics.Typeface.create("sans-serif-light",android.graphics.Typeface.NORMAL);
+ android.graphics.Typeface uiRegular,uiMedium,uiLight,uiHeadline;
+ void initTypography(){
+  android.graphics.Typeface base;
+  try{
+   if(Build.VERSION.SDK_INT>=26)base=getResources().getFont(R.font.shark_ui);
+   else{
+    File file=new File(getCacheDir(),"source-sans-3.ttf");
+    if(!file.isFile()||file.length()==0)try(InputStream in=getResources().openRawResource(R.font.shark_ui);OutputStream out=new FileOutputStream(file)){byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);}
+    base=android.graphics.Typeface.createFromFile(file);
+   }
+  }catch(Exception e){base=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);}
+  uiRegular=licensedFont("sky_text_regular.ttf",base);
+  uiMedium=licensedFont("sky_text_medium.ttf",Build.VERSION.SDK_INT>=28?android.graphics.Typeface.create(base,500,false):android.graphics.Typeface.create(base,android.graphics.Typeface.BOLD));
+  uiLight=Build.VERSION.SDK_INT>=28?android.graphics.Typeface.create(base,300,false):base;
+  uiHeadline=licensedFont("sky_text_headline.ttf",Build.VERSION.SDK_INT>=28?android.graphics.Typeface.create(base,600,false):android.graphics.Typeface.create(base,android.graphics.Typeface.BOLD));
+ }
+ android.graphics.Typeface licensedFont(String name,android.graphics.Typeface fallback){try{return android.graphics.Typeface.createFromAsset(getAssets(),"licensed/"+name);}catch(Exception e){return fallback;}}
  GradientDrawable premiumFrame(boolean focused,boolean selected){
   return focused?bg(0xff29466d,0xff162947,UI_GOLD,2):selected?bg(0xff203959,0xff11213b,0xff7bbaff,1):bg(0xff142846,0xff0b172e,0xff36669c,1);
  }
@@ -156,7 +170,7 @@ public class MainActivity extends Activity {
  StateListDrawable posterFocus(){StateListDrawable d=new StateListDrawable();d.addState(new int[]{android.R.attr.state_focused},bg(0xff223c60,0xff142642,UI_GOLD,3));d.addState(new int[]{},bg(0xff111d34,0xff0b1428,0xff397eb9,2));return d;}
  GradientDrawable screenBackground(){return new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff17355b,0xff101f3c,0xff050b19});}
  void styleInput(EditText e){e.setTypeface(uiRegular);e.setTextColor(UI_TEXT);e.setHintTextColor(UI_SECONDARY);e.setTextSize(16);}
- TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextColor(size<=12?UI_SECONDARY:UI_TEXT);t.setTypeface(size>=21?uiMedium:uiRegular);t.setTextSize(size);t.setLetterSpacing(size>=21?0.005f:0.01f);t.setGravity(Gravity.CENTER_VERTICAL);t.setMaxLines(2);return t;}
+ TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextColor(size<=12?UI_SECONDARY:UI_TEXT);t.setTypeface(size>=21?uiHeadline:uiRegular);t.setTextSize(size);t.setLetterSpacing(size>=21?-.01f:0f);t.setGravity(Gravity.CENTER_VERTICAL);t.setMaxLines(2);return t;}
  LinearLayout row(){return new LinearLayout(this);} LinearLayout col(){LinearLayout l=row();l.setOrientation(1);return l;}
  void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());premiumHomeFocus(t);t.setPadding(dp(6),0,dp(6),0);t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}

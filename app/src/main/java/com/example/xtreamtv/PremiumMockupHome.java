@@ -44,7 +44,7 @@ final class PremiumMockupHome {
   root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff030919,0xff061b43,0xff050b19}));
   root.place(image(a,crop(0,0,1388,612)),260,0,1388,612);
   ImageView logo=image(a,crop(0,620,537,98));logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);logo.setContentDescription("SHARK SKY");root.place(logo,28,13,537,98);
-  TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextColor(Color.WHITE);clock.setTextSize(22);root.place(clock,1260,15,300,54);
+  TextClock clock=new TextClock(a);clock.setTypeface(a.uiMedium);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextColor(Color.WHITE);clock.setTextSize(22);root.place(clock,1260,15,300,54);
   TextView version=a.text("PREMIUM  •  "+BuildConfig.VERSION_NAME,12);version.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);root.place(version,1250,75,310,36);
   String[] nav={"Home","Live TV","Movies","Series","Settings"};
   String[] glyph={"⌂","▣","▤","▥","⚙"};
@@ -80,7 +80,7 @@ final class PremiumMockupHome {
   if(design2==null||design2.getWidth()!=1648||design2.getHeight()!=820)throw new IllegalStateException("Design 2 artwork incorrect");
   a.body.removeAllViews();a.body.setPadding(0,0,0,0);DesignLayout root=new DesignLayout(a);a.body.addView(root,new LinearLayout.LayoutParams(-1,-1));root.setBackgroundColor(0xff050b19);
   ImageView hero=image(a,Bitmap.createBitmap(design2,0,0,1648,560));hero.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);hero.setContentDescription("SHARK SKY");root.place(hero,0,0,1648,560);
-  TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setTextColor(Color.WHITE);clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextSize(22);root.place(clock,1260,15,310,54);
+  TextClock clock=new TextClock(a);clock.setTypeface(a.uiMedium);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setTextColor(Color.WHITE);clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextSize(22);root.place(clock,1260,15,310,54);
   TextView version=a.text("PREMIUM  •  "+BuildConfig.VERSION_NAME,12);version.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);root.place(version,1250,75,320,36);
   String[] dests={"Live TV","Movies","Series","Settings"};View[] tiles=new View[4];
   for(int i=0;i<4;i++){String dest=dests[i];FrameLayout tile=new FrameLayout(a);tile.setId(View.generateViewId());tile.setContentDescription(dest);tile.setFocusable(true);tile.setFocusableInTouchMode(true);tile.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);tile.setClickable(true);Bitmap art=Bitmap.createBitmap(design2,i*400,590,330,220);
