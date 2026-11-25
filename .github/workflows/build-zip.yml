@@ -2,7 +2,7 @@ name: Build SharkNailTV ZIP and publish OTA on upload
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'development/4.1.14-home']
     paths:
       - 'incoming/SharkNailTV.zip'
       - 'incoming/room-catalogue-4.1.11.py'
@@ -91,6 +91,7 @@ jobs:
         run: |
           set -euo pipefail
           archive_sha=$(git hash-object "$SOURCE_ZIP")
+          test -s "$GITHUB_WORKSPACE/incoming/SharkNailTV-4.1.14-home-assets.zip" || { echo '::error::Approved Home artwork archive is missing; no APK will be produced.'; exit 1; }
           if [[ "$archive_sha" == "0ad470e7127d7cf3c97e4da31dd1e4a5915caf25" ]]; then
             base64 -d "$GITHUB_WORKSPACE/incoming/4.0.1.patch.gz.b64" | gzip -d > "$RUNNER_TEMP/shark401.patch"
             echo '4ed767fc9fabd22bb49ace0219257a4c6853e4b48a17535f71f852ce6f828cf1  '"$RUNNER_TEMP/shark401.patch" | sha256sum -c -
