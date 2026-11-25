@@ -127,3 +127,75 @@ internal class SharkPlaybackTiming(private val preview:Boolean,private val live:
 }
 ''')
 print("Bounded EPG failure backoff, batch catalogue indexing and per-item playback timing applied.")
+
+
+# Catalogue crash mitigation: keep the established layout and Paging 3, but
+# don't pin disposed lazy items or let a live PagingSource outlive a Room DB.
+p=root/"MainActivity.kt"
+s=p.read_text()
+start=s.index('@Composable private fun TvCatalogueBrowser(')
+end=s.index('@Composable private fun V4PosterRow(',start)
+ui=s[start:end]
+assert ui.count('.focusRestorer()')==2
+ui=ui.replace('.focusRestorer()','')
+# Official Paging Compose key helper reads a consistent snapshot and gives
+# placeholders distinct keys without directly peeking beyond itemCount.
+ui=swap(ui,'key={ index -> paged.peek(index)?.let { it.kind+":"+it.id } ?: "placeholder:"+index }','key=paged.itemKey { it.kind+":"+it.id }')
+s=s[:start]+ui+s[end:]
+if 'import androidx.paging.compose.itemKey' not in s:
+    s=s.replace('import androidx.compose.ui.focus.focusRestorer','import androidx.paging.compose.itemKey',1)
+p.write_text(s)
+
+p=root/"CataloguePaging.kt"
+s=p.read_text()
+marker='    @Query("SELECT * FROM catalogue_rows ORDER BY rowid")'
+s=swap(s,marker,'''    @Query("SELECT * FROM catalogue_rows WHERE rowid IN (SELECT rowid FROM catalogue_fts WHERE catalogue_fts MATCH :term) ORDER BY rowid")
+    suspend fun boundedSearch(term:String):List<CatalogueRow>
+'''+marker)
+start=s.index('@Composable internal fun cataloguePages(')
+s=s[:start]+'''@Composable internal fun cataloguePages(entries:List<Entry>, query:String, alphabetical:Boolean):LazyPagingItems<Entry> {
+    val context=LocalContext.current.applicationContext
+    // Browse from the existing account-scoped cached list. No second complete
+    // catalogue database is allocated during normal navigation or refresh.
+    var visible by remember(entries,query,alphabetical) {
+        mutableStateOf(if(query.isBlank()) entries else emptyList())
+    }
+    LaunchedEffect(entries,query,alphabetical,context) {
+        if(query.isBlank() && !alphabetical) return@LaunchedEffect
+        val result=withContext(Dispatchers.Default) {
+            val term=query.split(Regex("[^\\\\p{L}\\\\p{N}]+")).filter { it.isNotBlank() }.joinToString(" ") { it+"*" }
+            val lowRam=(context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice
+            // For modest searches only, keep Room fully scoped to one IO operation.
+            // Large catalogues use cancellable background filtering, with no duplicate DB.
+            val indexed=if(query.isNotBlank() && term.isNotEmpty() && !lowRam && entries.size in 1..1500) {
+                withContext(Dispatchers.IO) {
+                    var db:CatalogueDatabase?=null
+                    try {
+                        val opened=Room.inMemoryDatabaseBuilder(context,CatalogueDatabase::class.java).build()
+                        db=opened
+                        opened.catalogue().replace(entries)
+                        opened.catalogue().boundedSearch(term).map { it.entry() }
+                    } catch(e:kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch(e:Exception) {
+                        null
+                    } finally {
+                        db?.close()
+                    }
+                }
+            } else null
+            // Retain substring matching in addition to FTS prefix matches.
+            val matches=if(query.isBlank()) entries else {
+                val ids=indexed.orEmpty().mapTo(HashSet()) { it.kind+":"+it.id }
+                entries.filter { it.title.contains(query,true) || it.kind+":"+it.id in ids }
+            }
+            if(alphabetical) matches.sortedBy { it.title.lowercase(java.util.Locale.ROOT) } else matches
+        }
+        visible=result
+    }
+    val flow=remember(visible) { flowOf(PagingData.from(visible)) }
+    return flow.collectAsLazyPagingItems()
+}
+'''
+p.write_text(s)
+print("Catalogue stability: standard focus, safe paging keys, cached browsing and bounded search indexing.")
