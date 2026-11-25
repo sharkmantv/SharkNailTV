@@ -2,7 +2,6 @@ name: Shark Sky clean candidate
 on:
   push:
     branches: ['design/premium-5.0.30-four-sharks']
-    paths: ['app/src/main/res/drawable-nodpi/four_sharks_atlas.png']
   workflow_dispatch:
 permissions:
   contents: read

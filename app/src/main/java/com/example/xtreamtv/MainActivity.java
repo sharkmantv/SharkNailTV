@@ -214,9 +214,16 @@ public class MainActivity extends Activity {
   new AlertDialog.Builder(this).setTitle("Reset playback and display preferences?").setMessage("Your Xtream login and favourites will be kept.").setNegativeButton("Cancel",null).setPositiveButton("Reset",(d,n)->{prefs.edit().remove("display_mode").remove("resize_mode").remove("audio_lang").remove("text_lang").remove("subtitles_on").remove("show_codec_info").apply();applyDisplayMode();settings();}).show();
  }
  void settings(){
-  page="Settings";screen("Settings");LinearLayout r=row();r.setPadding(dp(6),dp(10),dp(6),0);body.addView(r,new LinearLayout.LayoutParams(-1,dp(86)));
+  page="Settings";screen("Settings");
+  // Centre the compact grid in the usable area below the header.
+  boolean wide=getResources().getConfiguration().screenWidthDp>=650;
+  int tileHeight=wide?86:64, rowGap=wide?20:12, edge=wide?16:6;
+  LinearLayout area=col();area.setGravity(Gravity.CENTER_VERTICAL);
+  area.setPadding(dp(edge),0,dp(edge),0);
+  body.addView(area,new LinearLayout.LayoutParams(-1,0,1));
+  LinearLayout r=row();area.addView(r,new LinearLayout.LayoutParams(-1,dp(tileHeight)));
   settingsTile(r,"Xtream Codes",4,()->login("Settings"));settingsTile(r,"Playback",5,this::playbackSettings);settingsTile(r,"Display",6,this::displayDialog);settingsTile(r,"Audio",7,()->languageDialog("audio_lang","Preferred audio language"));
-  LinearLayout r2=row();r2.setPadding(dp(6),0,dp(6),dp(12));body.addView(r2,new LinearLayout.LayoutParams(-1,dp(86)));
+  LinearLayout r2=row();LinearLayout.LayoutParams secondRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));secondRow.topMargin=dp(rowGap);area.addView(r2,secondRow);
   settingsTile(r2,"Subtitles",8,()->languageDialog("text_lang","Preferred subtitle language"));settingsTile(r2,"Updates",9,this::update);settingsTile(r2,"About",10,()->new AlertDialog.Builder(this).setTitle("Shark Sky Premium").setMessage("Version "+BuildConfig.VERSION_NAME+" · Media3 1.12.0-beta01").setPositiveButton("OK",null).show());settingsTile(r2,"Reset",11,this::resetVisualSettings);r.getChildAt(0).requestFocus();
  }
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
