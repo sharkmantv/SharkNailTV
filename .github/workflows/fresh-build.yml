@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: shark-sky-premium-5029-visual
   cancel-in-progress: false
@@ -95,6 +96,16 @@ jobs:
           previous_cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/previous.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$previous_cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
           "$tools/aapt" dump badging "$RUNNER_TEMP/previous.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50026'"
+      - name: Retrieve signed 5.0.28 candidate for upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 45642017823 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.28-candidate-install-untested --dir "$RUNNER_TEMP/prior28"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior28/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior28/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50028'"
       - name: Prepare emulator acceleration
         run: |
           if [ -e /dev/kvm ]; then
@@ -120,6 +131,8 @@ jobs:
             adb install "$RUNNER_TEMP/previous.apk"
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             adb shell pidof com.example.xtreamtv
+            adb install -r "$RUNNER_TEMP/prior28/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50028'
             adb install -r SharkNailTV.apk
             adb shell am force-stop com.google.android.apps.nexuslauncher
             adb shell am force-stop com.example.xtreamtv
