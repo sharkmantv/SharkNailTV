@@ -75,7 +75,7 @@ try:
     adb("shell","input","keyevent","23")
     expect("Playback")
     root=ui()
-    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Reset")
+    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner")
     tiles=[bounds(find(root,label)) for label in labels]
     first,second=tiles[:4],tiles[4:]
     assert all(abs(r[1]-first[0][1])<=2 and abs(r[3]-first[0][3])<=2 for r in first),tiles
@@ -130,6 +130,12 @@ try:
     for label in ("Home","Search","Retry"):
         expect(label)
     tap(expect("Home"))
+    tap(expect("Settings"))
+    tap(expect("Cleaner"))
+    tap(expect("Clear app cache"))
+    tap(expect("Clear cache"))
+    expect("SHARK SKY")
+    # The saved Xtream login must still work after cleaning and activity restart.
     tap(expect("Live TV"))
     expect("Fixture channels")
     expect("Test channel 001")
