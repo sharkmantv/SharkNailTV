@@ -398,3 +398,21 @@ ui=swap(ui,'.border(if(focused) 2.dp else 1.dp,edge,shape)','.border(2.dp,edge,s
 s=s[:a]+ui+s[b:]
 p.write_text(s)
 print("Approved 4.1.15 alpha PNGs installed; original shark and five matched icons, fixed tile sizes and gold pulse.")
+
+
+# Align the preview top edge with the first channel row rather than the
+# Categories/Channels heading. Reuse the channel heading height.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index("@Composable private fun LiveBrowser(")
+b=s.index("@Composable private fun CompactLiveAction(",a)
+ui=s[a:b]
+head=re.search(r'Text\([^\n]*"Channels[^\n]*modifier=Modifier\.height\((\d+)\.dp\)',ui)
+assert head,"Live channel header height not found"
+height=head.group(1)
+m=re.search(r'BoxWithConstraints\(Modifier\.weight\(0\.40f\)\.fillMaxHeight\(\)\)',ui)
+assert m,"Live preview column not found"
+ui=swap(ui,m.group(0),m.group(0)[:-1]+'.padding(top='+height+'.dp))')
+s=s[:a]+ui+s[b:]
+p.write_text(s)
+print("Live preview top aligned to first channel row using shared header height "+height+"dp.")
