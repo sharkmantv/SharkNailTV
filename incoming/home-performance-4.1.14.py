@@ -159,3 +159,119 @@ with ZipFile(assets) as z:
         assert data[:4]==b"RIFF" and data[8:12]==b"WEBP"
         (res/name).write_bytes(data)
 print("Preview now uses native buffer and adaptive stream selection; saved navigation and full-screen catalogue layout applied.")
+
+
+# Upgrade the account-scoped SQLite disk cache. One bounded row per provider
+# record avoids the Android CursorWindow size limit of the previous JSON blob.
+# The cache is derived data, not the user's credentials. Import old v1 data
+# lazily on successful read; keep the original cache intact for rollback.
+p=root/"ProviderCache.kt"
+s=p.read_text()
+a=s.index("    private val file =")
+b=s.index("    companion object {",a)
+s=s[:a]+'''    private val context=context.applicationContext
+    private val file = File(this.context.noBackupFilesDir, "provider-catalogue-v2.db")
+    private val legacyFile=File(this.context.cacheDir,"provider-catalogue-v1.db")
+    private val account = MessageDigest.getInstance("SHA-256")
+        .digest(listOf(server.trim(), user, pass).joinToString("\\u0000").toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 255) }
+
+    private fun <T> database(fallback:T,block:(SQLiteDatabase)->T):T=synchronized(lock) {
+        try {
+            SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+                db.execSQL("PRAGMA foreign_keys=ON")
+                db.execSQL("CREATE TABLE IF NOT EXISTS snapshots (account TEXT NOT NULL,item TEXT NOT NULL,stamp INTEGER NOT NULL,bytes INTEGER NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(account,item))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS snapshots_stamp ON snapshots(stamp)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS records (account TEXT NOT NULL,item TEXT NOT NULL,position INTEGER NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(account,item,position),FOREIGN KEY(account,item) REFERENCES snapshots(account,item) ON DELETE CASCADE)")
+                db.execSQL("PRAGMA user_version=2")
+                block(db)
+            }
+        } catch(_:Exception) { fallback }
+    }
+
+    fun read(key:String,ttl:Long):Pair<Long,JSONArray>? {
+        val stored=database<Pair<Long,JSONArray>?>(null) { db ->
+            val header=db.query("snapshots",arrayOf("stamp","count"),"account=? AND item=?",arrayOf(account,key),null,null,null).use { c ->
+                if(c.moveToFirst()) c.getLong(0) to c.getInt(1) else null
+            } ?: return@database null
+            if(System.currentTimeMillis()-header.first !in 0 until ttl) return@database null
+            val rows=JSONArray()
+            db.query("records",arrayOf("payload"),"account=? AND item=?",arrayOf(account,key),null,null,"position ASC").use { cursor ->
+                while(cursor.moveToNext()) rows.put(org.json.JSONTokener(cursor.getString(0)).nextValue())
+            }
+            if(rows.length()!=header.second) null else header.first to rows
+        }
+        if(stored!=null) return stored
+        val legacy=synchronized(lock) {
+            if(!legacyFile.exists()) null else try {
+                SQLiteDatabase.openDatabase(legacyFile.path,null,SQLiteDatabase.OPEN_READONLY).use { db ->
+                    db.query("cache",arrayOf("stamp","payload"),"account=? AND item=?",arrayOf(account,key),null,null,null).use { c ->
+                        if(!c.moveToFirst()) null else {
+                            val stamp=c.getLong(0)
+                            if(System.currentTimeMillis()-stamp in 0 until ttl) stamp to JSONArray(c.getString(1)) else null
+                        }
+                    }
+                }
+            } catch(_:Exception) { null }
+        }
+        if(legacy!=null) writeSnapshot(key,legacy.second,legacy.first)
+        return legacy
+    }
+
+    fun write(key:String,array:JSONArray) = writeSnapshot(key,array,System.currentTimeMillis())
+
+    private fun writeSnapshot(key:String,array:JSONArray,stamp:Long) {
+        if(array.length()>100_000) return
+        // Avoid allocating another full serialized catalogue. Each record is
+        // encoded once during insertion; abort atomically if a limit is hit.
+        database(Unit) { db ->
+            val now=System.currentTimeMillis()
+            db.beginTransaction()
+            try {
+                db.delete("snapshots","stamp<? OR stamp>?",arrayOf((now-86_400_000L).toString(),now.toString()))
+                db.delete("snapshots","account=? AND item=?",arrayOf(account,key))
+                db.insertOrThrow("snapshots",null,ContentValues().apply {
+                    put("account",account);put("item",key);put("stamp",stamp);put("bytes",0L);put("count",array.length())
+                })
+                var total=0L
+                val insert=db.compileStatement("INSERT INTO records(account,item,position,payload) VALUES(?,?,?,?)")
+                try {
+                    for(i in 0 until array.length()) {
+                        val payload=array.get(i).toString()
+                        val bytes=payload.toByteArray(Charsets.UTF_8).size
+                        if(bytes>256*1024) throw IllegalArgumentException("Oversized cache record")
+                        total+=bytes
+                        if(total>16L*1024L*1024L) throw IllegalArgumentException("Oversized cache snapshot")
+                        insert.clearBindings()
+                        insert.bindString(1,account);insert.bindString(2,key);insert.bindLong(3,i.toLong());insert.bindString(4,payload)
+                        insert.executeInsert()
+                    }
+                } finally { insert.close() }
+                db.update("snapshots",ContentValues().apply { put("bytes",total) },"account=? AND item=?",arrayOf(account,key))
+                var used=db.rawQuery("SELECT COALESCE(SUM(bytes),0) FROM snapshots",null).use { c -> c.moveToFirst(); c.getLong(0) }
+                if(used>MAX_BYTES) {
+                    val oldest=db.rawQuery("SELECT rowid,bytes FROM snapshots ORDER BY stamp ASC,rowid ASC",null).use { c ->
+                        buildList { while(c.moveToNext() && used>MAX_BYTES) { add(c.getLong(0));used-=c.getLong(1) } }
+                    }
+                    oldest.forEach { db.delete("snapshots","rowid=?",arrayOf(it.toString())) }
+                }
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+        }
+    }
+
+    fun clear() {
+        database(Unit) { db -> db.delete("snapshots","account=?",arrayOf(account));Unit }
+        synchronized(lock) {
+            if(legacyFile.exists()) try {
+                SQLiteDatabase.openDatabase(legacyFile.path,null,SQLiteDatabase.OPEN_READWRITE).use { db ->
+                    db.delete("cache","account=?",arrayOf(account))
+                }
+            } catch(_:Exception) {}
+        }
+    }
+
+'''+s[b:]
+s=swap(s,"private const val MAX_BYTES = 16L * 1024L * 1024L","private const val MAX_BYTES = 48L * 1024L * 1024L")
+p.write_text(s)
+print("Persistent SQLite v2 cache: account isolation, atomic row-based snapshots, lazy legacy migration and bounded storage.")
