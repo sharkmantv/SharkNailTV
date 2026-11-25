@@ -687,14 +687,11 @@ jobs:
           test -f SharkNailTV.apk
           test -n "${SOURCE_ZIP:-}"
           test "${VERSION_CODE:?}" -ge 40000
-          # Keep release tags bound to the exact source built and tested. GitHub
-          # rejects historical workflow revisions when using its standard token.
-          if [[ "$OTA_TOKEN_CONFIGURED" != true ]]; then
-            git fetch --no-tags origin main
-            if ! git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- .github/workflows; then
-              echo "::error::Workflow files changed while building. Keep development changes on a branch until OTA publication completes."
-              exit 1
-            fi
+          # Never publish a superseded candidate, including when an OTA token is configured.
+          git fetch --no-tags origin main
+          if ! git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- incoming .github/workflows; then
+            echo "::error::A newer source or workflow revision supersedes this candidate; refusing to publish."
+            exit 1
           fi
           latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
           if [[ "$latest" == "v$VERSION_NAME" ]]; then
@@ -708,4 +705,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated 4.1.13: cache-first Xtream, Room and Paging catalogue, indexed search, TV focus restoration and fixed-size posters; matched Media3 1.11.1 FFmpeg/AV1/VP9 extensions; optional tunneling, Cronet, prewarming and next-channel PreloadManager; native fullscreen buffer, preview recovery, EPG coalescing and bounded failure backoff, batch Room indexing, low-memory preload guard, per-channel timing, startup profile, separate Macrobenchmark test APK, package/dependency audit and playback metrics. Signed APK, native library presence and emulator launch verified by CI. Actual provider/device playback, IBO comparison and performance benefits require device validation. Experimental playback features remain opt-in." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated 4.1.13: cache-first Xtream, Room and Paging catalogue, indexed search, TV focus restoration and fixed-size posters; matched Media3 1.11.1 FFmpeg/AV1/VP9 extensions; optional tunneling, Cronet, prewarming and next-channel PreloadManager; native fullscreen buffer, preview recovery, EPG coalescing and bounded failure backoff, bounded Room search and cached Paging browsing, safer standard D-pad focus and paging keys, low-memory preload guard, per-channel timing, startup profile, separate Macrobenchmark test APK, package/dependency audit and playback metrics. Signed APK, native library presence and emulator launch verified by CI. Actual provider/device playback, IBO comparison and performance benefits require device validation. Experimental playback features remain opt-in." --latest
