@@ -115,8 +115,8 @@ public class MainActivity extends Activity {
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
  static final int UI_TEXT=0xfff2f5fc, UI_SECONDARY=0xffb5c7e3, UI_ACCENT=0xff8dcaff, UI_GOLD=0xffffcf63;
- final android.graphics.Typeface uiRegular=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
- final android.graphics.Typeface uiMedium=android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL);
+ final android.graphics.Typeface uiRegular=android.graphics.Typeface.create("sans-serif-light",android.graphics.Typeface.NORMAL);
+ final android.graphics.Typeface uiMedium=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
  final android.graphics.Typeface uiLight=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
  Drawable premiumFrame(boolean focused,boolean selected){return new PremiumVisuals.Glass(focused,selected);}
  StateListDrawable focus(){

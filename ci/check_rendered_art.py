@@ -20,3 +20,12 @@ for i in range(4):
     n=sum((r>120 and r>g*1.2) or (b>145 and r>80 and b>g*1.25) for r,g,b in top.getdata())
     assert n>top.width*top.height*.10,(i,n,"missing colour strip")
     print("PASS: shark and top strip",i,hit,total)
+
+# Live TV is initially focused. Inspect its lower edge to avoid the coloured top strip.
+for i in range(4):
+    x=52+i*395
+    patch=im.crop((round((x+35)*w/1648),round(854*h/928),round((x+330)*w/1648),round(867*h/928)))
+    gold=sum(r>200 and g>150 and b<150 and r>b*1.5 for r,g,b in patch.getdata())
+    if i==0: assert gold>patch.width*1.5,(i,gold,"focused yellow outline missing")
+    else: assert gold<patch.width*.25,(i,gold,"unfocused yellow outline")
+print("PASS: yellow focus frame only on selected Home tile")

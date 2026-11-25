@@ -108,7 +108,7 @@ final class PremiumVisuals {
     p.setStyle(Paint.Style.FILL);
     p.setShader(new LinearGradient(0,panel.top,0,panel.bottom,new int[]{f?0xd321215c:0xbc151640,0xe4111243},null,Shader.TileMode.CLAMP));
     c.drawRect(panel,p);p.setShader(null);
-    if(f){p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1,h*.009f));p.setColor(0x995b74ce);c.drawRect(panel,p);p.setStyle(Paint.Style.FILL);}
+
     int[] left={0xffff8d00,0xffff394d,0xfff4289e,0xffad51ff};
     int[] right={0xffff385e,0xffd92191,0xff9c41ff,0xff438dff};
     int k=Math.floorMod(icon,4);
@@ -118,6 +118,19 @@ final class PremiumVisuals {
     p.setAlpha((int)(f?205+50*phase:155+65*phase));c.drawRect(panel.left,panel.top,panel.right,panel.top+band,p);
     p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,panel.top+band,panel.right,panel.top+band*2.2f,p);
     p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
+    if(f){
+     RectF ring=new RectF(panel);ring.inset(-inset*.42f,-inset*.42f);
+     p.setStyle(Paint.Style.STROKE);
+     float line=Math.max(2,h*.021f);
+     for(int j=3;j>=1;j--){
+      p.setStrokeWidth(line+j*inset*.42f);
+      p.setColor(Color.argb((int)((15+phase*14)*(4-j)),255,192,22));c.drawRect(ring,p);
+     }
+     p.setStrokeWidth(line);
+     p.setColor(Color.rgb(255,200+Math.round(50*phase),55+Math.round(55*phase)));
+     c.drawRect(ring,p);
+     p.setStyle(Paint.Style.FILL);p.setAlpha(255);
+    }
  }
  static final class Tile extends View{
   final Paint p=new Paint(3);final String title;final int icon;final boolean reflection;
@@ -133,7 +146,7 @@ final class PremiumVisuals {
      float ih=h*.42f,iw=ih*src.width()/src.height();
      c.drawBitmap(fourSharks,src,new RectF((w-iw)/2,h*.12f,(w+iw)/2,h*.12f+ih),bitmapPaint);
     }
-    p.setTypeface(Typeface.create(f?"sans-serif-medium":"sans-serif",Typeface.NORMAL));
+    p.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));
     p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(h*.21f,w*.105f));
     p.setColor(0xfff4f5ff);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.5f,h*.76f-(fm.ascent+fm.descent)*.5f,p);
     if(animate&&isShown())postInvalidateDelayed(50);
@@ -142,7 +155,7 @@ final class PremiumVisuals {
    if(!reflection){
     skyTile(c,p,w,h,f,phase,icon);
     float is=Math.min(h*.59f,w*.18f);icon(c,p,icon,false,w*.07f,(h-is)/2,is);
-    p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
+    p.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
     if(animate&&isShown())postInvalidateDelayed(50);return;
    }
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);
