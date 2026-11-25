@@ -315,12 +315,6 @@ s=p.read_text()
 a=s.index("@Composable private fun LiveBrowser(")
 b=s.index("@Composable private fun CompactLiveAction(",a)
 ui=s[a:b]
-m=re.search(r'val preview by produceState\(current,\s*current\)\s*\{\s*delay\((\d+)(?:L)?\)\s*value\s*=\s*current\s*\}',ui)
-assert m,"Live preview debounce anchor not found"
-ui=swap(ui,m.group(0),'''val preview by produceState<Entry?>(null,current) {
-        delay(400L)
-        value = current
-    }''')
 old='LaunchedEffect(categoryId, channels.isNotEmpty()) { if(channels.isNotEmpty()) { val i=filtered.indexOfFirst { it.id==lastId }; channelState.scrollToItem(i.coerceAtLeast(0)) } }'
 if old not in ui:
     matches=re.findall(r'LaunchedEffect\(categoryId,\s*channels\.isNotEmpty\(\)\)[^\n]*',ui)
@@ -354,3 +348,53 @@ ui=swap(ui,old,'''LaunchedEffect(categories,categoryId) {
 s=s[:a]+ui+s[b:]
 p.write_text(s)
 print("Live menu return: preserved restored positions; initial preview decoder start debounced.")
+
+
+# Debounce initial player creation independently of the existing browser
+# focus debounce. This only applies on composition entry, not every zap.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index("@Composable private fun LivePreview(")
+b=s.find("\n@Composable",a+1)
+if b<0: b=len(s)
+ui=s[a:b]
+start=ui.index("    val context=LocalContext.current")
+ui=ui[:start]+'''    var initialPreviewReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(400L); initialPreviewReady=true }
+    if(!initialPreviewReady) return
+'''+ui[start:]
+s=s[:a]+ui+s[b:]
+p.write_text(s)
+
+# Approved original shark and individual alpha PNG icons are mandatory.
+# Never crop a screenshot or silently use old artwork.
+import os, hashlib
+from zipfile import ZipFile
+assets=Path(os.environ["GITHUB_WORKSPACE"])/"incoming/SharkNailTV-4.1.15-home-png.zip"
+assert assets.is_file(),"Approved 4.1.15 transparent artwork ZIP missing"
+assert hashlib.sha256(assets.read_bytes()).hexdigest()=="2fce8ef45b164a4d4cd988ec422d77ed466a936e7df1bd0b84a84b372fb13b51","Artwork archive SHA-256 mismatch"
+res=Path("app/src/main/res/drawable-nodpi")
+names=["shark15_"+x+".png" for x in ("hero","sky","movies","series","sports","settings")]
+with ZipFile(assets) as z:
+    assert set(z.namelist())==set(names) and z.testzip() is None
+    for name in names:
+        data=z.read(name)
+        assert data[:8]==b"\x89PNG\r\n\x1a\n" and data[25]==6,"Not an RGBA PNG: "+name
+        (res/name).write_bytes(data)
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index('listOf("Shark TV", "Movies", "TV Series", "Sports Guide", "Settings")')
+b=s.find("\n@Composable",a)
+if b<0: b=len(s)
+ui=s[a:b]
+for old,new in (("shark_home_premium","shark15_hero"),("shark_icon_sky","shark15_sky"),("shark_icon_movies","shark15_movies"),("shark_icon_series","shark15_series"),("shark_icon_settings","shark15_settings")):
+    ui=swap(ui,"R.drawable."+old,"R.drawable."+new)
+ui=swap(ui,'"Settings" -> R.drawable.shark15_settings','"Sports Guide" -> R.drawable.shark15_sports\n                            "Settings" -> R.drawable.shark15_settings')
+ui=swap(ui,'Color(0xFF082F88),Color(0xFF061E55),Color(0xFF071B43)','Color(0xFF050C3D),Color(0xFF06143E),Color(0xFF051740)')
+ui=swap(ui,'modifier=Modifier.fillMaxSize(), contentScale=ContentScale.Fit)','modifier=Modifier.fillMaxHeight(0.85f).fillMaxWidth(0.6f), contentScale=ContentScale.Fit)')
+ui=swap(ui,'Row(Modifier.fillMaxWidth().weight(1f).padding(vertical=spacing), verticalAlignment=Alignment.CenterVertically)','Row(Modifier.fillMaxWidth().weight(1f).padding(vertical=spacing), horizontalArrangement=Arrangement.Center, verticalAlignment=Alignment.CenterVertically)')
+ui=swap(ui,'height(tileHeight*0.62f)','height(tileHeight*0.72f)')
+ui=swap(ui,'.border(if(focused) 2.dp else 1.dp,edge,shape)','.border(2.dp,edge,shape)')
+s=s[:a]+ui+s[b:]
+p.write_text(s)
+print("Approved 4.1.15 alpha PNGs installed; original shark and five matched icons, fixed tile sizes and gold pulse.")
