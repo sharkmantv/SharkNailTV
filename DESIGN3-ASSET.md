@@ -1,0 +1,2 @@
+# Approved design 3
+The exact selected artwork atlas must be uploaded as `app/src/main/res/drawable-nodpi/premium_mockup3.png` before this branch is built or merged. 1400 × 1000 pixels. Original hero, brand and distinct tile images are laid out separately by PremiumMockupHome, with functional native focus, clock and navigation. The Settings tile replaces Sports. No posters or EPG on Home. Do not merge before the asset exists and CI verifies the build.
