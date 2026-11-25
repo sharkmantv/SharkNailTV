@@ -31,12 +31,14 @@ internal object SharkPreviewHandoff {
 
     fun register(player:ExoPlayer,url:String) {
         val previous=active
-        if(previous?.player===player && previous.url==url) return
-        active=Slot(player,url).also { if(previous?.player===player) it.view=previous.view }
+        if(previous!=null && previous.player===player && previous.url==url) return
+        active=Slot(player,url).also { if(previous!=null && previous.player===player) it.view=previous.view }
     }
-    fun bind(player:ExoPlayer,view:PlayerView) {
-        val slot=active?.takeIf { it.player===player } ?: return
-        if(!slot.claimed && pending!==slot) slot.view=view
+    fun bind(player:ExoPlayer,view:PlayerView):Boolean {
+        val slot=active?.takeIf { it.player===player } ?: return true
+        if(slot.claimed || pending===slot) return false
+        slot.view=view
+        return true
     }
     fun rendered(player:ExoPlayer,url:String) {
         active?.takeIf { it.player===player && it.url==url }?.rendered=true
@@ -57,7 +59,6 @@ internal object SharkPreviewHandoff {
         // Detach the old view before the new view is attached. The player,
         // buffered stream and decoder remain owned by the handoff.
         slot.view?.player=null
-        slot.view=null
         handler.postDelayed({
             if(pending===slot) {
                 pending=null
@@ -66,6 +67,7 @@ internal object SharkPreviewHandoff {
                     // The original composition did not leave; its AndroidView
                     // may be rebound by the next normal update.
                     slot.rendered=false
+                    slot.view?.player=slot.player
                 }
             }
         },4000L)
@@ -130,7 +132,7 @@ ui=swap(ui,'    DisposableEffect(player,url) {','''    val previewNativeView=rem
     DisposableEffect(player,url) {''')
 ui=swap(ui,'        SharkPreviewHandoff.register(player,url)','''        SharkPreviewHandoff.register(player,url)
         previewNativeView[0]?.let { SharkPreviewHandoff.bind(player,it) }''')
-ui=swap(ui,'update={SharkPreviewHandoff.bind(player,it);it.player=player}', 'update={previewNativeView[0]=it;SharkPreviewHandoff.bind(player,it);it.player=player}')
+ui=swap(ui,'update={SharkPreviewHandoff.bind(player,it);it.player=player}', 'update={previewNativeView[0]=it;if(SharkPreviewHandoff.bind(player,it)) it.player=player}')
 s=s[:a]+ui+s[b:]
 a=s.index("@Composable private fun SafePlayer(")
 b=s.find("\n@Composable",a+1)
@@ -168,7 +170,7 @@ s=s[:a]+ui+s[b:]
 
 # Draw-only focus pulse. Neither composition nor layout reads the animation
 # phase; border width, padding and all card dimensions remain constant.
-a=s.index("@Composable",s.index("fun ElectricFocus(")-20) if "fun ElectricFocus(" in s else -1
+a=s.rfind("@Composable",0,s.index("fun ElectricFocus(")) if "fun ElectricFocus(" in s else -1
 assert a>=0
 b=s.find("\n@Composable",s.index("fun ElectricFocus(",a)+1)
 if b<0: b=len(s)
@@ -176,7 +178,7 @@ ui=s[a:b]
 start=ui.index("    val firePhase = if (focused || selected) {")
 end=ui.index("    Box(modifier.padding(2.dp)",start)
 ui=ui[:start]+'''    val highlighted=focused || selected
-    val phaseState=if(highlighted && repeatPulse) {
+    val phaseState=if(highlighted) {
         val motion=rememberInfiniteTransition(label="Draw-only gold focus")
         motion.animateFloat(0.35f,1f,infiniteRepeatable(tween(900),RepeatMode.Reverse),label="Gold opacity")
     } else null
