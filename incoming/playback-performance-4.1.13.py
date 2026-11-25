@@ -278,8 +278,57 @@ s=s[:a]+ui+s[b:]
 s=swap(s,'loading=catalogueLoading, onCategory={ categoryId=it },','loading=catalogueLoading, catalogueError=error, onCategory={ categoryId=it },')
 # Guard the original conditional footer; the connected catalogue browser
 # already renders loading, error and empty states in its fixed-size grid.
+# The shipped 4.0.0 source uses a separate Movies/Series empty-state block.
 anchor='if((if(section=="Home")'
-assert s.count(anchor)==1,"Original external empty-state anchor missing"
-s=s.replace(anchor,'if((section=="Home" || !connected) && (if(section=="Home")',1)
+if s.count(anchor)==1:
+    s=s.replace(anchor,'if((section=="Home" || !connected) && (if(section=="Home")',1)
+else:
+    anchor='if(sectionEntries.isEmpty()) {'
+    assert s.count(anchor)==1,"Original external empty-state anchor missing"
+    s=s.replace(anchor,'if(!connected && sectionEntries.isEmpty()) {',1)
 p.write_text(s)
 print("Static Movies/Series layout: fixed header and footer heights, in-grid status, no bottom Retry button.")
+
+
+# Audit all navigation surfaces, not the intentional cinematic intro.
+# Focus must change the outline and colour only; no graphics-layer scaling.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index('@Composable private fun ElectricFocus(')
+b=s.index('@Composable private fun HomeTmdbRow(',a)
+ui=s[a:b]
+ui,n=re.subn(r'\.graphicsLayer\s*\{\s*val focusScale\s*=\s*if\s*\([^)]*\)\s*1\.10f\s*else\s*1f\s*scaleX\s*=\s*focusScale\s*scaleY\s*=\s*focusScale\s*\}', '', ui)
+assert n==1,"Shared ElectricFocus scale anchor missing"
+ui=re.sub(r'(?m)^ *val scale by animateFloatAsState\(if \(focused\) 1\.08f else 1f, tween\(140\), label = "Marquee focus"\)\n','',ui)
+ui=ui.replace('scaleX = scale','scaleX = 1f').replace('scaleY = scale','scaleY = 1f')
+s=s[:a]+ui+s[b:]
+a=s.index('                        "Settings" -> {')
+b=s.index('                        "Playback & Display" ->',a)
+ui=s[a:b]
+ui=re.sub(r'(?s)val focusScale by animateFloatAsState\(\s*if \(focused\) 1\.10f else 1f,\s*tween\(150\),\s*label = "Settings tile focus scale"\s*\)', 'val focusScale = 1f',ui)
+ui=ui.replace('scaleX = focusScale','scaleX = 1f').replace('scaleY = focusScale','scaleY = 1f')
+# Retain the currently approved equal-width rows and gold pulse.
+s=s[:a]+ui+s[b:]
+# Home poster rows retain their full allocated height even before loading.
+a=s.index('@Composable private fun HomeTmdbRow(')
+b=s.index('@Composable private fun V4PosterRow(',a)
+ui=s[a:b]
+ui=ui.replace('.height(42.dp)', '.height((cardWidth*(if(landscape) 9f/16f else 1.5f)+14f).dp)')
+s=s[:a]+ui+s[b:]
+# Keep live preview title and Now/Next slots at constant height as EPG arrives.
+a=s.index('@Composable private fun LiveBrowser(')
+b=s.index('@Composable private fun CompactLiveAction(',a)
+ui=s[a:b]
+ui=ui.replace('modifier=Modifier.heightIn(min=22.dp),color=Color.White,fontSize=15.sp,maxLines=2','modifier=Modifier.height(40.dp),color=Color.White,fontSize=15.sp,maxLines=2')
+ui=ui.replace('color = Color.White,fontSize=12.sp)\n                    upcoming.take(2).forEach','color = Color.White,fontSize=12.sp,modifier=Modifier.height(20.dp))\n                    upcoming.take(2).forEach')
+# Two fixed programme slots (including when EPG is empty) keep the buttons still.
+pattern=r'(?m)^([ ]*)upcoming\.take\(2\)\.forEach \{ programme -> Text\(([^\n]*?)\) \}[ \t]*$'
+m=re.search(pattern,ui)
+if m:
+    indent=m.group(1)
+    original=m.group(2)
+    # Preserve existing time formatting and programme title expression.
+    ui=ui[:m.start()]+indent+'repeat(2) { index ->\n'+indent+'    val programme=upcoming.getOrNull(index)\n'+indent+'    Box(Modifier.fillMaxWidth().height(34.dp)) {\n'+indent+'        if(programme!=null) Text('+original+')\n'+indent+'    }\n'+indent+'}'+ui[m.end():]
+s=s[:a]+ui+s[b:]
+p.write_text(s)
+print("UI stability audit: fixed shared focus scale, Settings tiles, streaming icons, Home empty rows and Live preview layout.")
