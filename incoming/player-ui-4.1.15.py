@@ -224,3 +224,83 @@ s=swap(s,'insert.executeInsert()','''val obj=array.optJSONObject(i)
 # old on-disk data is still valid and no provider credentials are migrated.
 p.write_text(s)
 print("4.1.15: same-channel preview transfer, bounded video recovery, saved Live search, draw-only focus, target-size image loading, persistent title index.")
+
+
+# Fullscreen rendering regression: both Live and VOD use SafePlayer, while
+# the working preview uses a separate native view. Start fullscreen with a
+# TextureView to avoid a SurfaceView/Compose compositor attachment issue.
+# Fall back to SurfaceView once if a video track does not produce a frame.
+# Do not touch the working preview or the current buffer/decoder libraries.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index("@Composable private fun SafePlayer(")
+b=s.find("\n@Composable",a+1)
+if b<0: b=len(s)
+ui=s[a:b]
+a0=ui.index('    var videoRetry by remember(url)')
+b0=ui.index('    BackHandler { when { panel.isNotEmpty()',a0)
+ui=ui[:a0]+'''    var videoRetry by remember(url) { mutableStateOf(0) }
+    var fullscreenTexture by remember(player) { mutableStateOf(true) }
+    LaunchedEffect(player,url,fullscreenTexture) {
+        // Do not ask Android TV to switch its video frame-rate hint while
+        // establishing the output surface. Keep the chosen display mode.
+        player.setVideoChangeFrameRateStrategy(androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
+    }
+    LaunchedEffect(player,url) {
+        var readyWithoutFrameMs=0L
+        while(!firstFrame && !failureSent) {
+            delay(500L)
+            val videoAdvertised=player.currentTracks.groups.any {
+                it.type==androidx.media3.common.C.TRACK_TYPE_VIDEO
+            }
+            if(player.isPlaying && !firstFrame && videoAdvertised) readyWithoutFrameMs+=500L
+            else readyWithoutFrameMs=0L
+            if(readyWithoutFrameMs>=4_000L) {
+                if(videoRetry==0) {
+                    videoRetry=1
+                    readyWithoutFrameMs=0L
+                    playerError="Recovering video…"
+                    android.util.Log.w("SharkPlayback","Fullscreen first frame missing; switching native video surface")
+                    val resume=player.currentPosition.coerceAtLeast(0L)
+                    val wasPlaying=player.playWhenReady
+                    val oldView=exitPlayerView[0]
+                    player.pause()
+                    player.stop()
+                    oldView?.player=null
+                    exitPlayerView[0]=null
+                    player.clearVideoSurface()
+                    fullscreenTexture=!fullscreenTexture
+                    // Wait only for the replacement AndroidView to be attached.
+                    var attempts=0
+                    while(exitPlayerView[0]==null && attempts++<40) delay(50L)
+                    if(exitPlayerView[0]==null) {
+                        playerError="Video surface unavailable — return and retry"
+                        break
+                    }
+                    if(liveStream) player.seekToDefaultPosition() else player.seekTo(resume)
+                    player.prepare()
+                    player.playWhenReady=wasPlaying
+                } else {
+                    playerError="Video unavailable — return and retry"
+                    player.pause()
+                    android.util.Log.w("SharkPlayback","No fullscreen first frame after surface retry")
+                    break
+                }
+            }
+        }
+        if(firstFrame && videoRetry>0) playerError=""
+    }
+'''+ui[b0:]
+m=re.search(r'AndroidView\(factory=\{ctx->[^\n]*?onRelease=\{it\.player=null;exitPlayerView\[0\]=null\},modifier=Modifier\.fillMaxSize\(\)\)',ui)
+assert m,"Fullscreen native view not found"
+old=m.group(0)
+# Use the already-shipped TextureView layout. Default surface fallback uses
+# a plain PlayerView rather than selecting the same TextureView again.
+new=old.replace('sharkPlayerView(ctx)', '(if(fullscreenTexture) android.view.LayoutInflater.from(ctx).inflate(R.layout.shark_sdr_player,null,false) as androidx.media3.ui.PlayerView else androidx.media3.ui.PlayerView(ctx))')
+assert new!=old,"Unexpected fullscreen view factory"
+new=new.replace('this.player=player;','exitPlayerView[0]=this;this.player=player;')
+new=new.replace('onRelease={it.player=null;exitPlayerView[0]=null}', 'onRelease={it.player=null;if(exitPlayerView[0]===it) exitPlayerView[0]=null}')
+ui=swap(ui,old,'key(fullscreenTexture) { '+new+' }')
+s=s[:a]+ui+s[b:]
+p.write_text(s)
+print("All fullscreen modes now use independent TextureView rendering with bounded SurfaceView recovery and VOD position preservation.")
