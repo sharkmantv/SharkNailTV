@@ -248,7 +248,7 @@ public class MainActivity extends Activity {
  void update(){page="Settings";screen("Software update");
   updateText=text(updateStatus,16);updateText.setMaxLines(4);body.addView(updateText,new LinearLayout.LayoutParams(-1,dp(76)));
   updateBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);updateBar.setMax(100);updateBar.setIndeterminate(updateProgress<0);if(updateProgress>=0)updateBar.setProgress(updateProgress);body.addView(updateBar,new LinearLayout.LayoutParams(-1,dp(24)));
-  LinearLayout r=row();button(r,"Check / download",this::checkUpdate);button(r,"Install verified update",this::install);button(r,"Back",this::settings);body.addView(r);r.getChildAt(0).requestFocus();if(!updateBusy&&!updateFile().isFile())checkUpdate();
+  LinearLayout r=row();button(r,"Check / download",this::checkUpdate);button(r,"Install verified update",this::install);button(r,"Back",this::settings);body.addView(r);r.getChildAt(0).requestFocus();if(!updateBusy){File saved=updateFile();if(saved.isFile()){try{verifyUpdate(saved,null);}catch(Exception e){saved.delete();}}if(!saved.isFile())checkUpdate();}
  }
  void checkUpdate(){
   if(updateBusy)return;updateBusy=true;updateMessage("Checking GitHub…",-1);
@@ -279,7 +279,7 @@ public class MainActivity extends Activity {
  }
  void downloadUpdate(String link,long size,String digest,String tag){
   updateMessage("Downloading "+tag+"…",0);
-  updateIo.execute(()->{File dest=updateFile(),part=new File(dest.getParentFile(),"update.part");try{
+  updateIo.execute(()->{File dest=updateFile(),part=new File(dest.getParentFile(),"update-part.apk");try{
    if(!dest.getParentFile().isDirectory()&&!dest.getParentFile().mkdirs())throw new IOException("Storage unavailable");
    java.security.MessageDigest hash=java.security.MessageDigest.getInstance("SHA-256");
    HttpURLConnection con=openUpdate(link);
