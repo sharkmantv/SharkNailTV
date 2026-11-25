@@ -27,6 +27,17 @@ jobs:
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
           "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Verify selected design artwork
+        run: |
+          python3 - <<'PY'
+          import struct, hashlib
+          p='app/src/main/res/drawable-nodpi/premium_mockup3.png'
+          b=open(p,'rb').read()
+          assert b[:8]==b'\x89PNG\r\n\x1a\n'
+          assert struct.unpack('>II',b[16:24])==(1400,1000)
+          assert hashlib.sha1(('blob '+str(len(b))+'\0').encode()+b).hexdigest()=='87bbc44733b971a95a8937faee04f2b55876ff43'
+          print('PASS: exact approved artwork')
+          PY
       - name: Build and verify exact-beta FFmpeg audio extension
         run: bash ci/build_ffmpeg_beta.sh
       - name: Compile
@@ -115,6 +126,8 @@ jobs:
             sleep 5
             adb shell pidof com.example.xtreamtv
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50024'
+            python3 ci/check_premium_home.py
+            adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_tv_ui.py
             adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/shark-crash.log"
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
@@ -125,6 +138,12 @@ jobs:
             SharkNailTV.apk
             ffmpeg-source.tar.gz
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SharkSky-5.0.24-home-preview
+          path: premium-home-preview.png
+          if-no-files-found: ignore
       - name: Publish OTA after successful upgrade and UI test
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,7 +158,7 @@ jobs:
           bytes=$(stat -c %s SharkNailTV.apk)
           jq -n --arg tag v5.0.24 --arg link "https://github.com/$GITHUB_REPOSITORY/releases/download/v5.0.24/SharkNailTV.apk" --arg digest "sha256:$checksum" --argjson size "$bytes" '{tag_name:$tag,assets:[{name:"SharkNailTV.apk",browser_download_url:$link,size:$size,digest:$digest}]}' > update.json
           for attempt in 1 2 3; do
-            if gh release create v5.0.24 SharkNailTV.apk update.json ffmpeg-source.tar.gz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.24" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; first-video-frame recovery for movies and series; reuse the existing Live TV player for fullscreen transitions; restore SDR/HDR preferences and two-row poster browsing; resize the same Live TV surface instead of switching surfaces; add timed Now/Next and full per-channel EPG with caching; unified dark navy theme and TV-friendly typography; request native decoder HDR-to-SDR tone mapping and report actual output transfer; add fullscreen picture range selection with VOD position retention; multi-channel EPG timeline and current programme information in visible channel rows; enlarged preview and highlighted channel EPG without autoplay; two measured portrait poster rows with edge-to-edge artwork; Media3 beta01, separate Live/VOD range preferences, OpenGL SDR path with TextureView fallback and silent decoder recovery; bounded in-memory category, stream and episode caching, forced Retry refresh, account-change invalidation and low-memory eviction. Player and picture-mode implementation unchanged. Direct release manifest updater with REST fallback and explicit HTTP diagnostics. Exact-beta FFmpeg audio-only extension, hardware-first, four verified ABIs; corresponding source included. Premium navy UI, blue frames, gold focus, refined typography, home focus animation without scaling; preserved two-row geometry and same Live TV surface; sidebar home with shark hero and no poster or guide rows; Live TV now/next panel and progress; gold fullscreen transport and audio/subtitle/aspect/picture controls. APK signature, upgrade from 5.0.20, Home/Settings and two-row poster geometry smoke test verified by CI. Physical-device playback verification pending." --latest; then exit 0; fi
+            if gh release create v5.0.24 SharkNailTV.apk update.json ffmpeg-source.tar.gz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.24" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; first-video-frame recovery for movies and series; reuse the existing Live TV player for fullscreen transitions; restore SDR/HDR preferences and two-row poster browsing; resize the same Live TV surface instead of switching surfaces; add timed Now/Next and full per-channel EPG with caching; unified dark navy theme and TV-friendly typography; request native decoder HDR-to-SDR tone mapping and report actual output transfer; add fullscreen picture range selection with VOD position retention; multi-channel EPG timeline and current programme information in visible channel rows; enlarged preview and highlighted channel EPG without autoplay; two measured portrait poster rows with edge-to-edge artwork; Media3 beta01, separate Live/VOD range preferences, OpenGL SDR path with TextureView fallback and silent decoder recovery; bounded in-memory category, stream and episode caching, forced Retry refresh, account-change invalidation and low-memory eviction. Player and picture-mode implementation unchanged. Direct release manifest updater with REST fallback and explicit HTTP diagnostics. Exact-beta FFmpeg audio-only extension, hardware-first, four verified ABIs; corresponding source included. Premium navy UI, blue frames, gold focus, refined typography, home focus animation without scaling; preserved two-row geometry and same Live TV surface; sidebar home with shark hero and no poster or guide rows; Live TV now/next panel and progress; gold fullscreen transport and audio/subtitle/aspect/picture controls; original approved design 3 artwork, functional side rail and four metallic tiles, draw-only gold/red focus and mirrored floor reflections; landscape home focus and geometry test. APK signature, upgrade from 5.0.20, Home/Settings and two-row poster geometry smoke test verified by CI. Physical-device playback verification pending." --latest; then exit 0; fi
             if gh release view v5.0.24 --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name] | contains(["SharkNailTV.apk","update.json","ffmpeg-source.tar.gz"])' | grep -Fx true; then exit 0; fi
             sleep $((attempt*10))
           done

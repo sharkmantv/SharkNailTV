@@ -1,0 +1,38 @@
+"""Validate the real native premium home at landscape size before catalogue smoke tests."""
+import subprocess, time, re, xml.etree.ElementTree as ET
+def adb(*args):
+    return subprocess.check_output(["adb",*map(str,args)],text=True)
+def dump():
+    adb("shell","uiautomator","dump","/sdcard/premium-home.xml")
+    return ET.fromstring(adb("shell","cat","/sdcard/premium-home.xml"))
+def rect(node):
+    return tuple(map(int,re.findall(r"\d+",node.get("bounds",""))))
+def tile_nodes(root):
+    labels=["Live TV","Movies","Series","Settings"]
+    matches={}
+    for label in labels:
+        nodes=[n for n in root.iter("node") if n.get("content-desc")==label and n.get("focusable")=="true"]
+        assert len(nodes)>=2, "Missing side rail or tile: "+label
+        matches[label]=max(nodes,key=lambda n:(rect(n)[2]-rect(n)[0])*(rect(n)[3]-rect(n)[1]))
+    return matches
+deadline=time.monotonic()+40
+while True:
+    root=dump()
+    try:
+        tiles=tile_nodes(root)
+        break
+    except AssertionError:
+        if time.monotonic()>deadline: raise
+        time.sleep(1)
+assert any(n.get("content-desc")=="SHARK SKY" for n in root.iter("node")), "Premium hero branding missing"
+r=[rect(n) for n in tiles.values()]
+assert all(y==r[0][1] and Y==r[0][3] and X>x for x,y,X,Y in r),r
+assert all(r[i][2]<=r[i+1][0] for i in range(3)),r
+assert not any(n.get("text") in ("TV Guide","Sports","Trending") for n in root.iter("node"))
+adb("shell","input","keyevent","22")
+time.sleep(.5)
+assert tile_nodes(dump())["Movies"].get("focused")=="true","Right remote navigation failed"
+adb("shell","input","keyevent","21")
+time.sleep(.5)
+assert tile_nodes(dump())["Live TV"].get("focused")=="true","Left remote navigation failed"
+print("PASS: four metallic tiles, distinct rail, no posters/guide, DPAD and layout",r)
