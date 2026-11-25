@@ -254,3 +254,32 @@ s=swap(s,matches[0],'')
 s=re.sub(r'(?m)^ *BackHandler \{ exitPrompt\s*=\s*true \}\n','',s)
 p.write_text(s)
 print("Remote Back now routes through a permanent app-level handler; explicit Exit confirmation remains.")
+
+
+# Fixed catalogue geometry: loading/empty messages are overlays inside the
+# existing grid, not extra siblings that resize the weighted browser.
+p=root/"MainActivity.kt"
+s=p.read_text()
+a=s.index('@Composable private fun TvCatalogueBrowser(')
+b=s.index('@Composable private fun V4PosterRow(',a)
+ui=s[a:b]
+ui=swap(ui,'    loading:Boolean,','    loading:Boolean,\n    catalogueError:String,')
+ui,n=re.subn(r'(?m)^ *CompactLiveAction\("Retry",Modifier\.fillMaxWidth\(\)\)\{onRetry\(\)\}\n','',ui)
+assert n==1,"Bottom Retry anchor missing"
+ui,n=re.subn(r'(?m)^([ ]*)query=""\n[ ]*onCategory\(cat.first\)',lambda m: m[1]+'if(cat.first==categoryId) {\n'+m[1]+'    if(!loading && paged.itemCount==0) onRetry()\n'+m[1]+'} else {\n'+m[1]+'    query=""\n'+m[1]+'    onCategory(cat.first)\n'+m[1]+'}',ui)
+assert n==1,"Category OK anchor missing"
+ui=swap(ui,'Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {','Row(Modifier.fillMaxWidth().height(36.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {')
+ui=swap(ui,'modifier=Modifier.fillMaxWidth().padding(top=3.dp))','modifier=Modifier.fillMaxWidth().height(22.dp).padding(top=3.dp))')
+# Avoid resetting the grid for the same category confirmation or for empty
+# transient snapshots; no animation or changing row sizes on selection.
+ui=swap(ui,'LaunchedEffect(categoryId,appliedQuery,alphabetical) { gridState.scrollToItem(0) }','LaunchedEffect(categoryId,appliedQuery,alphabetical) { if(gridState.firstVisibleItemIndex!=0 || gridState.firstVisibleItemScrollOffset!=0) gridState.scrollToItem(0) }')
+ui=swap(ui,'if(paged.itemCount==0) Text(if(loading) "Loading catalogue…" else "No matching titles",','if(paged.itemCount==0) Text(if(loading) "Loading catalogue…" else if(catalogueError.isNotBlank()) "Catalogue unavailable — press OK on category to retry" else "No matching titles",')
+s=s[:a]+ui+s[b:]
+s=swap(s,'loading=catalogueLoading, onCategory={ categoryId=it },','loading=catalogueLoading, catalogueError=error, onCategory={ categoryId=it },')
+# Guard the original conditional footer; the connected catalogue browser
+# already renders loading, error and empty states in its fixed-size grid.
+anchor='if((if(section=="Home")'
+assert s.count(anchor)==1,"Original external empty-state anchor missing"
+s=s.replace(anchor,'if((section=="Home" || !connected) && (if(section=="Home")',1)
+p.write_text(s)
+print("Static Movies/Series layout: fixed header and footer heights, in-grid status, no bottom Retry button.")
