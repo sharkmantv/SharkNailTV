@@ -1,0 +1,72 @@
+name: Recover verified SharkNailTV 4.0.9 OTA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/recover-409-ota.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: sharknailtv-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm trusted build and successful validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/45561015783" --jq '.head_sha' | grep -Fx da311f7ca57341991b717f78632780787ca9fa46
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/45561015783/jobs" > jobs.json
+          python - <<'PY'
+          import json
+          steps={s['name']:s['conclusion'] for j in json.load(open('jobs.json'))['jobs'] for s in j['steps']}
+          for step in ('Build installable APK','Verify complete 4.0.9 beta package and FFmpeg fallback','Install and launch signed APK on Android emulator'):
+              assert steps.get(step)=='success', step
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '14997613663'
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '45561015783'
+          path: verified
+          merge-multiple: true
+      - name: Revalidate original signed APK
+        run: |
+          set -euo pipefail
+          test -s verified/SharkNailTV.apk
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          "$sdkmanager" 'build-tools;36.0.0'
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/apksigner" verify --print-certs verified/SharkNailTV.apk | tee cert.txt
+          grep -Fi '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96' cert.txt
+          "$tools/aapt" dump badging verified/SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='40009' versionName='4.0.9'"
+          unzip -tq verified/SharkNailTV.apk
+      - name: Publish existing APK without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          if [[ "$latest" == v4.0.9 ]]; then
+            echo '4.0.9 already published; no overwrite.'
+            exit 0
+          fi
+          [[ "$latest" == v4.0.8 ]] || { echo "::error::Latest release is $latest; refusing to downgrade"; exit 1; }
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          url=f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/v4.0.9/SharkNailTV.apk"
+          Path('verified/update.json').write_text(json.dumps({'tag_name':'v4.0.9','draft':False,'prerelease':False,'assets':[{'name':'SharkNailTV.apk','browser_download_url':url}]}))
+          PY
+          gh release create v4.0.9 verified/SharkNailTV.apk verified/update.json --target da311f7ca57341991b717f78632780787ca9fa46 --title 'SharkNailTV 4.0.9 (Media3 beta test)' --notes 'Recovered the original signed and emulator-verified APK from run 45561015783. Live TV cache-first loading and unavailable-channel feedback. Media3 beta and existing player settings retained. TV playback still requires device testing.' --latest
+          gh release view v4.0.9 --json tagName,assets,url
