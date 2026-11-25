@@ -102,13 +102,7 @@ final class PremiumVisuals {
    case 10:metal(c,p,ring(50,50,37,30),focus);q.addCircle(50,33,5,Path.Direction.CW);box(q,46,44,54,71);metal(c,p,q,focus);break;
   }c.restoreToCount(n);
  }
- static final class Tile extends View{
-  final Paint p=new Paint(3);final String title;final int icon;final boolean reflection;
-  Tile(Context c,String title,int icon,boolean reflection){super(c);this.title=title;this.icon=icon;this.reflection=reflection;setContentDescription(title);setFocusable(true);setFocusableInTouchMode(true);setClickable(true);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);}
-  @Override protected void onFocusChanged(boolean f,int dir,Rect prev){super.onFocusChanged(f,dir,prev);invalidate();}
-  @Override protected void onDraw(Canvas c){super.onDraw(c);float w=getWidth(),h=getHeight(),body=h;float margin=Math.max(3,Math.min(w,body)*.035f);boolean f=isFocused();boolean animate=android.os.Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled();float phase=animate?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1900*Math.PI*2/1900.0)):1;
-   if(reflection){
-    // Home navigation: Sky Stream-style labels with a colour strip along the top only.
+ static void skyTile(Canvas c,Paint p,float w,float h,boolean f,float phase,int icon){
     float inset=Math.max(3,h*.045f);
     RectF panel=new RectF(inset,inset,w-inset,h-inset);
     p.setStyle(Paint.Style.FILL);
@@ -117,13 +111,22 @@ final class PremiumVisuals {
     if(f){p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1,h*.009f));p.setColor(0x995b74ce);c.drawRect(panel,p);p.setStyle(Paint.Style.FILL);}
     int[] left={0xffff8d00,0xffff394d,0xfff4289e,0xffad51ff};
     int[] right={0xffff385e,0xffd92191,0xff9c41ff,0xff438dff};
-    int k=Math.max(0,Math.min(icon,3));
+    int k=Math.floorMod(icon,4);
     float band=Math.max(3,h*.027f);
     int saved=c.save();c.clipRect(panel);
     p.setShader(new LinearGradient(panel.left,0,panel.right,0,left[k],right[k],Shader.TileMode.CLAMP));
     p.setAlpha((int)(f?205+50*phase:155+65*phase));c.drawRect(panel.left,panel.top,panel.right,panel.top+band,p);
     p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,panel.top+band,panel.right,panel.top+band*2.2f,p);
     p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
+ }
+ static final class Tile extends View{
+  final Paint p=new Paint(3);final String title;final int icon;final boolean reflection;
+  Tile(Context c,String title,int icon,boolean reflection){super(c);this.title=title;this.icon=icon;this.reflection=reflection;setContentDescription(title);setFocusable(true);setFocusableInTouchMode(true);setClickable(true);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);}
+  @Override protected void onFocusChanged(boolean f,int dir,Rect prev){super.onFocusChanged(f,dir,prev);invalidate();}
+  @Override protected void onDraw(Canvas c){super.onDraw(c);float w=getWidth(),h=getHeight(),body=h;float margin=Math.max(3,Math.min(w,body)*.035f);boolean f=isFocused();boolean animate=android.os.Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled();float phase=animate?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1900*Math.PI*2/1900.0)):1;
+   if(reflection){
+    skyTile(c,p,w,h,f,phase,icon);
+    int k=Math.floorMod(icon,4);
     if(fourSharks!=null){
      int[][] bounds={{167,701,312,792},{562,701,715,792},{964,701,1100,792},{1366,701,1517,792}};
      int[] a=bounds[k];Rect src=new Rect(a[0],a[1],a[2],a[3]);
@@ -137,12 +140,10 @@ final class PremiumVisuals {
     return;
    }
    if(!reflection){
-    float in=Math.max(2,h*.035f);RectF panel=new RectF(in,in,w-in,h-in);
-    p.setStyle(Paint.Style.FILL);p.setShader(new LinearGradient(0,0,0,h,new int[]{0xff193868,0xff101d42},null,Shader.TileMode.CLAMP));c.drawRect(panel,p);p.setShader(null);
-    p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(1,h*.026f));p.setColor(f?Color.argb((int)(190+65*phase),255,208,80):0x805d95ce);c.drawRect(panel,p);p.setStyle(Paint.Style.FILL);
-    float is=Math.min(h*.59f,w*.18f);icon(c,p,icon,f,w*.07f,(h-is)/2,is);
+    skyTile(c,p,w,h,f,phase,icon);
+    float is=Math.min(h*.59f,w*.18f);icon(c,p,icon,false,w*.07f,(h-is)/2,is);
     p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
-    if(f&&animate&&isShown())postInvalidateDelayed(50);return;
+    if(animate&&isShown())postInvalidateDelayed(50);return;
    }
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);
    float iconSize=Math.min(w*.55f,body*.57f);float iy=body*.08f;
