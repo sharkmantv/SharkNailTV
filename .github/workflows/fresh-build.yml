@@ -61,10 +61,23 @@ jobs:
           "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50000'"
           unzip -tq SharkNailTV.apk
           rm -f "$KS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkSky-5.0.0-candidate-install-untested
+          path: SharkNailTV.apk
+          if-no-files-found: error
+      - name: Prepare emulator acceleration
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod a+rw /dev/kvm
+          fi
       - name: Emulator smoke test
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_I_WANT_MY_TCG: "yes"
         with:
           api-level: 35
+          emulator-boot-timeout: 1200
           arch: x86_64
           target: google_apis
           disable-animations: true
