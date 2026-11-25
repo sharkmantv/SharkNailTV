@@ -8,6 +8,7 @@ on:
       - 'incoming/room-catalogue-4.1.11.py'
       - 'incoming/preload-4.1.11.py'
       - 'incoming/build-video-decoders-4.1.11.sh'
+      - 'incoming/performance-audit-4.1.12.py'
       - '.github/workflows/build-zip.yml'
   workflow_dispatch:
     inputs:
@@ -81,7 +82,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.1.11 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.1.12 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -440,8 +441,8 @@ jobs:
           # Use a stable engine exactly matching the shipped, SHA-verified FFmpeg AAR.
           s=swap(s,'media3Version = "1.12.0-beta01"','media3Version = "1.11.1"')
           s=swap(s,'    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")','    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")\n    implementation("androidx.media3:media3-datasource-cronet:$media3Version")')
-          s=swap(s,'orElse("40009")','orElse("40111")')
-          s=swap(s,'orElse("4.0.9")','orElse("4.1.11")')
+          s=swap(s,'orElse("40009")','orElse("40112")')
+          s=swap(s,'orElse("4.0.9")','orElse("4.1.12")')
           p.write_text(s)
           print("Movies and TV Series use a lazy poster grid, persistent sidebar, title search and sorting. Home unchanged.")
           PY
@@ -463,7 +464,8 @@ jobs:
           s=s.replace("dependencies {",'dependencies {\n    implementation("androidx.profileinstaller:profileinstaller:1.4.1")',1)
           p.write_text(s)
           PY
-            grep -F 'orElse("4.1.11")' app/build.gradle.kts >/dev/null
+            python "$GITHUB_WORKSPACE/incoming/performance-audit-4.1.12.py"
+            grep -F 'orElse("4.1.12")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -489,7 +491,7 @@ jobs:
         run: |
           set -euo pipefail
           floor=30000
-          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40110; fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40111; fi
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
             python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
           version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
@@ -550,6 +552,11 @@ jobs:
           : "${SHARK_KEY_ALIAS:?Missing SHARK_KEY_ALIAS}"
           : "${SHARK_KEY_PASSWORD:?Missing SHARK_KEY_PASSWORD}"
           gradle --no-daemon :app:assembleRelease -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          gradle --no-daemon :macrobenchmark:assembleBenchmark -PSHARK_VERSION_CODE="$VERSION_CODE" -PSHARK_VERSION_NAME="$VERSION_NAME"
+          mkdir -p "$GITHUB_WORKSPACE/performance-audit"
+          gradle --no-daemon :app:dependencies --configuration releaseRuntimeClasspath > "$GITHUB_WORKSPACE/performance-audit/release-dependencies.txt"
+          find macrobenchmark/build/outputs/apk -name '*.apk' -exec cp {} "$GITHUB_WORKSPACE/performance-audit/" \;
+          test -n "$(find "$GITHUB_WORKSPACE/performance-audit" -name '*.apk' -print -quit)"
           tools="$ANDROID_HOME/build-tools/36.0.0"
           shopt -s nullglob
           apks=(app/build/outputs/apk/release/*.apk)
@@ -569,11 +576,11 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.1.11 package and matching FFmpeg fallback
+      - name: Verify complete 4.1.12 package and matching FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          test "$VERSION_NAME" = "4.1.11"
+          test "$VERSION_NAME" = "4.1.12"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
           grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
@@ -593,6 +600,28 @@ jobs:
               assert any(b'FfmpegAudioRenderer' in apk.read(f) for f in files if f.startswith('classes') and f.endswith('.dex')), "FFmpeg renderer missing from DEX"
           print('Native decoder ABIs, DEX, licensing notices and APK integrity verified')
           PY
+      - name: Audit signed APK contents
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          import os, json
+          from collections import Counter
+          from pathlib import Path
+          from zipfile import ZipFile
+          root=Path(os.environ["GITHUB_WORKSPACE"])
+          with ZipFile(root/"SharkNailTV.apk") as z:
+              rows=z.infolist()
+              assert not any(n>1 for n in Counter(x.filename for x in rows).values()), "Duplicate APK entries"
+              assert z.testzip() is None
+              report={"apk_bytes":(root/"SharkNailTV.apk").stat().st_size,"native_libraries":sorted(x.filename for x in rows if x.filename.startswith("lib/")),"largest_entries":[{"file":x.filename,"bytes":x.file_size} for x in sorted(rows,key=lambda x:x.file_size,reverse=True)[:40]]}
+              assert not any("macrobenchmark" in x.filename for x in rows), "Benchmark should not ship in app"
+              (root/"performance-audit/apk-contents.json").write_text(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkNailTV-performance-audit
+          path: performance-audit/
+          if-no-files-found: error
       - name: Install and launch signed APK on Android emulator
         if: github.event_name == 'push'
         shell: bash
@@ -673,4 +702,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated 4.1.11: cache-first Xtream, Room and Paging catalogue, indexed search, TV focus restoration and fixed-size posters; matched Media3 1.11.1 FFmpeg/AV1/VP9 extensions; optional tunneling, Cronet, prewarming and next-channel PreloadManager; native fullscreen buffer, preview recovery, EPG coalescing, startup profile and playback metrics. Signed APK, native library presence and emulator launch verified by CI. Actual provider/device playback, IBO comparison and performance benefits require device validation. Experimental playback features remain opt-in." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated 4.1.12: cache-first Xtream, Room and Paging catalogue, indexed search, TV focus restoration and fixed-size posters; matched Media3 1.11.1 FFmpeg/AV1/VP9 extensions; optional tunneling, Cronet, prewarming and next-channel PreloadManager; native fullscreen buffer, preview recovery, EPG coalescing, startup profile, separate Macrobenchmark test APK, package/dependency audit and playback metrics. Signed APK, native library presence and emulator launch verified by CI. Actual provider/device playback, IBO comparison and performance benefits require device validation. Experimental playback features remain opt-in." --latest
