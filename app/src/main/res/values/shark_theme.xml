@@ -2,10 +2,10 @@
 <resources>
   <style name="SharkTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans-serif</item>
-    <item name="android:colorAccent">#8DCAFF</item>
-    <item name="android:colorControlActivated">#8DCAFF</item>
-    <item name="android:textColorPrimary">#E8EDF6</item>
-    <item name="android:textColorSecondary">#AEBCD0</item>
+    <item name="android:colorAccent">#FFCF63</item>
+    <item name="android:colorControlActivated">#FFCF63</item>
+    <item name="android:textColorPrimary">#F2F5FC</item>
+    <item name="android:textColorSecondary">#B5C7E3</item>
     <item name="android:windowBackground">#0B1428</item>
     <item name="android:colorBackground">#0B1428</item>
     <item name="android:statusBarColor">#070D1E</item>
