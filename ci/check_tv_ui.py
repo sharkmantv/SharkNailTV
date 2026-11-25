@@ -33,7 +33,8 @@ def tap(node):
     x,y,X,Y = bounds(node)
     adb("shell","input","tap",(x+X)//2,(y+Y)//2)
 def find(root,label):
-    return next((n for n in root.iter("node") if n.get("text")==label or n.get("content-desc")==label),None)
+    nodes=[n for n in root.iter("node") if n.get("text")==label or n.get("content-desc")==label]
+    return max(nodes,key=lambda n:(n.get("clickable")=="true",n.get("focusable")=="true"),default=None)
 def expect(label, timeout=30):
     deadline=time.monotonic()+timeout
     while time.monotonic()<deadline:
@@ -57,9 +58,19 @@ threading.Thread(target=server.serve_forever,daemon=True).start()
 adb("reverse","tcp:18765","tcp:18765")
 try:
     expect("SHARK SKY")
+    # First tap on a previously unfocused home item must open it.
     tap(expect("Settings"))
     expect("Playback & display")
     tap(expect("Home"))
+    expect("SHARK SKY")
+    # Remote path must also open Settings, not merely highlight it.
+    for _ in range(3):
+        adb("shell","input","keyevent","22")
+    adb("shell","input","keyevent","23")
+    expect("Playback & display")
+    print("PASS: Settings opens by touch and DPAD OK")
+    tap(expect("Home"))
+    expect("SHARK SKY")
     tap(expect("Movies"))
     expect("Xtream Codes")
     fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
@@ -87,6 +98,15 @@ try:
         assert width>0 and height>width, "Poster is not portrait"
         assert 1.15<=height/width<=1.95, "Poster ratio outside acceptable portrait range"
     print("PASS: home, settings, test Xtream login and two portrait rows")
+except Exception:
+    try:
+        with open("failed-ui.xml","w") as out:
+            out.write(ET.tostring(ui(),encoding="unicode"))
+        with open("failed-ui.png","wb") as out:
+            subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=False)
+    except Exception as diagnostic_error:
+        print("Could not capture failure diagnostics:",diagnostic_error)
+    raise
 finally:
     adb("reverse","--remove","tcp:18765")
     server.shutdown()
