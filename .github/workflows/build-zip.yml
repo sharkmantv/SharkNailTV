@@ -78,7 +78,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.1.0 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.1.11 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -437,12 +437,12 @@ jobs:
           # Use a stable engine exactly matching the shipped, SHA-verified FFmpeg AAR.
           s=swap(s,'media3Version = "1.12.0-beta01"','media3Version = "1.11.1"')
           s=swap(s,'    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")','    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")\n    implementation("androidx.media3:media3-datasource-cronet:$media3Version")')
-          s=swap(s,'orElse("40009")','orElse("40100")')
-          s=swap(s,'orElse("4.0.9")','orElse("4.1.0")')
+          s=swap(s,'orElse("40009")','orElse("40111")')
+          s=swap(s,'orElse("4.0.9")','orElse("4.1.11")')
           p.write_text(s)
           print("Movies and TV Series use a lazy poster grid, persistent sidebar, title search and sorting. Home unchanged.")
           PY
-            grep -F 'orElse("4.1.0")' app/build.gradle.kts >/dev/null
+            grep -F 'orElse("4.1.11")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -465,7 +465,7 @@ jobs:
         run: |
           set -euo pipefail
           floor=30000
-          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40099; fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40110; fi
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
             python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
           version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
@@ -545,11 +545,11 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.1.0 package and matching FFmpeg fallback
+      - name: Verify complete 4.1.11 package and matching FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          test "$VERSION_NAME" = "4.1.0"
+          test "$VERSION_NAME" = "4.1.11"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
           grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
