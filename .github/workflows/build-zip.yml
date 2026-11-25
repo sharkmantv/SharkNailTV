@@ -78,7 +78,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.0.8 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.0.9 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -136,6 +136,58 @@ jobs:
           print("Media3 1.12.0-beta01 selected; stable application ID retained")
           PY
             grep -F 'orElse("4.0.8")' app/build.gradle.kts >/dev/null
+            # Preview-only unavailable-channel feedback and remote OK retry.
+            python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("app/src/main/java/com/example/xtreamtv/MainActivity.kt")
+          s=p.read_text()
+          def swap(s,a,b):
+              assert s.count(a)==1, "Unexpected 4.0.8 source: "+a[:120]
+              return s.replace(a,b,1)
+          s=swap(s,'    var preview by remember(api) { mutableStateOf<Entry?>(null) }','''    var preview by remember(api) { mutableStateOf<Entry?>(null) }
+              var previewFailed by remember(api, preview?.id) { mutableStateOf(false) }
+              var previewRetry by remember(api, preview?.id) { mutableIntStateOf(0) }''')
+          s,n=re.subn(r'if\(previewEnabled && api!=null && preview\?\.id!=channel\.id\) preview=channel\s*\n\s*else onPlay\(channel\)','''if(previewEnabled && api!=null && preview?.id!=channel.id) preview=channel
+                                      else if(previewEnabled && api!=null && previewFailed) {
+                                          previewFailed=false
+                                          previewRetry++
+                                      } else onPlay(channel)''',s)
+          assert n==1, "Channel OK action not found"
+          s,n=re.subn(r'key\(entry\.id\)\s*\{\s*LivePreview\(([^\n]+)\)\s*\}',r'key(entry.id, previewRetry) { LivePreview(\1) { previewFailed=it } }',s)
+          assert n==1, "Preview call not found"
+          start=s.index('@Composable private fun LivePreview(')
+          end=s.find('\n@Composable',start+1)
+          if end<0: end=len(s)
+          before,part,after=s[:start],s[start:end],s[end:]
+          part=swap(part,'fun LivePreview(url:String)', 'fun LivePreview(url:String,onFailureChange:(Boolean)->Unit)')
+          part=swap(part,'    var failed by remember(url){mutableStateOf(false)}','''    var failed by remember(url){mutableStateOf(false)}
+              var renderedFrame by remember(url){mutableStateOf(false)}
+              LaunchedEffect(failed) { onFailureChange(failed) }''')
+          part=swap(part,'    DisposableEffect(player,url) {','''    LaunchedEffect(player,url) {
+                  delay(20_000L)
+                  if(!renderedFrame) failed=true
+              }
+              DisposableEffect(player,url) {''')
+          part=swap(part,'            override fun onPlaybackStateChanged(state:Int) {','''            override fun onRenderedFirstFrame() {
+                          renderedFrame=true
+                          failed=false
+                      }
+                      override fun onPlaybackStateChanged(state:Int) {''')
+          # Hide the native video surface while the failure message is displayed.
+          part=swap(part,'        AndroidView(', '        if(!failed) AndroidView(')
+          part,n=re.subn(r'if\s*\(failed\)\s*Text\([^\n]+', 'if(failed) Text("Channel unavailable — Press OK to retry", color=Color.White, fontSize=13.sp, textAlign=androidx.compose.ui.text.style.TextAlign.Center, modifier=Modifier.align(Alignment.Center).padding(12.dp))',part)
+          assert n==1, "Existing preview failure label not found"
+          p.write_text(before+part+after)
+          p=Path("app/build.gradle.kts")
+          s=p.read_text()
+          s=swap(s,'orElse("40008")','orElse("40009")')
+          s=swap(s,'orElse("4.0.8")','orElse("4.0.9")')
+          assert 'media3Version = "1.12.0-beta01"' in s
+          p.write_text(s)
+          print("Preview unavailable message and OK retry applied; Media3 and buffering unchanged")
+          PY
+            grep -F 'orElse("4.0.9")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -238,11 +290,11 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.0.8 beta package and FFmpeg fallback
+      - name: Verify complete 4.0.9 beta package and FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          test "$VERSION_NAME" = "4.0.8"
+          test "$VERSION_NAME" = "4.0.9"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
           grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
@@ -323,4 +375,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME (Media3 beta test)" --notes "Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. EXPERIMENTAL Media3 1.12.0-beta01 with existing 1.11.1-built LGPL FFmpeg audio fallback; FFmpeg runtime compatibility is not yet verified, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME (Media3 beta test)" --notes "Preview failures now display Channel unavailable — Press OK to retry; OK retries the same failed channel, with a 20-second no-first-frame timeout. Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. EXPERIMENTAL Media3 1.12.0-beta01 with existing 1.11.1-built LGPL FFmpeg audio fallback; FFmpeg runtime compatibility is not yet verified, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
