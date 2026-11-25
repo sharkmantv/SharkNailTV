@@ -1,5 +1,0 @@
-# Required to enable Nuvio device linking in a developer build.
-# Use the official PUBLIC backend URL and PUBLISHABLE/ANON key from an authorized source.
-# Never put a service_role or private secret here.
-NUVIO_BACKEND_URL=
-NUVIO_PUBLIC_KEY=

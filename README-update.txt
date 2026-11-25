@@ -1,1 +1,0 @@
-Based on SharkTV_v14 bottom navigation. Same application ID. Existing saved TMDB key takes precedence; enter key or read token in Settings > API Configuration and Save TMDB and refresh. Private build-time keys omitted. TheSportsDB public free endpoint; limited fixture coverage. No Android compile or emulator verification performed.

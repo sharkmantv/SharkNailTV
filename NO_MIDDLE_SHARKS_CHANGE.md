@@ -1,1 +1,0 @@
-Removed both extra middle-shark images and their breathing animation from the header. Original outer SharkNailTV mascots, Sky Stream logo, intro, and other app code retained. Source-only, not compiled or device-tested.\n

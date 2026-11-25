@@ -1,2 +1,0 @@
-# RetroArch integration
-Setup wizard downloads the official pinned 1.22.1 APK for the device ABI over HTTPS, checks the archive package name and invokes Android's permission-controlled installer. Android's installer handles signing checks for updates. No APK is bundled. Core installation still takes place in RetroArch; ROMs and BIOS files are user supplied. Launch uses the installed package and per-console core path. This is external-app integration, not an embedded libretro engine. Android build and playback testing required.

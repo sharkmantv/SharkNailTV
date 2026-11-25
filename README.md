@@ -1,4 +1,2 @@
-# SharkNailTV 14.3
-Open this root in Android Studio. Install Android SDK Platform 36, use JDK 17 or compatible JDK, and sync with Gradle 8.13. AGP 8.13.2 and Kotlin/Compose compiler 2.3.0 are configured. Media3 1.11.1 retained. Source package only; compilation and dependency resolution not tested. Existing project has wrapper properties but no wrapper scripts or JAR; Android Studio may need Gradle 8.13 configured manually.
-
-See BUILD_15_6.md for changes and build requirements.
+# Shark Sky 5.0.0
+Independent clean Java native Android player; no previous application code or patch scripts. User-owned artwork reused. Standard Xtream Player API, editable provider, native RecyclerView, stable Media3 1.11.1, default hardware-first rendering with decoder fallback, native independent preview and fullscreen, fixed live speed, TS/HLS and progressive VOD. No Sports Guide, external sports API, TMDB, Compose, experimental playback or third-party proprietary code. OTA candidate only: no publication without validation. Initial scope uses standard Android codecs, not native FFmpeg extensions. Fresh playlist login required. Real provider HD, 4K, HDR and multi-device testing outstanding.

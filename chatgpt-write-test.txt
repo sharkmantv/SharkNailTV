@@ -1,2 +1,0 @@
-GitHub write access test performed on 2026-11-18.
-This file confirms the connected GitHub integration can create a commit in this repository.

@@ -1,2 +1,0 @@
-# Retro setup wizard
-This version adds installed-package detection and selection, official RetroArch install page, a core-setup shortcut, and recursive local folder import using Android's document picker. Select the console before importing ambiguous archives/discs. Import uses shared filesystem paths; RetroArch must independently have access. Some TVs lack a document picker; manual entry remains available. No silent APK or core installation, BIOS acquisition, commercial ROM downloads, or emulator binaries are provided. Android build and device tests are pending.

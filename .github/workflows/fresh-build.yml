@@ -1,0 +1,73 @@
+name: Shark Sky clean candidate
+on:
+  push:
+    branches: ['fresh/shark-sky-5.0.0']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: SDK
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Compile
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Sign and verify
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export KS="$RUNNER_TEMP/shark-key"
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import os,json,base64
+          from pathlib import Path
+          b=json.loads(os.environ["SHARK_SIGNING_BUNDLE"].strip(),strict=False)
+          Path(os.environ["KS"]).write_bytes(base64.b64decode(''.join(b["keystore"].split()),validate=True))
+          print(''.join(b["password"].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          else
+            printf '%s' "${SHARK_KEYSTORE_B64:?Missing signing key}" | base64 -d > "$KS"
+          fi
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
+          cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50000'"
+          unzip -tq SharkNailTV.apk
+          rm -f "$KS"
+      - name: Emulator smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: adb install SharkNailTV.apk && adb shell am start -W -n com.example.xtreamtv/.MainActivity && sleep 3 && adb shell pidof com.example.xtreamtv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkSky-5.0.0-signed
+          path: SharkNailTV.apk
+          if-no-files-found: error
