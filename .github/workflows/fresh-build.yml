@@ -58,12 +58,12 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50004'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50005'"
           unzip -tq SharkNailTV.apk
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.4-candidate-install-untested
+          name: SharkSky-5.0.5-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Prepare emulator acceleration
@@ -84,7 +84,7 @@ jobs:
           script: adb install SharkNailTV.apk && adb shell am start -W -n com.example.xtreamtv/.MainActivity && sleep 3 && adb shell pidof com.example.xtreamtv
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.4-signed
+          name: SharkSky-5.0.5-signed
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Publish OTA after successful installation test
@@ -92,4 +92,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create v5.0.4 SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.4" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; existing decoder recovery retained. APK signature and emulator installation verified by CI. Physical-device playback verification pending." --latest
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" v5.0.5 | sort -V | tail -1)" != v5.0.5 ]; then
+            echo "A newer release exists; skipping OTA publication."
+            exit 0
+          fi
+          gh release create v5.0.5 SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.5" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; first-video-frame recovery for movies and series. APK signature and emulator installation verified by CI. Physical-device playback verification pending." --latest

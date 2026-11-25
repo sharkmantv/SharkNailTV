@@ -67,7 +67,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.4  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.5  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -187,10 +187,27 @@ public class MainActivity extends Activity {
   });
   MediaItem.Builder m=new MediaItem.Builder().setUri(stream(i));
   if(page.equals("Live TV"))m.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build());
-  p.addListener(new Player.Listener(){
-   boolean recovering;
+  class RecoveryListener implements Player.Listener {
+   boolean recovering,firstFrame;
+   long audioStartedAt=-1;
+   final Runnable watch=new Runnable(){@Override public void run(){
+    if(player!=p||recovering||firstFrame||stopped||token!=screenToken)return;
+    if(p.isPlaying()&&p.getPlaybackState()==Player.STATE_READY){
+     long now=android.os.SystemClock.elapsedRealtime();
+     if(audioStartedAt<0)audioStartedAt=now;
+     if(now-audioStartedAt>=6500){
+      boolean videoExists=false;
+      for(Tracks.Group group:p.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_VIDEO){videoExists=true;break;}
+      if(videoExists){android.util.Log.w("SharkPlayback","No first video frame while playing; attempt="+attempt+" decoder="+activeDecoder);recover("No video frame",position);return;}
+     }
+    }else audioStartedAt=-1;
+    ui.postDelayed(this,750);
+   }};
+   void startWatch(){if(vod)ui.postDelayed(watch,750);}
+
    @Override public void onRenderedFirstFrame(){
     if(player!=p||recovering)return;
+    firstFrame=true;ui.removeCallbacks(watch);
     if(vod&&attempt==1)rememberDecoder(i);
     if(fullscreen&&prefs.getBoolean("show_codec_info",false)){
      Format f=p.getVideoFormat();
@@ -208,9 +225,13 @@ public class MainActivity extends Activity {
      if(cause instanceof android.media.MediaCodec.CodecException){android.util.Log.w("SharkPlayback","codec diagnostic="+((android.media.MediaCodec.CodecException)cause).getDiagnosticInfo());break;}
     }
     boolean decoderError=e.errorCode==PlaybackException.ERROR_CODE_DECODER_INIT_FAILED||e.errorCode==PlaybackException.ERROR_CODE_DECODING_FAILED;
-    if(!vod||!decoderError||stopped){msg("Playback failed: "+e.getErrorCodeName());return;}
+    if(!vod||!decoderError||stopped){ui.removeCallbacks(watch);msg("Playback failed: "+e.getErrorCodeName());return;}
+    recover(e.getErrorCodeName(),firstFrame?Math.max(0,p.getCurrentPosition()):position);
+   }
+   void recover(String reason,long resume){
+    if(player!=p||recovering||stopped)return;
+    recovering=true;ui.removeCallbacks(watch);
     if(attempt==1)decoderPrefs().edit().remove(decoderKey(i)).apply();
-    recovering=true;long resume=Math.max(0,p.getCurrentPosition());
     msg(attempt==0&&!cachedFirst?"Retrying compatible hardware decoder…":attempt==1&&cachedFirst?"Retrying standard decoder…":"Trying Android native playback…");
     release();
     ui.postDelayed(()->{
@@ -220,15 +241,22 @@ public class MainActivity extends Activity {
      else attachNative(host,i,resume);
     },500);
    }
-  });
-  p.setMediaItem(m.build());if(vod&&position>0)p.seekTo(position);p.setPlaybackSpeed(1f);p.prepare();p.play();
+  }
+  RecoveryListener listener=new RecoveryListener();p.addListener(listener);
+  p.setMediaItem(m.build());if(vod&&position>0)p.seekTo(position);p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();
  }
  void attachNative(FrameLayout host,Item i,long position){
   release();host.removeAllViews();
   VideoView n=new VideoView(this);nativeVideo=n;
   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);host.addView(n,lp);
   MediaController controls=new MediaController(this);nativeControls=controls;controls.setAnchorView(n);n.setMediaController(controls);
-  n.setOnPreparedListener(mp->{if(nativeVideo!=n)return;if(position>0)n.seekTo((int)Math.min(position,Integer.MAX_VALUE));android.util.Log.i("SharkPlayback","Android native prepared "+mp.getVideoWidth()+"x"+mp.getVideoHeight());if(!stopped)n.start();});
+  final boolean[] rendered={false};
+  n.setOnInfoListener((mp,what,extra)->{if(nativeVideo==n&&what==android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START){rendered[0]=true;android.util.Log.i("SharkPlayback","Native first frame");}return false;});
+  n.setOnPreparedListener(mp->{if(nativeVideo!=n)return;if(position>0)n.seekTo((int)Math.min(position,Integer.MAX_VALUE));android.util.Log.i("SharkPlayback","Android native prepared "+mp.getVideoWidth()+"x"+mp.getVideoHeight());if(!stopped)n.start();
+   ui.postDelayed(new Runnable(){int checks=0;@Override public void run(){if(nativeVideo!=n||rendered[0]||stopped||isFinishing())return;
+    if(n.isPlaying()&&n.getCurrentPosition()>position+2000){if(++checks>=7){n.pause();msg("Video unavailable on this decoder. Try a compatible 4K version.");return;}}
+    else checks=0;ui.postDelayed(this,1000);}},1000);
+  });
   n.setOnErrorListener((mp,what,extra)->{if(nativeVideo==n){android.util.Log.w("SharkPlayback","Android native error="+what+"/"+extra);msg("Playback failed on both players ("+what+"/"+extra+")");}return true;});
   n.setVideoURI(Uri.parse(stream(i)));n.requestFocus();n.start();
  }
