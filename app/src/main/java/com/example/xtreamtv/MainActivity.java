@@ -56,7 +56,50 @@ public class MainActivity extends Activity {
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
  void release(){if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}activeDecoder="";}
  void screen(String title){release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(bg(0xff123e87,0xff050d31,0,0));setContentView(body);immersive();LinearLayout head=row();head.addView(art(R.drawable.shark_logo),new LinearLayout.LayoutParams(dp(90),dp(43)));TextView t=text(title,22);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));body.addView(head);}
- void home(){page="Home";screen("SHARK SKY");body.addView(art(R.drawable.shark_brand),new LinearLayout.LayoutParams(-1,0,1));LinearLayout r=row();String[] names={"Live TV","Movies","Series","Settings"};int[] icons={R.drawable.metal48_live,R.drawable.metal48_movies,R.drawable.metal48_series,R.drawable.metal48_settings};for(int i=0;i<4;i++){String dest=names[i];LinearLayout tile=col();tile.setGravity(Gravity.CENTER);tile.setPadding(dp(8),dp(6),dp(8),dp(6));tile.setBackground(focus());tile.setFocusable(true);tile.setClickable(true);tile.addView(art(icons[i]),new LinearLayout.LayoutParams(-1,0,1));TextView t=text(dest,19);t.setGravity(Gravity.CENTER);tile.addView(t,new LinearLayout.LayoutParams(-1,dp(36)));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(140),1);p.setMargins(dp(4),dp(4),dp(4),dp(4));r.addView(tile,p);tile.setOnClickListener(v->{if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);});}body.addView(r);r.getChildAt(0).requestFocus();}
+ // Home redesign work in progress: replace temporary shark artwork with approved asset before release.
+ void home(){
+  release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;preview=null;page="Home";
+  FrameLayout root=new FrameLayout(this);
+  root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff143e85,0xff081d48,0xff030a20}));
+  setContentView(root);immersive();
+  LinearLayout shell=col();shell.setPadding(dp(36),dp(20),dp(36),dp(24));root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
+  TextView brand=text("SHARK SKY",23);brand.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));brand.setLetterSpacing(.12f);shell.addView(brand,new LinearLayout.LayoutParams(-1,dp(42)));
+  FrameLayout hero=new FrameLayout(this);shell.addView(hero,new LinearLayout.LayoutParams(-1,0,1));
+  ImageView artwork=art(R.drawable.shark_brand); // temporary legacy image, not the approved artwork
+  FrameLayout.LayoutParams heroParams=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);heroParams.setMargins(dp(80),dp(12),dp(80),dp(12));hero.addView(artwork,heroParams);
+  LinearLayout nav=row();String[] names={"Live TV","Movies","Series","Settings"};
+  for(int i=0;i<names.length;i++){
+   final String dest=names[i];LinearLayout tile=col();tile.setGravity(Gravity.CENTER);tile.setPadding(dp(8),dp(10),dp(8),dp(7));tile.setFocusable(true);tile.setClickable(true);tile.setBackground(homeTile(false,0));
+   HomeGlyph glyph=new HomeGlyph(i);tile.addView(glyph,new LinearLayout.LayoutParams(dp(66),dp(58)));
+   TextView label=text(dest,17);label.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));label.setGravity(Gravity.CENTER);tile.addView(label,new LinearLayout.LayoutParams(-1,dp(34)));
+   LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(116),1);p.setMargins(dp(6),0,dp(6),0);nav.addView(tile,p);
+   android.animation.ValueAnimator pulse=android.animation.ValueAnimator.ofInt(110,255);
+   pulse.setDuration(1100);pulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+   pulse.addUpdateListener(anim->{if(tile.hasFocus())tile.setBackground(homeTile(true,(int)anim.getAnimatedValue()));});
+   tile.setOnFocusChangeListener((view,focused)->{pulse.cancel();tile.setBackground(homeTile(focused,220));if(focused&&tile.isAttachedToWindow())pulse.start();});
+   tile.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){if(v.hasFocus()&&!pulse.isRunning())pulse.start();}public void onViewDetachedFromWindow(View v){pulse.cancel();}});
+   tile.setOnClickListener(v->{if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);});
+  }
+  shell.addView(nav,new LinearLayout.LayoutParams(-1,dp(116)));nav.getChildAt(0).requestFocus();
+ }
+ GradientDrawable homeTile(boolean focused,int alpha){
+  GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{focused?0x593f6590:0x33274775,0x33040d24});
+  d.setCornerRadius(dp(10));d.setStroke(dp(1),focused?android.graphics.Color.argb(alpha,255,210,95):0x3347a3e8);return d;
+ }
+ class HomeGlyph extends View{
+  final int kind;final android.graphics.Paint paint=new android.graphics.Paint(3);
+  HomeGlyph(int k){super(MainActivity.this);kind=k;setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
+  void line(android.graphics.Canvas c,float x,float y,float xx,float yy){c.drawLine(x,y,xx,yy,paint);}
+  @Override protected void onDraw(android.graphics.Canvas c){super.onDraw(c);float s=Math.min(getWidth(),getHeight())/72f;c.save();c.translate((getWidth()-72*s)/2,(getHeight()-72*s)/2);c.scale(s,s);
+   paint.setShader(new android.graphics.LinearGradient(0,8,0,64,new int[]{0xfffcffff,0xff829fbd,0xffe8f5ff,0xff56728e},new float[]{0f,.35f,.57f,1f},android.graphics.Shader.TileMode.CLAMP));
+   paint.setStyle(android.graphics.Paint.Style.STROKE);paint.setStrokeWidth(4.5f);paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+   if(kind==0){c.drawRoundRect(8,16,64,53,5,5,paint);line(c,26,62,46,62);line(c,36,53,36,62);android.graphics.Path q=new android.graphics.Path();q.moveTo(30,26);q.lineTo(45,35);q.lineTo(30,44);q.close();c.drawPath(q,paint);}
+   else if(kind==1){c.drawRoundRect(9,30,63,60,4,4,paint);line(c,9,30,9,21);line(c,9,21,60,10);line(c,60,10,63,22);line(c,63,22,9,34);for(int i=0;i<4;i++)line(c,17+i*11,19-i*2.3f,24+i*11,27-i*2.3f);}
+   else if(kind==2){c.drawCircle(36,36,25,paint);for(int i=0;i<5;i++){double a=i*Math.PI*2/5-Math.PI/2;c.drawCircle(36+14*(float)Math.cos(a),36+14*(float)Math.sin(a),5,paint);}c.drawCircle(36,36,2,paint);}
+   else{android.graphics.Path gear=new android.graphics.Path();for(int i=0;i<48;i++){double a=i*Math.PI*2/48-Math.PI/2;float r=i%6<3?29:23;float x=36+r*(float)Math.cos(a),y=36+r*(float)Math.sin(a);if(i==0)gear.moveTo(x,y);else gear.lineTo(x,y);}gear.close();c.drawPath(gear,paint);c.drawCircle(36,36,11,paint);}
+   paint.setShader(null);c.restore();
+  }
+ }
  void msg(String s){if(status!=null)status.setText(s);else Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
  static String enc(String s){try{return URLEncoder.encode(s,"UTF-8").replace("+","%20");}catch(Exception e){throw new IllegalArgumentException(e);}}
  static String get(String u)throws Exception{HttpURLConnection c=(HttpURLConnection)new URL(u).openConnection();c.setConnectTimeout(10000);c.setReadTimeout(25000);c.setRequestProperty("User-Agent","SharkSky/5.0");try{if(c.getResponseCode()!=200)throw new IOException("HTTP");try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(out.size()+n>48*1024*1024)throw new IOException("Response too large");out.write(buf,0,n);}return out.toString("UTF-8");}}finally{c.disconnect();}}
