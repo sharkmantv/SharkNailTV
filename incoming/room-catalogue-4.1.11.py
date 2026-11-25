@@ -135,6 +135,8 @@ if 'import androidx.compose.ui.focus.focusRestorer' not in s:
     end=s.index('@Composable private fun V4PosterRow(',start)
 
 s=s[:start]+ui+s[end:]
+# Compose focusRestorer requires UI experimental API opt-in on this dependency version.
+s=swap(s,'@Composable private fun TvCatalogueBrowser(', '@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)\n@Composable private fun TvCatalogueBrowser(')
 p.write_text(s)
 p=Path("app/build.gradle.kts")
 s=p.read_text()
