@@ -92,4 +92,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create v5.0.3 SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.3" --notes "High-resolution TMDB movie and series artwork, with existing playback settings and decoder recovery. APK signature and emulator installation verified by CI. Physical-device playback verification pending." --latest
+          gh release create v5.0.3 SharkNailTV.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Shark Sky 5.0.3" --notes "High-resolution TMDB movie and series artwork, direct in-app update downloads, progress and APK validation; existing decoder recovery retained. APK signature and emulator installation verified by CI. Physical-device playback verification pending." --latest

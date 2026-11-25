@@ -236,8 +236,76 @@ public class MainActivity extends Activity {
  @Override public void onBackPressed(){if(full){release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;}
  @Override protected void onStop(){stopped=true;super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
- @Override protected void onDestroy(){screenToken++;release();io.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();ui.removeCallbacksAndMessages(null);super.onDestroy();}
- void update(){msg("Checking…");task(()->new JSONObject(get("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest")),j->{String tag=j.optString("tag_name").replaceFirst("^v","");if(compare(tag,"5.0.3")<=0){msg("No newer release.");return;}JSONArray a=j.optJSONArray("assets");String url="";if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null&&o.optString("name").equals("SharkNailTV.apk"))url=o.optString("browser_download_url");}if(!url.startsWith("https://github.com/sharkmantv/SharkNailTV/releases/download/")){msg("Update unavailable.");return;}String link=url;new AlertDialog.Builder(this).setTitle("Download "+tag+"?").setPositiveButton("Download",(d,w)->{try{DownloadManager dm=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);DownloadManager.Request q=new DownloadManager.Request(Uri.parse(link));q.setTitle("Shark Sky update");q.setDestinationInExternalFilesDir(this,Environment.DIRECTORY_DOWNLOADS,"SharkSky-"+tag+".apk");download=dm.enqueue(q);prefs.edit().putLong("download",download).apply();msg("Downloading. Install downloaded APK when ready.");}catch(Exception ex){msg("Download failed.");}}).setNegativeButton("Cancel",null).show();});}
+ @Override protected void onDestroy(){screenToken++;release();io.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();ui.removeCallbacksAndMessages(null);super.onDestroy();}
+ final ExecutorService updateIo=Executors.newSingleThreadExecutor();
+ boolean updateBusy=false;
+ volatile int updateProgress=0;
+ String updateStatus="Check for the latest Shark Sky update.";
+ ProgressBar updateBar;
+ TextView updateText;
+ File updateFile(){return new File(new File(getFilesDir(),"updates"),"SharkNailTV.apk");}
+ void updateMessage(String s,int progress){updateStatus=s;updateProgress=progress;if(updateText!=null&&updateText.isAttachedToWindow()){updateText.setText(s);updateBar.setIndeterminate(progress<0);if(progress>=0)updateBar.setProgress(progress);}}
+ void update(){page="Settings";screen("Software update");
+  updateText=text(updateStatus,16);updateText.setMaxLines(4);body.addView(updateText,new LinearLayout.LayoutParams(-1,dp(76)));
+  updateBar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);updateBar.setMax(100);updateBar.setIndeterminate(updateProgress<0);if(updateProgress>=0)updateBar.setProgress(updateProgress);body.addView(updateBar,new LinearLayout.LayoutParams(-1,dp(24)));
+  LinearLayout r=row();button(r,"Check / download",this::checkUpdate);button(r,"Install verified update",this::install);button(r,"Back",this::settings);body.addView(r);r.getChildAt(0).requestFocus();if(!updateBusy&&!updateFile().isFile())checkUpdate();
+ }
+ void checkUpdate(){
+  if(updateBusy)return;updateBusy=true;updateMessage("Checking GitHub…",-1);
+  updateIo.execute(()->{try{
+   JSONObject j=new JSONObject(get("https://api.github.com/repos/sharkmantv/SharkNailTV/releases/latest"));
+   String tag=j.optString("tag_name").replaceFirst("^v","");if(!tag.matches("[0-9]+\\.[0-9]+\\.[0-9]+"))throw new IOException("Invalid release version");
+   if(compare(tag,BuildConfig.VERSION_NAME)<=0){ui.post(()->{updateBusy=false;updateMessage("You have the latest version: "+BuildConfig.VERSION_NAME,0);});return;}
+   JSONArray assets=j.optJSONArray("assets");JSONObject found=null;if(assets!=null)for(int n=0;n<assets.length();n++){JSONObject x=assets.optJSONObject(n);if(x!=null&&"SharkNailTV.apk".equals(x.optString("name"))){found=x;break;}}
+   if(found==null)throw new IOException("Release has no APK");
+   String link=found.optString("browser_download_url");long size=found.optLong("size",-1);String digest=found.optString("digest","");
+   String expected="https://github.com/sharkmantv/SharkNailTV/releases/download/v"+tag+"/SharkNailTV.apk";
+   if(!expected.equals(link)||size<=0||size>150L*1024*1024)throw new IOException("Invalid release asset");
+   ui.post(()->{if(isFinishing()||isDestroyed()){updateBusy=false;return;}if(updateText==null||!updateText.isAttachedToWindow()){updateBusy=false;updateStatus="Update available: "+tag;return;}
+    updateMessage("Version "+tag+" available · "+String.format(Locale.US,"%.1f MB",size/1048576.0),0);
+    new AlertDialog.Builder(this).setTitle("Download Shark Sky "+tag+"?").setMessage("The update will be downloaded and verified inside Shark Sky. Android will ask for installation approval.").setPositiveButton("Download",(dialog,w)->downloadUpdate(link,size,digest,tag)).setNegativeButton("Cancel",(dialog,w)->{updateBusy=false;updateMessage("Download cancelled",0);}).setOnCancelListener(dialog->{updateBusy=false;updateMessage("Download cancelled",0);}).show();
+   });
+  }catch(Exception e){final String reason=updateError(e);ui.post(()->{updateBusy=false;updateMessage("Update check failed: "+reason,0);});}});
+ }
+ static String updateError(Exception e){if(e instanceof java.net.SocketTimeoutException)return "connection timed out";if(e instanceof java.net.UnknownHostException)return "cannot reach GitHub";if(e instanceof javax.net.ssl.SSLException)return "secure connection failed";String m=e.getMessage();return m!=null&&m.matches("[A-Za-z0-9 .:/()_-]{1,120}")&&!m.contains("://")?m:e.getClass().getSimpleName();}
+ HttpURLConnection openUpdate(String link)throws Exception{
+  URL url=new URL(link);for(int n=0;n<8;n++){String h=url.getHost().toLowerCase(Locale.ROOT);
+   if(!"https".equals(url.getProtocol())||url.getUserInfo()!=null||!(h.equals("github.com")||h.equals("release-assets.githubusercontent.com")||h.equals("objects.githubusercontent.com")||h.equals("github-releases.githubusercontent.com")))throw new IOException("Unexpected download host");
+   HttpURLConnection con=(HttpURLConnection)url.openConnection();con.setInstanceFollowRedirects(false);con.setConnectTimeout(15000);con.setReadTimeout(30000);con.setRequestProperty("User-Agent","SharkSky/"+BuildConfig.VERSION_NAME);con.setRequestProperty("Accept","application/octet-stream");con.setRequestProperty("Accept-Encoding","identity");
+   int code;try{code=con.getResponseCode();}catch(Exception ex){con.disconnect();throw ex;}
+   if(code==200)return con;
+   String location=con.getHeaderField("Location");con.disconnect();if(code>=300&&code<400&&location!=null){url=new URL(url,location);continue;}throw new IOException("Download HTTP "+code);
+  }throw new IOException("Too many redirects");
+ }
+ void downloadUpdate(String link,long size,String digest,String tag){
+  updateMessage("Downloading "+tag+"…",0);
+  updateIo.execute(()->{File dest=updateFile(),part=new File(dest.getParentFile(),"update.part");try{
+   if(!dest.getParentFile().isDirectory()&&!dest.getParentFile().mkdirs())throw new IOException("Storage unavailable");
+   java.security.MessageDigest hash=java.security.MessageDigest.getInstance("SHA-256");
+   HttpURLConnection con=openUpdate(link);
+   try(InputStream in=con.getInputStream();FileOutputStream out=new FileOutputStream(part)){byte[] buf=new byte[65536];long total=0;int n,last=-1;while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Download interrupted");total+=n;if(total>size)throw new IOException("Unexpected APK size");out.write(buf,0,n);hash.update(buf,0,n);int p=(int)(total*100/size);if(p!=last){last=p;final int percent=p;ui.post(()->updateMessage("Downloading "+tag+" · "+percent+"%",percent));}}out.getFD().sync();if(total!=size)throw new IOException("Incomplete APK download");}finally{con.disconnect();}
+   if(digest.startsWith("sha256:")){StringBuilder actual=new StringBuilder();for(byte x:hash.digest())actual.append(String.format(Locale.US,"%02x",x&255));if(!digest.substring(7).equalsIgnoreCase(actual.toString()))throw new IOException("APK checksum mismatch");}
+   ui.post(()->updateMessage("Verifying APK signature and version…",100));
+   verifyUpdate(part,tag);
+   if(dest.exists()&&!dest.delete())throw new IOException("Cannot replace old update");if(!part.renameTo(dest))throw new IOException("Cannot save verified update");
+   ui.post(()->{updateBusy=false;updateMessage("Shark Sky "+tag+" verified. Ready to install.",100);if(updateText!=null&&updateText.isAttachedToWindow()&&!isFinishing()&&!isDestroyed())install();});
+  }catch(Exception e){part.delete();final String reason=updateError(e);ui.post(()->{updateBusy=false;updateMessage("Download failed: "+reason,0);});}});
+ }
+ @SuppressWarnings("deprecation") void verifyUpdate(File f,String tag)throws Exception{
+  android.content.pm.PackageManager pm=getPackageManager();
+  android.content.pm.PackageInfo archive=pm.getPackageArchiveInfo(f.getAbsolutePath(),android.content.pm.PackageManager.GET_SIGNATURES);
+  android.content.pm.PackageInfo installed=pm.getPackageInfo(getPackageName(),android.content.pm.PackageManager.GET_SIGNATURES);
+  if(archive==null||!getPackageName().equals(archive.packageName))throw new IOException("Incorrect APK package");
+  if(archive.versionCode<=installed.versionCode||(tag!=null&&!tag.equals(archive.versionName)))throw new IOException("APK version mismatch");
+  if(archive.signatures==null||installed.signatures==null||!new HashSet<>(Arrays.asList(archive.signatures)).equals(new HashSet<>(Arrays.asList(installed.signatures))))throw new IOException("APK signing certificate mismatch");
+ }
  static int compare(String a,String b){try{String[]x=a.split("\\."),y=b.split("\\.");for(int i=0;i<Math.max(x.length,y.length);i++){int n=i<x.length?Integer.parseInt(x[i]):0,m=i<y.length?Integer.parseInt(y[i]):0;if(n!=m)return Integer.compare(n,m);}return 0;}catch(Exception e){return -1;}}
- void install(){try{if(download<0){msg("No downloaded APK.");return;}DownloadManager dm=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);Uri uri=dm.getUriForDownloadedFile(download);if(uri==null){msg("Download incomplete.");return;}if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}Intent in=new Intent(Intent.ACTION_VIEW);in.setDataAndType(uri,"application/vnd.android.package-archive");in.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(in);}catch(Exception e){msg("Installer unavailable.");}}
+ void install(){
+  if(updateBusy){msg("Update is still downloading");return;}
+  File apk=updateFile();if(!apk.isFile()){update();return;}
+  try{verifyUpdate(apk,null);if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){updateMessage("Allow Shark Sky to install updates in Android settings, then return and select Install verified update.",100);startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}
+   Uri uri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".updates",apk);
+   Intent in=new Intent(Intent.ACTION_VIEW);in.setDataAndType(uri,"application/vnd.android.package-archive");in.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(in);
+  }catch(Exception e){updateMessage("Installation failed: "+updateError(e),0);msg("Installation failed: "+updateError(e));}
+ }
 }
