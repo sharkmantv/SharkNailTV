@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'incoming/SharkNailTV.zip'
+      - 'incoming/room-catalogue-4.1.11.py'
+      - 'incoming/preload-4.1.11.py'
+      - 'incoming/build-video-decoders-4.1.11.sh'
       - '.github/workflows/build-zip.yml'
   workflow_dispatch:
     inputs:
@@ -18,13 +21,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: sharknailtv-release
+  group: sharknailtv-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
       - name: Select build source
@@ -78,7 +81,7 @@ jobs:
           with Path(os.environ['GITHUB_ENV']).open('a') as env:
               print(f'SOURCE_DIR={project}', file=env)
           PY
-      - name: Apply reviewed 4.0.1 through 4.0.9 fixes to the original archive
+      - name: Apply reviewed 4.0.1 through 4.1.11 fixes to the original archive
         if: env.SOURCE_ZIP != ''
         shell: bash
         run: |
@@ -242,6 +245,225 @@ jobs:
           print("Preview error feedback, live cache-first loading and OK retry applied; Media3 and buffering unchanged")
           PY
             grep -F 'orElse("4.0.9")' app/build.gradle.kts >/dev/null
+            # Dedicated TV catalogue browser; leave the two Home landscape rows untouched.
+            python - <<'PY'
+          from pathlib import Path
+          p=Path("app/src/main/java/com/example/xtreamtv/MainActivity.kt")
+          s=p.read_text()
+          def swap(s,a,b):
+              assert s.count(a)==1, "Unexpected catalogue UI source: "+a[:120]
+              return s.replace(a,b,1)
+          s=swap(s,'import androidx.compose.foundation.lazy.LazyColumn','''import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+          import androidx.compose.foundation.lazy.grid.GridCells
+          import androidx.compose.foundation.lazy.grid.items as gridItems
+          import androidx.compose.foundation.lazy.grid.rememberLazyGridState''')
+          # Find the catalogue box using stable inner marker and actual indentation.
+          import re
+          marker=s.index('val firstRow=remember(sectionEntries)')
+          matches=list(re.finditer(r'(?m)^([ ]*)if\s*\(sectionEntries\.isNotEmpty\(\)\)\s*BoxWithConstraints\s*\(',s[:marker]))
+          assert matches, "Could not locate catalogue box"
+          match=matches[-1]
+          start=match.start()
+          end=re.search(r'(?m)^'+re.escape(match.group(1))+r'\}[ \t]*$',s[marker:])
+          assert end, "Could not locate catalogue box end"
+          stop=marker+end.end()
+          old=s[start:stop]
+          assert 'val firstRow=remember(sectionEntries)' in old and 'V4PosterRow(' in old, "Unexpected old catalogue rows"
+          s=s[:start]+'''                                if(connected) TvCatalogueBrowser(
+                                              modifier=Modifier.weight(1f).fillMaxWidth(),
+                                              categories=categories, categoryId=categoryId, entries=sectionEntries,
+                                              loading=catalogueLoading, onCategory={ categoryId=it },
+                                              onRetry={scope.launch { api?.clearCatalogueCache();catalogueRetry++ }},
+                                              onSelect={openTitle(it)}
+                                          )'''+s[stop:]
+          # Remove the duplicate category popup control; the new sidebar remains visible.
+          old='if(connected && catalogueKind.isNotBlank() && section!="Shark TV")'
+          if s.count(old)==1:
+              s=s.replace(old,'if(connected && catalogueKind.isNotBlank() && section !in listOf("Shark TV","Movies","TV Series"))',1)
+          # The existing empty state below the browser is preserved, including provider errors.
+          anchor='@Composable private fun V4PosterRow('
+          ui='''@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+          @Composable private fun TvCatalogueBrowser(
+              modifier:Modifier=Modifier,
+              categories:List<Pair<String,String>>,
+              categoryId:String?,
+              entries:List<Entry>,
+              loading:Boolean,
+              onCategory:(String)->Unit,
+              onRetry:()->Unit,
+              onSelect:(Entry)->Unit
+          ) {
+              var query by remember { mutableStateOf("") }
+              var searching by remember { mutableStateOf(false) }
+              var alphabetical by remember { mutableStateOf(false) }
+              var focusedTitle by remember(categoryId) { mutableStateOf("") }
+              val unique=remember(entries) { entries.distinctBy { it.kind+":"+it.id } }
+              val uniqueCategories=remember(categories) { categories.distinctBy { it.first } }
+              val visible=remember(unique,query,alphabetical) {
+                  val matches=if(query.isBlank()) unique else unique.filter { it.title.contains(query,true) }
+                  if(alphabetical) matches.sortedBy { it.title.lowercase(java.util.Locale.ROOT) } else matches
+              }
+              val categoryState=androidx.compose.foundation.lazy.rememberLazyListState()
+              val gridState=rememberLazyGridState()
+              LaunchedEffect(categoryId,visible.isNotEmpty()) { if(visible.isNotEmpty()) gridState.scrollToItem(0) }
+              CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides KeepVisibleFocus) {
+                  Row(modifier.clipToBounds().padding(horizontal=5.dp,vertical=3.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                      Column(Modifier.weight(0.27f).fillMaxHeight().background(Color(0xE609152A)).padding(5.dp)) {
+                          Text("Categories",color=Color.White,fontSize=15.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(5.dp))
+                          LazyColumn(state=categoryState,modifier=Modifier.weight(1f).fillMaxWidth().clipToBounds(),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                              items(uniqueCategories,key={it.first}) { cat ->
+                                  BrowserRow(cat.second,cat.first==categoryId,"",{},{
+                                      query=""
+                                      onCategory(cat.first)
+                                  })
+                              }
+                          }
+                          CompactLiveAction("Retry",Modifier.fillMaxWidth()){onRetry()}
+                      }
+                      Column(Modifier.weight(0.73f).fillMaxHeight().background(Color(0xA6081427)).padding(5.dp)) {
+                          Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                              Text(if(loading && visible.isEmpty()) "Loading…" else "Titles: "+visible.size,color=Color.White,fontSize=13.sp,modifier=Modifier.weight(1f))
+                              CompactLiveAction(if(alphabetical) "Order: A–Z" else "Order: provider"){alphabetical=!alphabetical}
+                              CompactLiveAction(if(searching) "Close search" else "Search"){searching=!searching;if(!searching)query=""}
+                          }
+                          if(searching) androidx.compose.material3.OutlinedTextField(value=query,onValueChange={query=it},singleLine=true,label={Text("Find title")},modifier=Modifier.fillMaxWidth())
+                          Box(Modifier.weight(1f).fillMaxWidth()) {
+                              LazyVerticalGrid(columns=GridCells.Adaptive(112.dp),state=gridState,
+                                  modifier=Modifier.fillMaxSize().clipToBounds(),
+                                  contentPadding=PaddingValues(4.dp),
+                                  horizontalArrangement=Arrangement.spacedBy(7.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
+                                  gridItems(visible,key={it.kind+":"+it.id}) { entry ->
+                                      var focused by remember { mutableStateOf(false) }
+                                      var ready by remember(entry.image) { mutableStateOf(false) }
+                                      Box(Modifier.fillMaxWidth().aspectRatio(2f/3f)
+                                          .onFocusChanged { focused=it.isFocused;if(focused)focusedTitle=entry.title }
+                                          .background(Color(0xFF101E33))
+                                          .glassFrame(2.dp,if(focused)SharkFocusGold else Color(0xFF28649E),RoundedCornerShape(0.dp),focused=focused,repeatPulse=focused)
+                                          .clickable {onSelect(entry)}.padding(3.dp)) {
+                                          if(entry.image.isNotBlank()) AsyncImage(model=entry.image,contentDescription=entry.title,
+                                              modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop,
+                                              onSuccess={ready=true},onError={ready=false})
+                                          if(!ready) Text(entry.title,color=Color.White,fontSize=12.sp,maxLines=4,
+                                              overflow=TextOverflow.Ellipsis,modifier=Modifier.align(Alignment.Center).padding(6.dp))
+                                      }
+                                  }
+                              }
+                              if(visible.isEmpty()) Text(if(loading) "Loading catalogue…" else "No matching titles",color=Color.White,fontSize=13.sp,modifier=Modifier.align(Alignment.Center))
+                          }
+                          Text(focusedTitle.ifBlank { uniqueCategories.firstOrNull { it.first==categoryId }?.second.orEmpty() },
+                              color=Color.White,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.fillMaxWidth().padding(top=3.dp))
+                      }
+                  }
+              }
+          }
+
+          '''
+          s=swap(s,anchor,ui+anchor)
+          # Privacy-safe session metrics; no URLs or credentials.
+          p.write_text(s)
+          p=Path("app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt")
+          s=p.read_text()
+          lines=s.splitlines(keepends=True)
+          builders=[n for n,line in enumerate(lines) if 'return ExoPlayer.Builder(' in line and '.build().apply {' in line]
+          assert len(builders)==1, "Unexpected player builder"
+          n=builders[0]
+          lines.insert(n+1,'''        addAnalyticsListener(androidx.media3.exoplayer.analytics.PlaybackStatsListener(false) { _, stats ->
+                      android.util.Log.d("SharkPlaybackStats", "preview="+preview+" startupMs="+stats.meanJoinTimeMs+
+                          " rebufferCount="+stats.totalRebufferCount+" droppedFrames="+stats.totalDroppedFrames)
+                  })
+          ''')
+          s=''.join(lines)
+          # Optional hardware experiments: never enable additional decoders by default.
+          marker='    return ExoPlayer.Builder('
+          assert s.count(marker)==1
+          s=s.replace(marker,'''    val experimentalTunneling = !preview && p.getBoolean("sharkTunneling",false)
+              val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context.applicationContext)
+              trackSelector.setParameters(trackSelector.buildUponParameters().setTunnelingEnabled(experimentalTunneling).build())
+              if (!preview && !live && p.getBoolean("sharkPrewarm",false)) {
+                  factory.experimentalSetEnableMediaCodecVideoRendererPrewarming(true)
+              }
+              val networkFactory: androidx.media3.datasource.DataSource.Factory = if (!preview && p.getBoolean("sharkCronet",false)) {
+                  sharkCronetFactory(context) ?: androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkPlaybackHttp)
+              } else androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkPlaybackHttp)
+              return ExoPlayer.Builder(''',1)
+          s=swap(s,'.setLoadControl(load).setMediaSourceFactory(','.setTrackSelector(trackSelector).setLoadControl(load).setMediaSourceFactory(')
+          # Only replace the data-source argument in the player builder, not the fallback above.
+          s=swap(s,'.setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(sharkPlaybackHttp)))','.setDataSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(context.applicationContext, networkFactory))')
+          s += '''
+          // Reuse one optional Cronet engine; do not load extra native networking binaries.
+          private val sharkCronetExecutor by lazy { java.util.concurrent.Executors.newSingleThreadExecutor() }
+          private var sharedSharkCronet: org.chromium.net.CronetEngine? = null
+          @Synchronized private fun sharkCronetFactory(context: Context): androidx.media3.datasource.DataSource.Factory? {
+              return try {
+                  val engine = sharedSharkCronet ?: androidx.media3.datasource.cronet.CronetUtil.buildCronetEngine(context.applicationContext)?.also { sharedSharkCronet=it }
+                  if (engine == null) {
+                      android.util.Log.d("SharkPlaybackStats","Cronet provider unavailable; using OkHttp")
+                      null
+                  } else androidx.media3.datasource.cronet.CronetDataSource.Factory(engine, sharkCronetExecutor)
+                      .setConnectionTimeoutMs(10_000).setReadTimeoutMs(20_000)
+              } catch (_: Exception) { null } catch (_: LinkageError) { null }
+          }
+          '''
+          # Experimental options live beside decoder fallback in Playback & Display.
+          anchor='                PremiumButton(compact=true,onClick={fallback=!fallback;'
+          assert s.count(anchor)==1, "Decoder fallback button missing"
+          s=s.replace(anchor,'                SharkExperimentalPlaybackOptions(p)\n'+anchor,1)
+          s += '''
+          @Composable private fun SharkExperimentalPlaybackOptions(p: android.content.SharedPreferences) {
+              Text("Advanced playback · experimental",color=Color.White,fontSize=12.sp)
+              listOf("sharkTunneling" to "Hardware tunneling","sharkPrewarm" to "VOD decoder prewarming","sharkCronet" to "Cronet networking").forEach { (key,title) ->
+                  var enabled by remember(key) { mutableStateOf(p.getBoolean(key,false)) }
+                  PremiumButton(compact=true,onClick={enabled=!enabled;p.edit().putBoolean(key,enabled).apply()},modifier=Modifier.fillMaxWidth()) {
+                      Text(title+": "+if(enabled) "On" else "Off")
+                  }
+              }
+              Text("Restart playback after changing. Keep off if a stream fails.",color=Color.LightGray,fontSize=11.sp)
+          }
+          '''
+          p.write_text(s)
+          p=Path("app/src/main/java/com/example/xtreamtv/MainActivity.kt")
+          s=p.read_text()
+          # Coalesce same-channel EPG requests; existing bounded per-account cache remains.
+          anchor='    suspend fun epg(streamId:String):List<Program>'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,'''    private val epgRequestLocks=Array(16) { kotlinx.coroutines.sync.Mutex() }
+              suspend fun epg(streamId:String):List<Program> = epgRequestLocks[(streamId.hashCode() and Int.MAX_VALUE)%epgRequestLocks.size].withLock {
+                  fetchEpgUncoalesced(streamId)
+              }
+              private suspend fun fetchEpgUncoalesced(streamId:String):List<Program>''',1)
+          if 'import kotlinx.coroutines.sync.withLock' not in s:
+              s=s.replace('import kotlinx.coroutines.', 'import kotlinx.coroutines.sync.withLock\nimport kotlinx.coroutines.',1)
+          p.write_text(s)
+          p=Path("app/build.gradle.kts")
+          s=p.read_text()
+          # Use a stable engine exactly matching the shipped, SHA-verified FFmpeg AAR.
+          s=swap(s,'media3Version = "1.12.0-beta01"','media3Version = "1.11.1"')
+          s=swap(s,'    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")','    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")\n    implementation("androidx.media3:media3-datasource-cronet:$media3Version")')
+          s=swap(s,'orElse("40009")','orElse("40111")')
+          s=swap(s,'orElse("4.0.9")','orElse("4.1.11")')
+          p.write_text(s)
+          print("Movies and TV Series use a lazy poster grid, persistent sidebar, title search and sorting. Home unchanged.")
+          PY
+            python "$GITHUB_WORKSPACE/incoming/preload-4.1.11.py"
+            python "$GITHUB_WORKSPACE/incoming/room-catalogue-4.1.11.py"
+            # Seed baseline rules for the known startup path. Actual device benchmarks remain required.
+            mkdir -p app/src/main
+            cat > app/src/main/baseline-prof.txt <<'PROFILE'
+          Lcom/example/xtreamtv/MainActivity;
+          HSPLcom/example/xtreamtv/MainActivity;->onCreate(Landroid/os/Bundle;)V
+          Lcom/example/xtreamtv/PlaybackSettingsKt;
+          Lcom/example/xtreamtv/CatalogueDatabase;
+          PROFILE
+            python - <<'PY'
+          from pathlib import Path
+          p=Path("app/build.gradle.kts")
+          s=p.read_text()
+          assert s.count("dependencies {")==1
+          s=s.replace("dependencies {",'dependencies {\n    implementation("androidx.profileinstaller:profileinstaller:1.4.1")',1)
+          p.write_text(s)
+          PY
+            grep -F 'orElse("4.1.11")' app/build.gradle.kts >/dev/null
           fi
       - uses: actions/setup-java@v4
         with:
@@ -256,6 +478,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+      - name: Build matching AV1 and VP9 native decoder extensions
+        if: env.SOURCE_ZIP != ''
+        run: bash "$GITHUB_WORKSPACE/incoming/build-video-decoders-4.1.11.sh"
       - name: Prepare version and optional signing
         env:
           SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
@@ -264,7 +489,7 @@ jobs:
         run: |
           set -euo pipefail
           floor=30000
-          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=39999; fi
+          if [[ -n "${SOURCE_ZIP:-}" ]]; then floor=40110; fi
           code=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' |
             python -c 'import re,sys; versions = [tuple(map(int, m.groups(default="0"))) for line in sys.stdin if (m := re.fullmatch(r"v?(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?", line.strip()))]; print(max([int(sys.argv[1])] + [a*10000+b*100+c for a,b,c in versions]) + 1)' "$floor")
           version="$((code / 10000)).$((code / 100 % 100)).$((code % 100))"
@@ -344,11 +569,11 @@ jobs:
           path: SharkNailTV*.apk
           if-no-files-found: error
 
-      - name: Verify complete 4.0.9 beta package and FFmpeg fallback
+      - name: Verify complete 4.1.11 package and matching FFmpeg fallback
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          test "$VERSION_NAME" = "4.0.9"
+          test "$VERSION_NAME" = "4.1.11"
           test -f "$SOURCE_DIR/app/src/main/res/layout/shark_sdr_player.xml"
           grep -F 'EXTENSION_RENDERER_MODE_ON' "$SOURCE_DIR/app/src/main/java/com/example/xtreamtv/PlaybackSettings.kt"
           grep -F 'implementation(files("libs/flowvid-media3-ffmpeg.aar"))' "$SOURCE_DIR/app/build.gradle.kts"
@@ -361,8 +586,12 @@ jobs:
               for abi in ('arm64-v8a','armeabi-v7a','x86','x86_64'):
                   assert 'lib/'+abi+'/libffmpegJNI.so' in files, "Missing FFmpeg for "+abi
               assert 'assets/ffmpeg-source-notice.txt' in files
+              for abi in ('arm64-v8a','armeabi-v7a'):
+                  assert 'lib/'+abi+'/libdav1dJNI.so' in files, "Missing AV1 for "+abi
+                  assert 'lib/'+abi+'/libvpxJNI.so' in files, "Missing VP9 for "+abi
+              assert 'assets/decoder-licenses/SOURCES.txt' in files
               assert any(b'FfmpegAudioRenderer' in apk.read(f) for f in files if f.startswith('classes') and f.endswith('.dex')), "FFmpeg renderer missing from DEX"
-          print('FFmpeg native ABIs, DEX, licensing notice and APK integrity verified')
+          print('Native decoder ABIs, DEX, licensing notices and APK integrity verified')
           PY
       - name: Install and launch signed APK on Android emulator
         if: github.event_name == 'push'
@@ -413,7 +642,7 @@ jobs:
           fi
           echo 'Signed APK installed and launched without a detected application crash.'
       - name: Publish signed ZIP OTA
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.SHARK_OTA_RELEASE_TOKEN || github.token }}
           OTA_TOKEN_CONFIGURED: ${{ secrets.SHARK_OTA_RELEASE_TOKEN != '' }}
@@ -444,4 +673,4 @@ jobs:
           url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/SharkNailTV.apk"
           Path("update.json").write_text(json.dumps({"tag_name": tag, "draft": False, "prerelease": False, "assets": [{"name": "SharkNailTV.apk", "browser_download_url": url}]}), encoding="utf-8")
           PY
-          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME (Media3 beta test)" --notes "Live TV now uses account-scoped cache-first category and channel loading, retaining background refresh and selection. Preview failures display Channel unavailable — Press OK to retry; OK retries the same failed channel, with a 20-second no-first-frame timeout. Native ExoPlayer full-screen buffer defaults replace custom buffering and legacy playback profiles, preserving prior preview and SDR improvements. Decoder fallback clearly labelled. Preview-only buffer adjustment, fixed 1x playback speed, no preview refresh-rate switching and reduced subtitle processing. EXPERIMENTAL Media3 1.12.0-beta01 with existing 1.11.1-built LGPL FFmpeg audio fallback; FFmpeg runtime compatibility is not yet verified, bounded memory caches, transient live reconnect, OK-to-play channels, cache-first catalogues, premium darker channel rows, taller Settings, unused media cleanup, preserved SDR and Time settings. Signed APK integrity and emulator launch checked. FFmpeg source and notices: https://github.com/flow-vid/flowvid-ffmpeg-android/tree/v1.11.1-1 . TV playback and performance require device testing." --latest
+          gh release create "v$VERSION_NAME" SharkNailTV.apk update.json --target "$GITHUB_SHA" --title "SharkNailTV $VERSION_NAME" --notes "Consolidated 4.1.11: cache-first Xtream, Room and Paging catalogue, indexed search, TV focus restoration and fixed-size posters; matched Media3 1.11.1 FFmpeg/AV1/VP9 extensions; optional tunneling, Cronet, prewarming and next-channel PreloadManager; native fullscreen buffer, preview recovery, EPG coalescing, startup profile and playback metrics. Signed APK, native library presence and emulator launch verified by CI. Actual provider/device playback, IBO comparison and performance benefits require device validation. Experimental playback features remain opt-in." --latest
