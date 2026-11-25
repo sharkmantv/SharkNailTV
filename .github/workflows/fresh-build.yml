@@ -58,12 +58,12 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50000'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50001'"
           unzip -tq SharkNailTV.apk
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.0-candidate-install-untested
+          name: SharkSky-5.0.1-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Prepare emulator acceleration
@@ -84,6 +84,6 @@ jobs:
           script: adb install SharkNailTV.apk && adb shell am start -W -n com.example.xtreamtv/.MainActivity && sleep 3 && adb shell pidof com.example.xtreamtv
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.0-signed
+          name: SharkSky-5.0.1-signed
           path: SharkNailTV.apk
           if-no-files-found: error

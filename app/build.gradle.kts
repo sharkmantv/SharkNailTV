@@ -2,7 +2,7 @@ plugins { id("com.android.application") }
 android {
     namespace = "com.example.xtreamtv"
     compileSdkVersion("android-37.0")
-    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 24; targetSdk = 35; versionCode = 50000; versionName = "5.0.0" }
+    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 24; targetSdk = 35; versionCode = 50001; versionName = "5.0.1" }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
 dependencies {
