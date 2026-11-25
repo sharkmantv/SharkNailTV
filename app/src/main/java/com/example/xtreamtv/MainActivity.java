@@ -36,8 +36,9 @@ public class MainActivity extends Activity {
  TextView status,epg;
  ExoPlayer player;
  PlayerView video;
- FrameLayout liveFullOverlay;
- PlayerView livePreviewView;
+ FrameLayout liveSurfaceHost;
+ View.OnLayoutChangeListener livePreviewLayout;
+ int liveBodyFocusMode,liveBodyAccessibility;
  View liveReturnFocus;
  TextView liveReturnStatus;
  String activeStreamId="";
@@ -62,7 +63,10 @@ public class MainActivity extends Activity {
  LinearLayout row(){return new LinearLayout(this);} LinearLayout col(){LinearLayout l=row();l.setOrientation(1);return l;}
  void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
- void release(){if(livePreviewView!=null){livePreviewView.setPlayer(null);livePreviewView=null;}if(liveFullOverlay!=null){ViewGroup parent=(ViewGroup)liveFullOverlay.getParent();if(parent!=null)parent.removeView(liveFullOverlay);liveFullOverlay=null;}liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}activeDecoder="";}
+ void release(){if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
+  if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
+  liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
+  if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
  void screen(String title){release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(bg(0xff123e87,0xff050d31,0,0));setContentView(body);immersive();LinearLayout head=row();head.addView(art(R.drawable.shark_logo),new LinearLayout.LayoutParams(dp(90),dp(43)));TextView t=text(title,22);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));body.addView(head);}
  void home(){page="Home";screen("SHARK SKY");body.addView(art(R.drawable.shark_brand),new LinearLayout.LayoutParams(-1,0,1));LinearLayout r=row();String[] names={"Live TV","Movies","Series","Settings"};int[] icons={R.drawable.metal48_live,R.drawable.metal48_movies,R.drawable.metal48_series,R.drawable.metal48_settings};for(int i=0;i<4;i++){String dest=names[i];LinearLayout tile=col();tile.setGravity(Gravity.CENTER);tile.setPadding(dp(8),dp(6),dp(8),dp(6));tile.setBackground(focus());tile.setFocusable(true);tile.setClickable(true);tile.addView(art(icons[i]),new LinearLayout.LayoutParams(-1,0,1));TextView t=text(dest,19);t.setGravity(Gravity.CENTER);tile.addView(t,new LinearLayout.LayoutParams(-1,dp(36)));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(140),1);p.setMargins(dp(4),dp(4),dp(4),dp(4));r.addView(tile,p);tile.setOnClickListener(v->{if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);});}body.addView(r);r.getChildAt(0).requestFocus();}
  void msg(String s){if(status!=null)status.setText(s);else Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
@@ -72,7 +76,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.7  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.8  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -168,7 +172,14 @@ public class MainActivity extends Activity {
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst){
   release();host.removeAllViews();
   PlayerView v=new PlayerView(this);v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
-  host.addView(v,new FrameLayout.LayoutParams(-1,-1));
+  if(!fullscreen&&page.equals("Live TV")&&host==preview&&findViewById(android.R.id.content) instanceof FrameLayout){
+   FrameLayout root=(FrameLayout)findViewById(android.R.id.content);
+   liveSurfaceHost=new FrameLayout(this);liveSurfaceHost.setBackgroundColor(Color.BLACK);liveSurfaceHost.setFocusable(false);liveSurfaceHost.setClickable(false);liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+   v.setFocusable(false);liveSurfaceHost.addView(v,new FrameLayout.LayoutParams(-1,-1));
+   root.addView(liveSurfaceHost,new FrameLayout.LayoutParams(1,1,Gravity.TOP|Gravity.LEFT));
+   livePreviewLayout=(view,l,t,r,b,ol,ot,or,ob)->{if(!full)positionLiveSurface();};
+   preview.addOnLayoutChangeListener(livePreviewLayout);positionLiveSurface();preview.post(()->{if(!full)positionLiveSurface();});
+  }else host.addView(v,new FrameLayout.LayoutParams(-1,-1));
   final String range=prefs.getString("dynamic_range","Auto");
   DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
    @Override protected androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory getCodecAdapterFactory(){
@@ -300,32 +311,38 @@ public class MainActivity extends Activity {
   n.setVideoURI(Uri.parse(stream(i)));n.requestFocus();n.start();
  }
  void playFull(Item i){
-  if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&video.getParent()==preview&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
+  if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
   release();screenToken++;loadToken++;epgToken++;full=true;status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null)video.requestFocus();
  }
+ void positionLiveSurface(){
+  if(liveSurfaceHost==null||preview==null||full||preview.getWidth()<=0||preview.getHeight()<=0)return;
+  View root=(View)liveSurfaceHost.getParent();if(root==null)return;
+  int[] target=new int[2],origin=new int[2];preview.getLocationInWindow(target);root.getLocationInWindow(origin);
+  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(preview.getWidth(),preview.getHeight(),Gravity.TOP|Gravity.LEFT);
+  lp.leftMargin=target[0]-origin[0];lp.topMargin=target[1]-origin[1];
+  liveSurfaceHost.setLayoutParams(lp);
+ }
  boolean enterLiveFullscreen(){
-  View content=findViewById(android.R.id.content);if(!(content instanceof FrameLayout))return false;
-  FrameLayout root=(FrameLayout)content;ExoPlayer p=player;PlayerView old=video;
+  if(liveSurfaceHost==null||video==null||player==null)return false;
   liveReturnFocus=getCurrentFocus();liveReturnStatus=status;
-  FrameLayout overlay=new FrameLayout(this);overlay.setBackgroundColor(Color.BLACK);overlay.setClickable(true);overlay.setFocusable(true);
-  PlayerView next=new PlayerView(this);next.setUseController(true);next.setControllerAutoShow(true);next.setResizeMode(prefs.getInt("resize_mode",0));overlay.addView(next,new FrameLayout.LayoutParams(-1,-1));
-  // Keep the existing player, source, buffered data and decoder; attach the new surface before clearing the old one.
-  root.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
-  liveFullOverlay=overlay;livePreviewView=old;full=true;status=null;video=next;
-  if(body!=null){body.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);}
-  PlayerView.switchTargetView(p,old,next);p.setVolume(1f);p.play();immersive();next.requestFocus();
-  android.util.Log.i("SharkPlayback","Live fullscreen: existing player reused");
-  return true;
+  full=true;status=null;
+  if(body!=null){liveBodyFocusMode=body.getDescendantFocusability();liveBodyAccessibility=body.getImportantForAccessibility();body.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);}
+  // Do not detach the video surface or create a second PlayerView.
+  liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));
+  liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+  video.setFocusable(true);video.setUseController(true);video.setControllerAutoShow(true);
+  player.setVolume(1f);if(!player.getPlayWhenReady())player.play();video.requestFocus();
+  android.util.Log.i("SharkPlayback","Live fullscreen: same player and surface resized");return true;
  }
  boolean exitLiveFullscreen(){
-  if(liveFullOverlay==null||livePreviewView==null||player==null||video==null)return false;
-  PlayerView old=video,target=livePreviewView;FrameLayout overlay=liveFullOverlay;
-  player.setVolume(0f);PlayerView.switchTargetView(player,old,target);
-  video=target;livePreviewView=null;liveFullOverlay=null;full=false;status=liveReturnStatus;liveReturnStatus=null;
-  if(body!=null){body.setDescendantFocusability(ViewGroup.FOCUS_BEFORE_DESCENDANTS);body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);}
-  ViewGroup root=(ViewGroup)overlay.getParent();if(root!=null)root.removeView(overlay);immersive();
+  if(liveSurfaceHost==null||player==null||video==null||preview==null)return false;
+  video.hideController();video.setUseController(false);video.setFocusable(false);
+  liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+  player.setVolume(0f);full=false;status=liveReturnStatus;liveReturnStatus=null;
+  positionLiveSurface();
+  if(body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   View focus=liveReturnFocus;liveReturnFocus=null;if(focus!=null&&focus.isAttachedToWindow())focus.requestFocus();else if(right!=null)focusAt(right,itemPos);
-  android.util.Log.i("SharkPlayback","Live preview: existing player reused");return true;
+  android.util.Log.i("SharkPlayback","Live preview: same player and surface resized");return true;
  }
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;}
