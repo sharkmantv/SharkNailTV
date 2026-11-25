@@ -19,7 +19,11 @@ s=swap(s,'    val load = DefaultLoadControl.Builder().build()','''    val load =
 s=swap(s,'val experimentalTunneling = !preview && p.getBoolean("sharkTunneling",false)','val experimentalTunneling = false')
 s=swap(s,'if (!preview && !live && p.getBoolean("sharkPrewarm",false))','if (false)')
 s=swap(s,'if (!preview && p.getBoolean("sharkCronet",false))','if (false)')
-s=swap(s,'if(live && !preview && !experimentalTunneling && p.getBoolean("sharkChannelPreload",false))','if(false)')
+# Earlier audit adds memory/device guards to the preload condition.
+# Replace the complete player-selection expression, not its outdated guard.
+m=re.search(r'val player\s*=\s*if\s*\([^\n]*\)\s*\{\s*sharkBuildPreloadPlayer\([^\n]*\)\s*\}\s*else playerBuilder\.build\(\)',s)
+assert m,"Preload builder branch missing"
+s=swap(s,m.group(0),'val player = playerBuilder.build()')
 s=swap(s,'                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, true)','''                setMaxVideoSize(960,540)
                 setMaxVideoBitrate(1_500_000)
                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_AUDIO, true)''')
