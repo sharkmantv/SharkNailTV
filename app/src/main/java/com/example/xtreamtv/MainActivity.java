@@ -72,7 +72,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.6  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.7  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -81,6 +81,8 @@ public class MainActivity extends Activity {
   button(r,"Codec info: "+(prefs.getBoolean("show_codec_info",false)?"On":"Off"),()->{prefs.edit().putBoolean("show_codec_info",!prefs.getBoolean("show_codec_info",false)).apply();playbackSettings();});body.addView(r);
   LinearLayout r2=row();int mode=prefs.getInt("resize_mode",0);button(r2,"Picture: "+(mode==3?"Stretch":mode==4?"Zoom":"Fit"),()->{prefs.edit().putInt("resize_mode",mode==0?3:mode==3?4:0).apply();playbackSettings();});
   button(r2,"Audio: "+prefs.getString("audio_lang","Automatic"),()->languageDialog("audio_lang","Preferred audio language"));button(r2,"Text: "+prefs.getString("text_lang","Automatic"),()->languageDialog("text_lang","Preferred subtitle language"));body.addView(r2);
+  LinearLayout range=row();String dr=prefs.getString("dynamic_range","Auto");button(range,"Dynamic range: "+dr,()->{String[] options={"Auto","Prefer SDR","Prefer HDR"};new AlertDialog.Builder(this).setTitle("Video dynamic range").setSingleChoiceItems(options,Arrays.asList(options).indexOf(dr),(d,i)->{prefs.edit().putString("dynamic_range",options[i]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();});body.addView(range);
+  TextView hint=text(dr.equals("Prefer SDR")?"SDR mode blocks known HDR-only video; it does not tone-map.":dr.equals("Prefer HDR")?"Prefer a compatible HDR track when available; otherwise play normally.":"Auto follows the source and device capabilities.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
   android.view.Display.Mode m=getWindowManager().getDefaultDisplay().getMode();status=text("Display: "+m.getPhysicalWidth()+" × "+m.getPhysicalHeight()+" · "+String.format(Locale.US,"%.2f Hz",m.getRefreshRate())+"  |  Native fallback uses Android system controls.",14);body.addView(status);
   LinearLayout back=row();button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
@@ -133,11 +135,14 @@ public class MainActivity extends Activity {
   class H extends RecyclerView.ViewHolder{ImageView art;TextView title;Future<?> job;Item bound;H(LinearLayout v,ImageView a,TextView t){super(v);art=a;title=t;}}
   @Override public H onCreateViewHolder(ViewGroup parent,int viewType){
    LinearLayout v=col();v.setPadding(dp(4),dp(4),dp(4),dp(4));v.setFocusable(true);v.setClickable(true);v.setBackground(focus());
-   int w=Math.max(dp(80),parent.getWidth()/cols-dp(12));ImageView a=new ImageView(MainActivity.this);a.setScaleType(ImageView.ScaleType.FIT_CENTER);a.setBackgroundColor(0xff081629);v.addView(a,new LinearLayout.LayoutParams(-1,Math.round(w*1.5f)));
-   TextView t=text("",12);t.setMaxLines(2);t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setGravity(Gravity.CENTER);v.addView(t,new LinearLayout.LayoutParams(-1,dp(38)));
-   RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,-2);lp.setMargins(dp(3),dp(3),dp(3),dp(3));v.setLayoutParams(lp);H h=new H(v,a,t);v.setOnClickListener(view->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});return h;
+   int w=Math.max(dp(64),parent.getWidth()/cols-dp(12));int height=parent.getHeight()>0?parent.getHeight()/2-dp(6):Math.round(w*1.5f)+dp(8);
+   ImageView a=new ImageView(MainActivity.this);a.setScaleType(ImageView.ScaleType.FIT_CENTER);a.setBackgroundColor(0xff081629);v.addView(a,new LinearLayout.LayoutParams(-1,-1));
+   TextView t=text("",12);t.setVisibility(View.GONE);
+   RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,Math.max(dp(64),height));lp.setMargins(dp(3),dp(3),dp(3),dp(3));v.setLayoutParams(lp);
+   H h=new H(v,a,t);v.setOnFocusChangeListener((view,focused)->{if(focused&&h.bound!=null&&status!=null)status.setText(h.bound.name);});
+   v.setOnClickListener(view->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});return h;
   }
-  @Override public void onBindViewHolder(H h,int pos){if(h.job!=null)h.job.cancel(true);Item i=data.get(pos);h.bound=i;h.title.setText(i.name);h.art.setImageDrawable(null);int token=screenToken;String key=tmdbKey();
+  @Override public void onBindViewHolder(H h,int pos){if(h.job!=null)h.job.cancel(true);Item i=data.get(pos);h.bound=i;h.title.setText(i.name);h.itemView.setContentDescription(i.name);h.art.setImageDrawable(null);if(h.itemView.hasFocus()&&status!=null)status.setText(i.name);int token=screenToken;String key=tmdbKey();
    h.job=posterIo.submit(()->{android.graphics.Bitmap b=null;try{b=posterBitmap(artwork(i,type,key));}catch(Exception ignored){}if(b==null&&!Thread.currentThread().isInterrupted())try{b=posterBitmap(i.art);}catch(Exception ignored){}final android.graphics.Bitmap result=b;if(result!=null&&!Thread.currentThread().isInterrupted())ui.post(()->{if(h.bound==i&&token==screenToken&&!isFinishing())h.art.setImageBitmap(result);});});
   }
   @Override public void onViewRecycled(H h){if(h.job!=null)h.job.cancel(true);h.bound=null;h.art.setImageDrawable(null);super.onViewRecycled(h);}
@@ -159,11 +164,24 @@ public class MainActivity extends Activity {
  boolean rememberedDecoder(Item i){long when=decoderPrefs().getLong(decoderKey(i),0);long age=System.currentTimeMillis()-when;return when>0&&age>=0&&age<7L*24*60*60*1000;}
  void rememberDecoder(Item i){android.content.SharedPreferences d=decoderPrefs();android.content.SharedPreferences.Editor e=d.edit();Map<String,?> all=d.getAll();if(all.size()>=128){String oldest=null;long time=Long.MAX_VALUE;for(Map.Entry<String,?> entry:all.entrySet())if(entry.getValue() instanceof Long&&(Long)entry.getValue()<time){oldest=entry.getKey();time=(Long)entry.getValue();}if(oldest!=null)e.remove(oldest);}e.putLong(decoderKey(i),System.currentTimeMillis()).apply();}
  void attach(FrameLayout host,Item i,boolean fullscreen){boolean cached=fullscreen&&!page.equals("Live TV")&&rememberedDecoder(i);attachExo(host,i,fullscreen,cached?1:0,0,cached);}
+ static boolean isHdr(Format f){return f!=null&&(MimeTypes.VIDEO_DOLBY_VISION.equals(f.sampleMimeType)||(f.colorInfo!=null&&(f.colorInfo.colorTransfer==C.COLOR_TRANSFER_ST2084||f.colorInfo.colorTransfer==C.COLOR_TRANSFER_HLG||f.colorInfo.hdrStaticInfo!=null)));}
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst){
   release();host.removeAllViews();
   PlayerView v=new PlayerView(this);v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   host.addView(v,new FrameLayout.LayoutParams(-1,-1));
-  DefaultRenderersFactory factory=new DefaultRenderersFactory(this).setEnableDecoderFallback(true);
+  final String range=prefs.getString("dynamic_range","Auto");
+  DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
+   @Override protected androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory getCodecAdapterFactory(){
+    final androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory delegate=super.getCodecAdapterFactory();
+    if(!range.equals("Prefer SDR"))return delegate;
+    return new androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory(){
+     @Override public androidx.media3.exoplayer.mediacodec.MediaCodecAdapter createAdapter(androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Configuration config)throws java.io.IOException{
+      if(isHdr(config.format))throw new java.io.IOException("HDR source blocked by SDR mode");
+      return delegate.createAdapter(config);
+     }
+    };
+   }
+  }.setEnableDecoderFallback(true);
   if(attempt==1){
    factory.forceDisableMediaCodecAsynchronousQueueing();
    factory.setMediaCodecSelector((mime,secure,tunnel)->{
@@ -193,7 +211,7 @@ public class MainActivity extends Activity {
   MediaItem.Builder m=new MediaItem.Builder().setUri(stream(i));
   if(page.equals("Live TV"))m.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build());
   class RecoveryListener implements Player.Listener {
-   boolean recovering,firstFrame;
+   boolean recovering,firstFrame,rangeSelected;
    long audioStartedAt=-1;
    final Runnable watch=new Runnable(){@Override public void run(){
     if(player!=p||recovering||firstFrame||stopped||token!=screenToken)return;
@@ -209,6 +227,21 @@ public class MainActivity extends Activity {
     ui.postDelayed(this,750);
    }};
    void startWatch(){if(vod)ui.postDelayed(watch,750);}
+   @Override public void onTracksChanged(Tracks tracks){
+    if(player!=p||recovering||rangeSelected||range.equals("Auto"))return;
+    boolean selectedDesired=false;Tracks.Group candidate=null;int index=-1;long score=-1;
+    boolean wantHdr=range.equals("Prefer HDR");
+    for(Tracks.Group group:tracks.getGroups()){
+     if(group.getType()!=C.TRACK_TYPE_VIDEO)continue;
+     for(int n=0;n<group.length;n++){Format f=group.getTrackFormat(n);boolean desired=isHdr(f)==wantHdr;if(!desired||!group.isTrackSupported(n))continue;
+      if(group.isTrackSelected(n))selectedDesired=true;
+      long pixels=(long)Math.max(0,f.width)*Math.max(0,f.height);
+      if(pixels>score){score=pixels;candidate=group;index=n;}
+     }
+    }
+    if(selectedDesired){rangeSelected=true;return;}
+    if(candidate!=null){rangeSelected=true;p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().setOverrideForType(new TrackSelectionOverride(candidate.getMediaTrackGroup(),index)).build());}
+   }
 
    @Override public void onRenderedFirstFrame(){
     if(player!=p||recovering)return;
@@ -230,6 +263,7 @@ public class MainActivity extends Activity {
      if(cause instanceof android.media.MediaCodec.CodecException){android.util.Log.w("SharkPlayback","codec diagnostic="+((android.media.MediaCodec.CodecException)cause).getDiagnosticInfo());break;}
     }
     boolean decoderError=e.errorCode==PlaybackException.ERROR_CODE_DECODER_INIT_FAILED||e.errorCode==PlaybackException.ERROR_CODE_DECODING_FAILED;
+    if(range.equals("Prefer SDR")&&isHdr(fmt)&&decoderError){ui.removeCallbacks(watch);msg("HDR-only video blocked by SDR mode. Select Auto or Prefer HDR.");return;}
     if(!vod||!decoderError||stopped){ui.removeCallbacks(watch);msg("Playback failed: "+e.getErrorCodeName());return;}
     recover(e.getErrorCodeName(),firstFrame?Math.max(0,p.getCurrentPosition()):position);
    }
@@ -243,7 +277,7 @@ public class MainActivity extends Activity {
      if(token!=screenToken||!full||stopped||isFinishing()||player!=null||nativeVideo!=null)return;
      if(attempt==0&&!cachedFirst)attachExo(host,i,true,1,resume,false);
      else if(attempt==1&&cachedFirst)attachExo(host,i,true,0,resume,true);
-     else attachNative(host,i,resume);
+     else if(range.equals("Prefer SDR")){msg("Playback failed in SDR mode. Select Auto to allow native fallback.");}else attachNative(host,i,resume);
     },500);
    }
   }
