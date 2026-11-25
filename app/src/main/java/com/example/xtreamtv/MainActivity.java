@@ -115,9 +115,9 @@ public class MainActivity extends Activity {
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
  static final int UI_TEXT=0xfff2f5fc, UI_SECONDARY=0xffb5c7e3, UI_ACCENT=0xff8dcaff, UI_GOLD=0xffffcf63;
- final android.graphics.Typeface uiRegular=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
- final android.graphics.Typeface uiMedium=android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL);
- final android.graphics.Typeface uiLight=android.graphics.Typeface.create("sans-serif-light",android.graphics.Typeface.NORMAL);
+ final android.graphics.Typeface uiRegular=android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL);
+ final android.graphics.Typeface uiMedium=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.BOLD);
+ final android.graphics.Typeface uiLight=android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL);
  Drawable premiumFrame(boolean focused,boolean selected){return new PremiumVisuals.Glass(focused,selected);}
  StateListDrawable focus(){
   StateListDrawable d=new StateListDrawable();
@@ -750,7 +750,7 @@ public class MainActivity extends Activity {
   LinearLayout header=col();header.setPadding(dp(18),dp(8),dp(18),dp(10));header.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xe90a2146,0xaa07152c,0x0007152c}));
   LinearLayout titleRow=row();header.addView(titleRow,new LinearLayout.LayoutParams(-1,dp(38)));
   TextView title=text(item.name,21);title.setSingleLine();title.setEllipsize(android.text.TextUtils.TruncateAt.END);titleRow.addView(title,new LinearLayout.LayoutParams(0,-1,1));
-  TextClock playerClock=new TextClock(this);playerClock.setFormat24Hour("HH:mm");playerClock.setFormat12Hour("h:mm a");playerClock.setTextColor(UI_TEXT);playerClock.setTextSize(18);titleRow.addView(playerClock);
+  TextClock playerClock=new TextClock(this);playerClock.setFormat24Hour("HH:mm");playerClock.setFormat12Hour("h:mm a");playerClock.setTextColor(UI_TEXT);playerClock.setTextSize(18);playerClock.setTypeface(uiRegular);titleRow.addView(playerClock);
   LinearLayout actions=row();header.addView(actions,new LinearLayout.LayoutParams(-1,dp(42)));actions.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);
   playerAction(actions,"Audio",()->chooseTrack(C.TRACK_TYPE_AUDIO));playerAction(actions,"Subtitles",()->chooseTrack(C.TRACK_TYPE_TEXT));playerAction(actions,"Aspect",this::aspectDialog);
   playerAction(actions,"Video info",()->new AlertDialog.Builder(this).setTitle("Video information").setMessage(playbackDiagnostics).setPositiveButton("Close",null).show());

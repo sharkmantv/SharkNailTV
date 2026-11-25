@@ -13,6 +13,7 @@ final class PremiumVisuals {
  static final int GOLD=0xffffd34e, BLUE=0xff66b8ff;
  static final Paint bitmapPaint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
  static Bitmap hero,logo;
+ static final Bitmap[] homeArt=new Bitmap[4];
  static void prepare(Context c){
   if(hero!=null&&logo!=null)return;
   BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;
@@ -23,10 +24,10 @@ final class PremiumVisuals {
   mask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
   mask.setShader(new LinearGradient(0,0,1388,0,new int[]{0x00ffffff,0xffffffff,0xffffffff,0x00ffffff},new float[]{0,.085f,.915f,1},Shader.TileMode.CLAMP));cv.drawRect(0,0,1388,612,mask);
   mask.setShader(new LinearGradient(0,0,0,612,new int[]{0x00ffffff,0xffffffff,0xffffffff,0x00ffffff},new float[]{0,.022f,.86f,1},Shader.TileMode.CLAMP));cv.drawRect(0,0,1388,612,mask);
-  logo=Bitmap.createBitmap(a,0,620,537,98).copy(Bitmap.Config.ARGB_8888,true);
-  int lw=logo.getWidth(),lh=logo.getHeight();int[] pix=new int[lw*lh];logo.getPixels(pix,0,lw,0,0,lw,lh);
-  for(int i=0;i<pix.length;i++){int q=pix[i];int max=Math.max(Color.red(q),Math.max(Color.green(q),Color.blue(q)));int min=Math.min(Color.red(q),Math.min(Color.green(q),Color.blue(q)));float v=Math.max(0,Math.min(1,(max-54)/94f));if(max<145&&Color.blue(q)>Color.red(q)*1.25f&&min<70)v*=.40f;pix[i]=(Math.round(Color.alpha(q)*v)<<24)|(q&0x00ffffff);}
-  logo.setPixels(pix,0,lw,0,0,lw,lh);a.recycle();
+  logo=BitmapFactory.decodeResource(c.getResources(),R.drawable.premium_cut_brand,o);
+  int[] ids={R.drawable.premium_cut_live,R.drawable.premium_cut_movies,R.drawable.premium_cut_series,R.drawable.premium_cut_settings};
+  for(int i=0;i<ids.length;i++)homeArt[i]=BitmapFactory.decodeResource(c.getResources(),ids[i],o);
+  a.recycle();
  }
  static View brand(MainActivity a){prepare(a);ImageView v=new ImageView(a);v.setImageBitmap(logo);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
  static final class Backdrop extends Drawable{
@@ -36,19 +37,19 @@ final class PremiumVisuals {
    p.setShader(new LinearGradient(0,0,w,h,new int[]{0xff061021,0xff071b40,0xff040c20},new float[]{0,.52f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
    p.setShader(new RadialGradient(w*.53f,h*.38f,Math.max(w,h)*.51f,new int[]{0x8c155ed6,0x35133f99,0x00133f99},new float[]{0,.52f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
    p.setShader(new LinearGradient(0,0,w,0,new int[]{0x000c61ce,0x603168ca,0x000c61ce},null,Shader.TileMode.CLAMP));Path ribbon=new Path();ribbon.moveTo(0,h*.53f);ribbon.cubicTo(w*.38f,h*.22f,w*.65f,h*.66f,w,h*.18f);ribbon.lineTo(w,h*.25f);ribbon.cubicTo(w*.62f,h*.73f,w*.32f,h*.31f,0,h*.58f);ribbon.close();c.drawPath(ribbon,p);
-   p.setShader(null);if(withHero&&hero!=null){float bw=w*.98f,bh=bw*hero.getHeight()/hero.getWidth();float max=h*.75f;if(bh>max){bw*=max/bh;bh=max;}c.drawBitmap(hero,null,new RectF((w-bw)/2,0,(w+bw)/2,bh),bitmapPaint);}
+   p.setShader(null);if(withHero&&hero!=null){float bw=w*.98f,bh=bw*hero.getHeight()/hero.getWidth();float max=h*.69f;if(bh>max){bw*=max/bh;bh=max;}c.drawBitmap(hero,null,new RectF((w-bw)/2,0,(w+bw)/2,bh),bitmapPaint);}
    p.setShader(new LinearGradient(0,h*.76f,0,h,new int[]{0x00030b1d,0xcb06142e,0xff030a18},new float[]{0,.53f,1},Shader.TileMode.CLAMP));c.drawRect(0,h*.76f,w,h,p);p.setShader(null);c.restoreToCount(save);
   }
   @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.OPAQUE;}
  }
  static Path shape(float l,float t,float r,float b,float corner){Path p=new Path();p.moveTo(l+corner,t);p.lineTo(r-corner,t);p.lineTo(r,t+corner);p.lineTo(r,b-corner);p.lineTo(r-corner,b);p.lineTo(l+corner,b);p.lineTo(l,b-corner);p.lineTo(l,t+corner);p.close();return p;}
  static void glass(Canvas c,Paint p,float l,float t,float r,float b,boolean focus,float phase,boolean large){
-  float h=b-t,w=r-l;if(w<5||h<5)return;float s=Math.max(1,Math.min(w,h)*(large?.018f:.025f)),bevel=large?s*1.6f:0;
+  float h=b-t,w=r-l;if(w<5||h<5)return;float s=Math.max(1,Math.min(w,h)*(large?.018f:.025f)),bevel=0;
   Path outline=shape(l+s,t+s,r-s,b-s,bevel);
-  p.setStyle(Paint.Style.FILL);p.setShader(new LinearGradient(l,t,r,b,new int[]{0x9c3b69b6,0x5a10254b,0x8210203a,0xb108142e},new float[]{0,.28f,.62f,1},Shader.TileMode.CLAMP));c.drawPath(outline,p);
+  p.setStyle(Paint.Style.FILL);p.setShader(new LinearGradient(l,t,r,b,new int[]{0x703b69b6,0x4810254b,0x7210203a,0x90101832},new float[]{0,.28f,.62f,1},Shader.TileMode.CLAMP));c.drawPath(outline,p);
   p.setShader(null);int saved=c.save();c.clipPath(outline);
-  p.setShader(new LinearGradient(0,t,0,t+h*.39f,new int[]{0x70a9d5ff,0x1d68a9ff,0x0068a9ff},null,Shader.TileMode.CLAMP));c.drawRect(l,t,r,t+h*.39f,p);
-  Path gloss=new Path();gloss.moveTo(l,t);gloss.lineTo(r,t);gloss.lineTo(r,t+h*.10f);gloss.lineTo(l,t+h*.53f);gloss.close();p.setShader(new LinearGradient(l,t,r,b,new int[]{0x38eff6ff,0x00ffffff},null,Shader.TileMode.CLAMP));c.drawPath(gloss,p);p.setShader(null);c.restoreToCount(saved);
+  p.setShader(new LinearGradient(0,t,0,t+h*.39f,new int[]{0x35a9d5ff,0x1268a9ff,0x0068a9ff},null,Shader.TileMode.CLAMP));c.drawRect(l,t,r,t+h*.39f,p);
+  Path gloss=new Path();gloss.moveTo(l,t);gloss.lineTo(r,t);gloss.lineTo(r,t+h*.10f);gloss.lineTo(l,t+h*.53f);gloss.close();p.setShader(new LinearGradient(l,t,r,b,new int[]{0x18eff6ff,0x00ffffff},null,Shader.TileMode.CLAMP));c.drawPath(gloss,p);p.setShader(null);c.restoreToCount(saved);
   p.setStyle(Paint.Style.STROKE);p.setStrokeJoin(Paint.Join.MITER);
   if(focus){for(int i=6;i>=1;i--){p.setColor(Color.argb((int)((11+phase*11)*(7-i)/2.5f),255,187,15));p.setStrokeWidth(s*(1+i*.65f));c.drawPath(outline,p);}}
   p.setStrokeWidth(s*1.15f);p.setShader(new LinearGradient(l,t,r,b,focus?new int[]{0xfffff9cc,0xffffbd21,0xff845008,0xffffed82,0xffffc32e}:new int[]{0xffd1e9ff,0xff3178c8,0xff213b68,0xff9cdbff,0xff225aa2},new float[]{0,.20f,.48f,.76f,1},Shader.TileMode.CLAMP));c.drawPath(outline,p);
@@ -97,12 +98,15 @@ final class PremiumVisuals {
   final Paint p=new Paint(3);final String title;final int icon;final boolean reflection;
   Tile(Context c,String title,int icon,boolean reflection){super(c);this.title=title;this.icon=icon;this.reflection=reflection;setContentDescription(title);setFocusable(true);setFocusableInTouchMode(true);setClickable(true);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);}
   @Override protected void onFocusChanged(boolean f,int dir,Rect prev){super.onFocusChanged(f,dir,prev);invalidate();}
-  @Override protected void onDraw(Canvas c){super.onDraw(c);float w=getWidth(),h=getHeight(),body=reflection?h*.86f:h;float margin=Math.max(3,Math.min(w,body)*.035f);boolean f=isFocused();boolean animate=android.os.Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled();float phase=animate?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1900*Math.PI*2/1900.0)):1;
+  @Override protected void onDraw(Canvas c){super.onDraw(c);float w=getWidth(),h=getHeight(),body=h;float margin=Math.max(3,Math.min(w,body)*.035f);boolean f=isFocused();boolean animate=android.os.Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled();float phase=animate?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1900*Math.PI*2/1900.0)):1;
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);
-   float iconSize=Math.min(w*.41f,body*.58f);float iy=body*.09f;icon(c,p,icon,f,(w-iconSize)/2,iy,iconSize);
-   p.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD));p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(body*.18f,w*.12f));while(p.measureText(title)>w*.82f)p.setTextSize(p.getTextSize()*.94f);
+   float iconSize=Math.min(w*.55f,body*.57f);float iy=body*.08f;
+   Bitmap art=reflection&&icon>=0&&icon<homeArt.length?homeArt[icon]:null;
+   if(art!=null){float aw=iconSize,ah=aw*art.getHeight()/art.getWidth();if(ah>iconSize){aw*=iconSize/ah;ah=iconSize;}c.drawBitmap(art,null,new RectF((w-aw)/2,iy+(iconSize-ah)/2,(w+aw)/2,iy+(iconSize+ah)/2),bitmapPaint);}
+   else icon(c,p,icon,f,(w-iconSize)/2,iy,iconSize);
+   p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(body*.17f,w*.115f));while(p.measureText(title)>w*.82f)p.setTextSize(p.getTextSize()*.94f);
    p.setShader(null);p.setColor(Color.WHITE);p.setShadowLayer(2,0,2,0xff000000);float baseline=body*.83f;c.drawText(title,w/2,baseline,p);p.clearShadowLayer();
-   if(reflection){int save=c.save();c.clipRect(0,body,w,h);p.setShader(new LinearGradient(0,body,0,h,new int[]{f?0x72ffcd42:0x454aa6ff,0x003b71b5},null,Shader.TileMode.CLAMP));c.drawRect(margin,body,w-margin,h,p);p.setShader(null);p.setColor(f?0x60ffd151:0x386c9bcc);p.setStrokeWidth(1.5f);c.drawLine(margin,body,w-margin,body,p);int flip=c.save();c.scale(1,-1,0,body);p.setColor(0x25c9e1ff);c.drawText(title,w/2,baseline,p);c.restoreToCount(flip);c.restoreToCount(save);}
+
    if(f&&animate&&isShown())postInvalidateDelayed(40);
   }
  }
