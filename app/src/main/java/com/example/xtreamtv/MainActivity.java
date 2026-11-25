@@ -44,6 +44,8 @@ public class MainActivity extends Activity {
  TextView status,epg;
  ExoPlayer player;
  PlayerView video;
+ TextView rangeButton;
+ Item playbackItem;
  FrameLayout liveSurfaceHost;
  View.OnLayoutChangeListener livePreviewLayout;
  int liveBodyFocusMode,liveBodyAccessibility;
@@ -78,7 +80,7 @@ public class MainActivity extends Activity {
  LinearLayout row(){return new LinearLayout(this);} LinearLayout col(){LinearLayout l=row();l.setOrientation(1);return l;}
  void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
- void release(){if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
+ void release(){removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
@@ -91,7 +93,7 @@ public class MainActivity extends Activity {
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);styleInput(e);body.addView(e);return e;}
  void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;guideCache.evictAll();JSONObject serverInfo=j.optJSONObject("server_info");String zone=serverInfo==null?"":serverInfo.optString("timezone","");prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).putString("epg_zone",zone).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
- void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.11  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
+ void settings(){page="Settings";screen("Settings");LinearLayout r=row();button(r,"Xtream Codes",()->login("Settings"));button(r,"Live format: "+liveExt,()->{liveExt=liveExt.equals("ts")?"m3u8":"ts";prefs.edit().putString("format",liveExt).apply();settings();});body.addView(r);LinearLayout r2=row();button(r2,"Software update",this::update);button(r2,"Install downloaded APK",this::install);body.addView(r2);status=text("5.0.12  ·  Media3 1.11.1  ·  "+(server.isEmpty()?"Not connected":"Playlist saved"),14);body.addView(status);LinearLayout r3=row();button(r3,"Playback & display",this::playbackSettings);button(r3,"TMDB artwork",this::tmdbSettings);button(r3,"Home",this::home);body.addView(r3);r.getChildAt(0).requestFocus();}
  void tmdbSettings(){page="Settings";screen("TMDB artwork");EditText key=field("TMDB v3 key (optional override)",prefs.getString("tmdb_override",""),129);status=text(tmdbKey().isEmpty()?"No TMDB key configured":"TMDB configured · high resolution posters",14);body.addView(status);LinearLayout r=row();button(r,"Save",()->{String v=key.getText().toString().trim();if(!v.isEmpty()&&!v.matches("[a-fA-F0-9]{32}")){msg("Invalid TMDB v3 key");return;}prefs.edit().putString("tmdb_override",v).apply();posterUrls.evictAll();posterCache.evictAll();tmdbSettings();});button(r,"Refresh artwork",()->{posterUrls.evictAll();posterCache.evictAll();msg("Artwork cache cleared");});button(r,"Back",this::settings);body.addView(r);}
  String tmdbKey(){String v=prefs.getString("tmdb_override","").trim();return v.isEmpty()?BuildConfig.TMDB_API_KEY:v;}
  void playbackSettings(){
@@ -341,7 +343,7 @@ public class MainActivity extends Activity {
    });
   }
   ExoPlayer p=new ExoPlayer.Builder(this,factory).build();
-  video=v;player=p;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(prefs.getInt("resize_mode",0));
+  video=v;player=p;playbackItem=i;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(prefs.getInt("resize_mode",0));
   p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
    .setPreferredTextLanguage(prefs.getString("text_lang",null))
@@ -438,11 +440,11 @@ public class MainActivity extends Activity {
    }
   }
   RecoveryListener listener=new RecoveryListener();p.addListener(listener);
-  p.setMediaItem(m.build());if(vod&&position>0)p.seekTo(position);p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();
+  p.setMediaItem(m.build());if(vod&&position>0)p.seekTo(position);p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();if(fullscreen)addRangeButton(host,i,v);
  }
  void attachNative(FrameLayout host,Item i,long position){
   release();host.removeAllViews();
-  VideoView n=new VideoView(this);nativeVideo=n;
+  VideoView n=new VideoView(this);nativeVideo=n;playbackItem=i;
   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);host.addView(n,lp);
   MediaController controls=new MediaController(this);nativeControls=controls;controls.setAnchorView(n);n.setMediaController(controls);
   final boolean[] rendered={false};
@@ -453,7 +455,56 @@ public class MainActivity extends Activity {
     else checks=0;ui.postDelayed(this,1000);}},1000);
   });
   n.setOnErrorListener((mp,what,extra)->{if(nativeVideo==n){android.util.Log.w("SharkPlayback","Android native error="+what+"/"+extra);msg("Playback failed on both players ("+what+"/"+extra+")");}return true;});
-  n.setVideoURI(Uri.parse(stream(i)));n.requestFocus();n.start();
+  n.setVideoURI(Uri.parse(stream(i)));n.requestFocus();n.start();addRangeButton(host,i,null);
+ }
+ void removeRangeButton(){
+  if(rangeButton!=null){ViewGroup group=(ViewGroup)rangeButton.getParent();if(group!=null)group.removeView(rangeButton);rangeButton=null;}
+  if(video!=null)video.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)null);
+ }
+ String rangeLabel(){String r=prefs.getString("dynamic_range","Auto");return r.equals("Prefer SDR")?"SDR":r.equals("Prefer HDR")?"HDR":"Auto";}
+ void addRangeButton(FrameLayout host,Item item,PlayerView playerView){
+  removeRangeButton();
+  TextView button=text("Picture  •  "+rangeLabel(),14);button.setTypeface(uiMedium);button.setGravity(Gravity.CENTER);button.setPadding(dp(14),0,dp(14),0);button.setBackground(focus());button.setFocusable(true);button.setClickable(true);
+  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,dp(40),Gravity.TOP|Gravity.RIGHT);lp.topMargin=dp(18);lp.rightMargin=dp(22);
+  host.addView(button,lp);rangeButton=button;
+  button.setOnClickListener(view->choosePlayerRange(item));
+  if(playerView!=null){
+   button.setVisibility(playerView.isControllerFullyVisible()?View.VISIBLE:View.GONE);
+   playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(rangeButton==button)button.setVisibility(visibility);});
+   button.setOnFocusChangeListener((v,focused)->{if(focused)playerView.showController();});
+   playerView.showController();
+  }
+ }
+ @Override public boolean dispatchKeyEvent(KeyEvent event){
+  if(full&&event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0&&rangeButton!=null&&playbackItem!=null){
+   if(event.getKeyCode()==KeyEvent.KEYCODE_MENU){choosePlayerRange(playbackItem);return true;}
+   if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&getCurrentFocus()!=rangeButton){
+    if(video!=null)video.showController();rangeButton.setVisibility(View.VISIBLE);rangeButton.requestFocus();return true;
+   }
+   if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&getCurrentFocus()==rangeButton&&video!=null){video.requestFocus();video.showController();return true;}
+  }return super.dispatchKeyEvent(event);
+ }
+ void choosePlayerRange(Item item){
+  String[] choices={"Auto (source)","SDR (tone mapping)","HDR (prefer HDR source)"};
+  String[] values={"Auto","Prefer SDR","Prefer HDR"};
+  int current=Arrays.asList(values).indexOf(prefs.getString("dynamic_range","Auto"));
+  new AlertDialog.Builder(this).setTitle("Video dynamic range").setSingleChoiceItems(choices,current,(dialog,n)->{
+   dialog.dismiss();String range=values[n];if(range.equals(prefs.getString("dynamic_range","Auto")))return;
+   prefs.edit().putString("dynamic_range",range).apply();
+   if(!full||playbackItem!=item)return;
+   if(liveSurfaceHost!=null&&page.equals("Live TV")){
+    if(!exitLiveFullscreen())return;
+    attach(preview,item,false);if(player!=null&&liveSurfaceHost!=null)enterLiveFullscreen();
+   }else{
+    long pos=player!=null?Math.max(0,player.getCurrentPosition()):nativeVideo!=null?Math.max(0,nativeVideo.getCurrentPosition()):0;
+    View content=findViewById(android.R.id.content);
+    if(content instanceof FrameLayout&&((FrameLayout)content).getChildCount()>0&&((FrameLayout)content).getChildAt(0) instanceof FrameLayout){
+     FrameLayout host=(FrameLayout)((FrameLayout)content).getChildAt(0);
+     boolean cached=!page.equals("Live TV")&&rememberedDecoder(item);
+     attachExo(host,item,true,cached?1:0,pos,cached);
+    }
+   }
+  }).setNegativeButton("Cancel",null).show();
  }
  void playFull(Item i){
   if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
@@ -476,12 +527,12 @@ public class MainActivity extends Activity {
   liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
   video.setFocusable(true);video.setUseController(true);video.setControllerAutoShow(true);
-  player.setVolume(1f);if(!player.getPlayWhenReady())player.play();video.requestFocus();
+  player.setVolume(1f);if(!player.getPlayWhenReady())player.play();video.requestFocus();if(playbackItem!=null)addRangeButton(liveSurfaceHost,playbackItem,video);
   android.util.Log.i("SharkPlayback","Live fullscreen: same player and surface resized");return true;
  }
  boolean exitLiveFullscreen(){
   if(liveSurfaceHost==null||player==null||video==null||preview==null)return false;
-  video.hideController();video.setUseController(false);video.setFocusable(false);
+  removeRangeButton();video.hideController();video.setUseController(false);video.setFocusable(false);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
   player.setVolume(0f);full=false;status=liveReturnStatus;liveReturnStatus=null;
   positionLiveSurface();if(selected!=null&&epg!=null)loadEpg(selected);
