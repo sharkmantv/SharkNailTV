@@ -12,7 +12,7 @@ def tile_nodes(root):
     matches={}
     for label in labels:
         nodes=[n for n in root.iter("node") if n.get("content-desc")==label and n.get("focusable")=="true"]
-        assert len(nodes)>=2, "Missing side rail or tile: "+label
+        assert len(nodes)==1, "Expected one tile and no side rail: "+label
         matches[label]=max(nodes,key=lambda n:(rect(n)[2]-rect(n)[0])*(rect(n)[3]-rect(n)[1]))
     return matches
 deadline=time.monotonic()+90
@@ -50,4 +50,4 @@ assert tile_nodes(right)["Movies"].get("focused")=="true","Right remote navigati
 adb("shell","input","keyevent","21")
 time.sleep(.5)
 assert tile_nodes(dump())["Live TV"].get("focused")=="true","Left remote navigation failed"
-print("PASS: four metallic tiles, distinct rail, no posters/guide, DPAD and layout",r)
+print("PASS: four metallic tiles, no posters/guide, DPAD and layout",r)

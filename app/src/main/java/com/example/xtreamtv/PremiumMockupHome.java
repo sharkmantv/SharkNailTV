@@ -35,6 +35,8 @@ final class PremiumMockupHome {
   view.setOnClickListener(v->a.navigateHome(dest));
  }
  static void show(MainActivity a){
+  int chosen=a.getResources().getIdentifier("premium_design2","drawable",a.getPackageName());
+  if(chosen!=0){showDesign2(a,chosen);return;}
   if(atlas==null){BitmapFactory.Options opts=new BitmapFactory.Options();opts.inScaled=false;atlas=BitmapFactory.decodeResource(a.getResources(),R.drawable.premium_mockup3,opts);}
   if(atlas==null||atlas.getWidth()!=1400||atlas.getHeight()!=1000)throw new IllegalStateException("Design 3 artwork atlas missing or incorrect");
   a.body.removeAllViews();a.body.setPadding(0,0,0,0);
@@ -71,6 +73,22 @@ final class PremiumMockupHome {
   tiles[0].requestFocus();
   root.post(()->{if(root.isAttachedToWindow()&&!root.hasFocus())tiles[0].requestFocus();});
  }
+ /** Approved design 2: four square-corner destinations, no duplicate side rail. */
+ private static Bitmap design2;
+ private static void showDesign2(MainActivity a,int res){
+  if(design2==null){BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;design2=BitmapFactory.decodeResource(a.getResources(),res,o);}
+  if(design2==null||design2.getWidth()!=1648||design2.getHeight()!=820)throw new IllegalStateException("Design 2 artwork incorrect");
+  a.body.removeAllViews();a.body.setPadding(0,0,0,0);DesignLayout root=new DesignLayout(a);a.body.addView(root,new LinearLayout.LayoutParams(-1,-1));root.setBackgroundColor(0xff050b19);
+  ImageView hero=image(a,Bitmap.createBitmap(design2,0,0,1648,560));hero.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);hero.setContentDescription("SHARK SKY");root.place(hero,0,0,1648,560);
+  TextClock clock=new TextClock(a);clock.setFormat12Hour("h:mm a");clock.setFormat24Hour("HH:mm");clock.setTextColor(Color.WHITE);clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);clock.setTextSize(22);root.place(clock,1260,15,310,54);
+  TextView version=a.text("PREMIUM  •  "+BuildConfig.VERSION_NAME,12);version.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);root.place(version,1250,75,320,36);
+  String[] dests={"Live TV","Movies","Series","Settings"};View[] tiles=new View[4];
+  for(int i=0;i<4;i++){String dest=dests[i];FrameLayout tile=new FrameLayout(a);tile.setId(View.generateViewId());tile.setContentDescription(dest);tile.setFocusable(true);tile.setFocusableInTouchMode(true);tile.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);tile.setClickable(true);Bitmap art=Bitmap.createBitmap(design2,i*400,590,330,220);
+   GradientDrawable border=new GradientDrawable();border.setColor(0xff071226);border.setStroke(a.dp(1),0xff6b9bcd);tile.setBackground(border);tile.setPadding(a.dp(2),a.dp(2),a.dp(2),a.dp(2));tile.addView(image(a,art),new FrameLayout.LayoutParams(-1,-1));a.premiumHomeFocus(tile);bindNavigation(tile,a,dest);root.place(new FloorReflection(a,art),92+i*369,821,350,91);root.place(tile,92+i*369,563,350,254);tiles[i]=tile;
+  }
+  for(int i=0;i<4;i++){tiles[i].setNextFocusLeftId(tiles[Math.max(0,i-1)].getId());tiles[i].setNextFocusRightId(tiles[Math.min(3,i+1)].getId());tiles[i].setNextFocusUpId(tiles[i].getId());tiles[i].setNextFocusDownId(tiles[i].getId());}
+  root.tiles=tiles;root.rail=new View[0];tiles[0].requestFocus();root.post(()->{if(root.isAttachedToWindow()&&!root.hasFocus())tiles[0].requestFocus();});
+ }
  /** Reflect only the real tile pixels, with a soft opacity fade. No layout animation. */
  private static final class FloorReflection extends View{
   final Bitmap source;final Paint pixels=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
@@ -87,9 +105,9 @@ final class PremiumMockupHome {
    if(event.getAction()==KeyEvent.ACTION_UP)return true;if(event.getAction()!=KeyEvent.ACTION_DOWN)return super.dispatchKeyEvent(event);
    View focused=findFocus(),target=null;
    for(int i=0;i<tiles.length;i++)if(focused==tiles[i]){
-    if(key==KeyEvent.KEYCODE_DPAD_LEFT)target=i>0?tiles[i-1]:rail[1];
+    if(key==KeyEvent.KEYCODE_DPAD_LEFT)target=i>0?tiles[i-1]:(rail.length==0?tiles[0]:rail[1]);
     else if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=tiles[Math.min(i+1,tiles.length-1)];
-    else if(key==KeyEvent.KEYCODE_DPAD_UP)target=rail[i+1];else target=tiles[i];break;
+    else if(key==KeyEvent.KEYCODE_DPAD_UP)target=rail.length==0?tiles[i]:rail[i+1];else target=tiles[i];break;
    }
    for(int i=0;i<rail.length;i++)if(focused==rail[i]){
     if(key==KeyEvent.KEYCODE_DPAD_RIGHT)target=tiles[Math.max(0,i-1)];

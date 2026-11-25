@@ -45,7 +45,7 @@ cp "$WORK/media/LICENSE" "$ROOT/app/src/main/assets/licenses/Media3-Apache-2.0.t
 cat > "$ROOT/app/src/main/assets/licenses/FFmpeg-NOTICE.txt" <<'EOF'
 This app includes FFmpeg 6.0 source revision 3f92512fd1fd6f5e6d6eb45a156c352835314d69
 under LGPL 2.1 or later and AndroidX Media3 FFmpeg JNI under Apache 2.0.
-Corresponding source and build recipe: https://github.com/sharkmantv/SharkNailTV/releases/tag/v5.0.27
+Corresponding source and build recipe: https://github.com/sharkmantv/SharkNailTV/releases/tag/v5.0.28
 Asset: ffmpeg-source.tar.gz. Audio decoders only: ac3 eac3 dca mlp truehd.
 You may modify and rebuild the LGPL library and JNI wrapper, replace libffmpegJNI.so
 for your ABI in the APK, then align and sign with your own key for personal installation.
