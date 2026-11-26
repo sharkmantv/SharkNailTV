@@ -41,6 +41,37 @@ if args.enhanced_dir:
     assert sum(ImageStat.Stat(thumb).mean)/3<=5,"Enhanced artwork changes low-frequency layout/colours"
     print("PASS: verified enhanced PNG and approved-layout preservation; mean pixel delta",mae)
     im=enhanced
+# Localised top-sky restoration and second-shark fin repair.
+from PIL import ImageFilter
+before_repair=im.copy()
+w,h=im.size
+Xr=lambda x:round(x*w/1648)
+Yr=lambda y:round(y*h/928)
+patch=im.copy()
+px=patch.load()
+for y in range(Yr(0),Yr(180)):
+    yy=y*928/h
+    t=max(0,min(1,(yy-63)/91))
+    rgb=tuple(round(a+(b-a)*t) for a,b in zip((4,17,62),(8,27,113)))
+    for x in range(Xr(375),Xr(1300)):
+        px[x,y]=(*rgb,255)
+mask=Image.new("L",im.size)
+ImageDraw.Draw(mask).polygon([(Xr(x),Yr(y)) for x,y in [(423,-20),(1238,-20),(1238,112),(1175,135),(1110,131),(1070,123),(1010,140),(700,141),(664,133),(630,120),(570,121),(540,138),(440,126)]],fill=255)
+im=Image.composite(patch,im,mask.filter(ImageFilter.GaussianBlur(Xr(7))))
+dest=(Xr(568),Yr(107),Xr(663),Yr(183))
+with Image.open(Path(__file__).parent/"artwork/second_fin_repair.jpg") as donor:
+    assert donor.size==(95,76),donor.size
+    tile=donor.resize((dest[2]-dest[0],dest[3]-dest[1]),Image.Resampling.LANCZOS).convert("RGBA")
+m=Image.new("L",tile.size)
+ImageDraw.Draw(m).polygon([(Xr(x-568),Yr(y-107)) for x,y in [(572,111),(590,109),(616,114),(646,132),(660,151),(650,160),(607,177),(583,178),(581,152),(570,126)]],fill=255)
+im.paste(tile,dest[:2],m.filter(ImageFilter.GaussianBlur(Xr(2))))
+assert im.size==(3840,2160)
+assert im.crop((0,Yr(183),w,h)).tobytes()==before_repair.crop((0,Yr(183),w,h)).tobytes(),"Repair altered character or tile artwork below fin"
+assert im.crop(dest).tobytes()!=before_repair.crop(dest).tobytes(),"Fin repair not applied"
+sky=im.crop((Xr(760),Yr(115),Xr(1060),Yr(125))).convert("RGB")
+assert all(r<35 and g<65 for r,g,b in sky.getdata()),"Old lettering remains in cleaned sky"
+del before_repair,patch,mask,m,tile,sky
+print("PASS: repaired second fin and cleaned old logo remnants; unchanged lower UHD artwork")
 lg=Image.open(logo)
 assert lg.mode=="RGBA" and lg.getchannel("A").getextrema()==(0,255)
 # Remove stray blue horizontal artefact above the lettering, outside the fin.
