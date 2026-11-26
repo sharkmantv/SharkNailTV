@@ -106,6 +106,9 @@ final class PremiumVisuals {
    case 14:
     q.moveTo(14,15);q.lineTo(62,15);q.lineTo(62,26);q.lineTo(26,26);q.lineTo(26,74);q.lineTo(62,74);q.lineTo(62,85);q.lineTo(14,85);q.close();metal(c,p,q,focus);
     q=new Path();q.moveTo(89,50);q.lineTo(66,27);q.lineTo(58,35);q.lineTo(67,44);q.lineTo(39,44);q.lineTo(39,56);q.lineTo(67,56);q.lineTo(58,65);q.lineTo(66,73);q.close();metal(c,p,q,focus);break;
+   case 15:
+    for(int k=0;k<3;k++){q=new Path();float rr=16+k*15;q.arcTo(50-rr,67-rr,50+rr,67+rr,220,100,true);q.arcTo(50-rr+5,67-rr+5,50+rr-5,67+rr-5,320,-100,false);q.close();metal(c,p,q,focus);}
+    q=new Path();q.addCircle(50,68,7,Path.Direction.CW);metal(c,p,q,focus);break;
   }c.restoreToCount(n);
  }
  static void skyTile(Canvas c,Paint p,float w,float h,boolean f,float phase,int icon){

@@ -231,13 +231,14 @@ try:
     adb("shell","input","keyevent","23")
     expect("Playback")
     root=ui()
-    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner","Back","Home","Exit")
+    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner","Connection Test","Back","Home","Exit")
     tiles=[bounds(find(root,label)) for label in labels]
     first,second,third=tiles[:4],tiles[4:8],tiles[8:]
     assert all(abs(r[1]-first[0][1])<=2 and abs(r[3]-first[0][3])<=2 for r in first),tiles
     assert all(abs(r[1]-second[0][1])<=2 and abs(r[3]-second[0][3])<=2 for r in second),tiles
     assert all(abs(a[0]-b[0])<=2 and abs(a[2]-b[2])<=2 for a,b in zip(first,second)),tiles
     assert all(abs(r[1]-third[0][1])<=2 and abs(r[3]-third[0][3])<=2 for r in third),tiles
+    assert all(abs(a[0]-b[0])<=2 and abs(a[2]-b[2])<=2 for a,b in zip(first,third)),tiles
     widths=[r[2]-r[0] for r in tiles]
     heights=[r[3]-r[1] for r in tiles]
     assert max(widths)-min(widths)<=2 and max(heights)-min(heights)<=2,tiles
@@ -275,6 +276,10 @@ try:
             assert sum(spectrum(rgb,kind) for rgb in strip)>=minimum,("Settings spectrum rim missing",kind,frac)
     print("PASS: shared Sky spectrum focus on Settings",flush=True)
     print("PASS: Settings opens by touch and DPAD OK")
+    tap(expect("Connection Test"))
+    expect("Connection Test")
+    tap(expect("CLOSE" if args.saved_login else "OK"))
+    expect("Playback")
     nav=[expect(label) for label in ("Back","Home","Exit")]
     assert all(n.get("clickable")=="true" and n.get("focusable")=="true" for n in nav),"Settings navigation not actionable"
     assert all(bounds(n)[1]>=second[0][3] for n in nav),"Settings navigation overlaps tiles"

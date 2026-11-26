@@ -234,17 +234,46 @@ public class MainActivity extends Activity {
   LinearLayout r3=row();
   LinearLayout.LayoutParams thirdRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));
   thirdRow.topMargin=dp(rowGap);area.addView(r3,thirdRow);
-  // Half a column at each side centres three tiles in the four-column grid.
-  View leading=new View(this);leading.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-  LinearLayout.LayoutParams lead=new LinearLayout.LayoutParams(0,-1,.5f);
-  lead.width=dp(5);r3.addView(leading,lead);
+  settingsTile(r3,"Connection Test",15,this::connectionTest);
   settingsTile(r3,"Back",12,this::onBackPressed);
   settingsTile(r3,"Home",13,this::home);
   settingsTile(r3,"Exit",14,this::confirmExit);
-  View trailing=new View(this);trailing.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-  LinearLayout.LayoutParams tail=new LinearLayout.LayoutParams(dp(5),-1,.5f);
-  r3.addView(trailing,tail);
   r.getChildAt(0).requestFocus();
+ }
+ void connectionTest(){
+  if(server.isEmpty()||user.isEmpty()||pass.isEmpty()){
+   new AlertDialog.Builder(this).setTitle("Connection Test").setMessage("Add your IPTV login in Xtream Codes first.").setPositiveButton("OK",null).show();return;
+  }
+  final String endpoint=api("","");
+  final AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Connection Test")
+   .setMessage("Checking your saved provider…").setPositiveButton("Close",null).create();
+  dialog.show();
+  io.execute(()->{
+   String result;long start=android.os.SystemClock.elapsedRealtime();
+   HttpURLConnection c=null;
+   try{
+    c=(HttpURLConnection)new URL(endpoint).openConnection();
+    c.setInstanceFollowRedirects(false);c.setConnectTimeout(7000);c.setReadTimeout(7000);
+    c.setRequestProperty("User-Agent","SharkSky/5.0");int code=c.getResponseCode();
+    long ms=android.os.SystemClock.elapsedRealtime()-start;
+    if(code!=200){result="Server responded: HTTP "+code+"\nResponse time: "+ms+" ms\nLogin could not be verified.";}
+    else{
+     try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+      byte[] buf=new byte[4096];int n;
+      while((n=in.read(buf))!=-1){if(out.size()+n>65536||android.os.SystemClock.elapsedRealtime()-start>12000)throw new IOException("Diagnostic limit");out.write(buf,0,n);}
+      JSONObject info=new JSONObject(out.toString("UTF-8")).optJSONObject("user_info");
+      boolean accepted=info!=null&&info.optInt("auth",0)==1;
+      result="Server reachable\nResponse time: "+ms+" ms\nLogin: "+(accepted?"Accepted":"Not accepted or unrecognised response");
+      if(accepted){String state=info.optString("status","");if(state.matches("[A-Za-z ]{1,30}"))result+="\nAccount: "+state;}
+     }
+    }
+   }catch(java.net.UnknownHostException e){result="Server address could not be resolved. Check your connection and provider URL.";}
+   catch(java.net.SocketTimeoutException e){result="Provider timed out. Check your network or try again.";}
+   catch(Exception e){result="Unable to verify the provider response. Check your network and provider settings.";}
+   finally{if(c!=null)c.disconnect();}
+   final String message=result+"\n\nThis checks the provider API, not streaming bandwidth.";
+   ui.post(()->{if(!isFinishing()&&!isDestroyed()&&dialog.isShowing())dialog.setMessage(message);});
+  });
  }
  void confirmExit(){
   new AlertDialog.Builder(this).setTitle("Exit Sky Shark?").setMessage("Close the app? Your login, favourites and settings will stay saved.")
