@@ -1,4 +1,4 @@
-"""Verify rendered artwork, full gold/red border, and remote focus across all four cards."""
+"""Verify rendered artwork, single blended flame border, and remote focus across all four cards."""
 import subprocess,time
 from PIL import Image
 def adb(*args):
@@ -27,8 +27,29 @@ def check(im,selected):
         counts=[color_count(im,box,gold,vertical) for box,vertical in edges]
         if i==selected:
             assert min(counts)>3,(i,counts,"incomplete thick gold border")
-            reds=color_count(im,(l+65,b-18,r-65,b-8),red)
-            assert reds>1.3,(i,reds,"red inner glow missing")
+            # A single continuous band: look across the same bottom rim.
+            # Gold centre must touch orange transition and red shoulder on both sides.
+            # Reject the old two-rim design, even if both colours are present.
+            middle=(l+r)/2
+            def profile(x):
+                px=round(x*w/1648)
+                lo=round((b-15)*h/928)
+                hi=round((b+15)*h/928)
+                return [(y,im.getpixel((px,y))) for y in range(lo,hi+1)]
+            orange=lambda R,G,B:R>210 and 70<=G<=175 and B<100
+            successes=0
+            for fraction in (.32,.40,.50,.60,.68):
+                seq=profile(l+(r-l)*fraction)
+                gidx=[n for n,(_,rgb) in enumerate(seq) if gold(*rgb)]
+                if not gidx: continue
+                first,last=min(gidx),max(gidx)
+                left=[rgb for _,rgb in seq[:first]]
+                right=[rgb for _,rgb in seq[last+1:]]
+                if (any(red(*rgb) for rgb in left) and any(red(*rgb) for rgb in right)
+                    and any(orange(*rgb) for rgb in left) and any(orange(*rgb) for rgb in right)
+                    and all(gold(*rgb) or orange(*rgb) for _,rgb in seq[first:last+1])):
+                    successes+=1
+            assert successes>=3,(i,successes,"expected one blended red/orange/gold rim")
         else:
             assert counts[1]<2.0,(i,counts,"gold leaked to unfocused card")
 def shot(name):
@@ -41,4 +62,4 @@ for i in range(1,4):
 for i in range(3):
     adb("shell","input","keyevent","21");time.sleep(.15)
 check(shot("premium-focus-return.png"),0)
-print("PASS: all four artwork panels, header, full gold/red border and independent remote focus")
+print("PASS: all four artwork panels, header, single blended flame border and independent remote focus")

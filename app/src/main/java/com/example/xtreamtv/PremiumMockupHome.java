@@ -65,9 +65,9 @@ final class PremiumMockupHome {
  }
  static final class HoldingTile extends View{
   final int index;final Paint art=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG),glow=new Paint(Paint.ANTI_ALIAS_FLAG);
-  final RectF rim,inner;
+  final RectF rim;
   HoldingTile(MainActivity a,int i,String title){super(a);index=i;int[] box=AREAS[i],r=RIMS[i];
-   rim=new RectF(r[0]-box[0],r[1]-box[1],r[2]-box[0],r[3]-box[1]);inner=new RectF(rim);inner.inset(13,13);
+   rim=new RectF(r[0]-box[0],r[1]-box[1],r[2]-box[0],r[3]-box[1]);
    setContentDescription(title);setFocusable(true);setFocusableInTouchMode(true);setClickable(true);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
   }
   @Override protected void onFocusChanged(boolean f,int direction,Rect previous){super.onFocusChanged(f,direction,previous);invalidate();}
@@ -77,13 +77,27 @@ final class PremiumMockupHome {
    if(isFocused()){
     boolean animate=animations();
     float phase=animate?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1600*Math.PI*2/1600.0)):1;
-    // A continuous curved frame, no rectangular clipping around the hands.
+    // One continuous flame-coloured rim. All strokes share the same centreline:
+    // soft red halo -> red/orange transition -> amber/gold -> bright yellow core.
     glow.setStyle(Paint.Style.STROKE);glow.setStrokeJoin(Paint.Join.ROUND);
-    for(int layer=5;layer>=1;layer--){glow.setStrokeWidth(12+layer*(3+phase*2));glow.setColor(Color.argb((int)((8+phase*9)*(6-layer)),255,156,0));c.drawRoundRect(rim,35,35,glow);}
-    glow.setStrokeWidth(11+phase*5);glow.setColor(Color.rgb(255,197+Math.round(47*phase),0));c.drawRoundRect(rim,35,35,glow);
-    glow.setStrokeWidth(3+phase*2);glow.setColor(0xfffff5a0);c.drawRoundRect(rim,35,35,glow);
-    glow.setStrokeWidth(9+phase*4);glow.setColor(Color.argb(175+Math.round(70*phase),255,31+Math.round(47*phase),12));c.drawRoundRect(inner,25,25,glow);
-    glow.setStrokeWidth(3);glow.setColor(0xffff8240);c.drawRoundRect(inner,25,25,glow);
+    for(int layer=6;layer>=1;layer--){
+     glow.setStrokeWidth(24+phase*4+layer*3);
+     glow.setColor(Color.argb((int)((7+phase*6)*(7-layer)),255,25+layer*4,8));
+     c.drawRoundRect(rim,35,35,glow);
+    }
+    // Closely spaced, concentric strokes create a smooth colour transition,
+    // without a second inner rim or a gap between yellow and red.
+    for(int step=0;step<=24;step++){
+     float mix=step/24f;
+     float width=(25+phase*5)*(1-mix)+3*mix;
+     int green=Math.round(28+212*mix+phase*10*mix);
+     int blue=Math.round(7+25*mix);
+     glow.setStrokeWidth(width);
+     glow.setColor(Color.rgb(255,Math.min(255,green),blue));
+     c.drawRoundRect(rim,35,35,glow);
+    }
+    glow.setStrokeWidth(2+phase);glow.setColor(0xfffff4a0);
+    c.drawRoundRect(rim,35,35,glow);
     if(animate&&isShown())postInvalidateDelayed(40);
    }
    c.restoreToCount(saved);
