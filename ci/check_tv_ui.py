@@ -208,17 +208,26 @@ def check_player():
     before_info=player_events().count("Info dialog shown")
     adb("shell","input","dpad","keyevent","23")
     wait_player_event("Info dialog shown",after=before_info,timeout=15)
-    expect("Close")
+    try:
+        close=expect("Close")
+    except AssertionError:
+        capture("player-info-failure")
+        print("INFO FAILURE HIERARCHY:",ET.tostring(ui(),encoding="unicode"),flush=True)
+        print("INFO FAILURE EVENTS:",player_events()[-12000:],flush=True)
+        raise
+    assert close.get("focused")=="true","Close must receive TV focus"
     info=ui()
     combined=" ".join(n.get("text","") for n in info.iter("node"))
     for label in ("Engine:","Stream FPS:","Display:","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:"):
         assert label in combined,("Missing diagnostics",label)
     capture("player-info")
+    assert bounds(close)[1]>=sh*.12 and bounds(close)[3]<=sh*.78,("Close outside panel",bounds(close))
     close=expect("Close")
     assert close.get("clickable")=="true","Close is not actionable"
     before_close=player_events().count("Info dismissed")
     adb("shell","input","keyevent","4")
     wait_player_event("Info dismissed",after=before_close,timeout=15)
+    assert expect("Info").get("focused")=="true","Info focus not restored"
     # Also exercise accessibility click/physical touch after the remote path.
     node=expect("Info")
     before_info=player_events().count("Info dialog shown")

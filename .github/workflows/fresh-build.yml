@@ -345,6 +345,7 @@ jobs:
             premium-movies-*.png
             premium-series-*.png
             premium-player-*.png
+            design4-artwork-verification.json
             failed-ui*.xml
             failed-ui*.png
           if-no-files-found: ignore
