@@ -275,8 +275,19 @@ try:
         assert min(spans)>=minimum,("Settings focus rim too thin",spans,minimum)
     print("PASS: thick continuous Settings pulse",flush=True)
     print("PASS: Settings opens by touch and DPAD OK")
-    adb("shell","input","keyevent","4")
+    nav=[expect(label) for label in ("Back","Home","Exit")]
+    assert all(n.get("clickable")=="true" and n.get("focusable")=="true" for n in nav),"Settings navigation not actionable"
+    assert all(bounds(n)[1]>=second[0][3] for n in nav),"Settings navigation overlaps tiles"
+    tap(expect("Exit"))
+    expect("Exit Sky Shark?")
+    tap(expect("CANCEL"))
+    expect("Playback")
+    tap(expect("Back"))
     expect("SHARK SKY")
+    tap(expect("Settings"))
+    tap(expect("Home"))
+    expect("SHARK SKY")
+    print("PASS: Settings Back/Home navigation and safe Exit confirmation")
     tap(expect("Movies"))
     if not args.saved_login:
         expect("Xtream Codes")

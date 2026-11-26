@@ -226,7 +226,19 @@ public class MainActivity extends Activity {
   LinearLayout r=row();area.addView(r,new LinearLayout.LayoutParams(-1,dp(tileHeight)));
   settingsTile(r,"Xtream Codes",4,()->login("Settings"));settingsTile(r,"Playback",5,this::playbackSettings);settingsTile(r,"Display",6,this::displayDialog);settingsTile(r,"Audio",7,()->languageDialog("audio_lang","Preferred audio language"));
   LinearLayout r2=row();LinearLayout.LayoutParams secondRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));secondRow.topMargin=dp(rowGap);area.addView(r2,secondRow);
-  settingsTile(r2,"Subtitles",8,()->languageDialog("text_lang","Preferred subtitle language"));settingsTile(r2,"Updates",9,this::update);settingsTile(r2,"About",10,()->new AlertDialog.Builder(this).setTitle("Shark Sky Premium").setMessage("Version "+BuildConfig.VERSION_NAME+" · Media3 1.12.0-beta01").setPositiveButton("OK",null).show());settingsTile(r2,"Cleaner",11,this::maintenance);r.getChildAt(0).requestFocus();
+  settingsTile(r2,"Subtitles",8,()->languageDialog("text_lang","Preferred subtitle language"));settingsTile(r2,"Updates",9,this::update);settingsTile(r2,"About",10,()->new AlertDialog.Builder(this).setTitle("Shark Sky Premium").setMessage("Version "+BuildConfig.VERSION_NAME+" · Media3 1.12.0-beta01").setPositiveButton("OK",null).show());settingsTile(r2,"Cleaner",11,this::maintenance);
+  LinearLayout nav=row();nav.setGravity(Gravity.CENTER);
+  LinearLayout.LayoutParams navLp=new LinearLayout.LayoutParams(-1,dp(52));
+  navLp.setMargins(dp(edge),0,dp(edge),dp(4));body.addView(nav,navLp);
+  LinearLayout controls=row();nav.addView(controls,new LinearLayout.LayoutParams(dp(Math.min(wide?450:310,Math.max(180,getResources().getConfiguration().screenWidthDp-2*edge-32))),dp(52)));
+  button(controls,"Back",this::onBackPressed);
+  button(controls,"Home",this::home);
+  button(controls,"Exit",this::confirmExit);
+  r.getChildAt(0).requestFocus();
+ }
+ void confirmExit(){
+  new AlertDialog.Builder(this).setTitle("Exit Sky Shark?").setMessage("Close the app? Your login, favourites and settings will stay saved.")
+   .setNegativeButton("Cancel",null).setPositiveButton("Exit",(dialog,which)->{release();finishAffinity();}).show();
  }
  // Equivalent in scope to Android Clear cache, not Clear data.
  boolean maintenanceBusy=false;
