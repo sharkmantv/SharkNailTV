@@ -47,6 +47,27 @@ areas=[(20,477,438,390),(459,477,385,390),(845,477,389,390),(1235,477,397,390)]
 rims=[(43,493,453,849),(463,497,840,845),(852,497,1230,845),(1242,497,1620,845)]
 def X(x):return round(x*3840/1648)
 def Y(y):return round(y*2160/928)
+# Neutralise only the previously baked warm glow at the first tile perimeter
+# and its floor reflection. Preserve the interior lettering, logo and hands.
+px=im.load()
+for y in range(Y(488),Y(928)):
+    yy=y*928/2160
+    for x in range(X(20),X(458)):
+        xx=x*1648/3840
+        side=max(0,min(1,(84-xx)/16,(yy-485)/16),min(1,(xx-416)/16,(yy-485)/16))
+        bottom=max(0,min(1,(yy-819)/18))
+        if yy>850:
+            bottom*=max(0,min(1,(xx-20)/20,(458-xx)/20))
+            side*=max(0,min(1,(867-yy)/17))
+        top=max(0,min(1,(yy-488)/8,(522-yy)/8)) if 224<xx<280 else 0
+        zone=max(side,bottom,top)
+        if zone<=0: continue
+        r,g,b,a=px[x,y]
+        strength=zone*min(1,max(0,(r-min(g,b)-4)/35))
+        if strength<=0: continue
+        cool=(min(r,round(g*.82+b*.18)),min(255,round(max(g,b*.91))),min(255,round(max(b,g*1.10))),a)
+        px[x,y]=tuple(round(v*(1-strength)+c*strength) for v,c in zip((r,g,b,a),cool))
+print("PASS: fixed source focus tint neutralised in the outer rim/reflection")
 back=im.copy()
 for i,((x,y,w,h),(l,t,r,b)) in enumerate(zip(areas,rims)):
     box=(X(x),Y(y),X(x+w),Y(y+h)); ww=box[2]-box[0];hh=box[3]-box[1]

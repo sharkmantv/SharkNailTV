@@ -22,7 +22,7 @@ final class PremiumMockupHome {
   int[] ids={R.drawable.design34_card_0,R.drawable.design34_card_1,R.drawable.design34_card_2,R.drawable.design34_card_3};
   for(int i=0;i<4;i++)cards[i]=BitmapFactory.decodeResource(a.getResources(),ids[i],o);
   if(backdrop==null||backdrop.getWidth()!=3840||backdrop.getHeight()!=2160)throw new IllegalStateException("Full UHD home artwork required");
-  for(int i=0;i<4;i++){int[] a=AREAS[i];int expectedW=Math.round((a[0]+a[2])*3840f/1648)-Math.round(a[0]*3840f/1648);int expectedH=Math.round((a[1]+a[3])*2160f/928)-Math.round(a[1]*2160f/928);if(cards[i]==null||cards[i].getWidth()!=expectedW||cards[i].getHeight()!=expectedH)throw new IllegalStateException("Full resolution card "+i+" required");}
+  for(int i=0;i<4;i++){int[] area=AREAS[i];int expectedW=Math.round((area[0]+area[2])*3840f/1648)-Math.round(area[0]*3840f/1648);int expectedH=Math.round((area[1]+area[3])*2160f/928)-Math.round(area[1]*2160f/928);if(cards[i]==null||cards[i].getWidth()!=expectedW||cards[i].getHeight()!=expectedH)throw new IllegalStateException("Full resolution card "+i+" required");}
   android.util.Log.i("SharkUHD","Full resolution 3840x2160 artwork and all four card layers decoded");
  }
  static void show(MainActivity a){
