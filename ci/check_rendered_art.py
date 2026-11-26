@@ -19,32 +19,23 @@ rims=[(58,510,439,831),(475,510,829,828),(867,511,1219,828),(1257,511,1601,828)]
 def chroma_count(im,box,pred,vertical=False):
     p=crop(im,*box)
     return sum(pred(r,g,b) for r,g,b in p.getdata())/max(1,p.height if vertical else p.width)
-def warm(rgb):
-    r,g,b=rgb
-    return r>=190 and r>b*1.5 and b<125
 def yellow(rgb):
     r,g,b=rgb
-    return r>210 and g>=165 and b<130
-def red(rgb):
-    r,g,b=rgb
-    return r>=195 and g<115 and b<90
-def orange(rgb):
-    r,g,b=rgb
-    return r>=205 and 80<=g<165 and b<100
-def flame_band(pixels,minimum):
-    runs=[]; run=[]
-    for p in pixels:
-        if warm(p): run.append(p)
-        elif run: runs.append(run);run=[]
-    if run:runs.append(run)
-    for band in runs:
-        if len(band)<minimum:continue
-        core=[i for i,p in enumerate(band) if yellow(p)]
-        if not core:continue
-        left=band[:core[0]];right=band[core[-1]+1:]
-        if all(yellow(p) for p in band[core[0]:core[-1]+1]) and all(any(test(p) for p in side) for side in (left,right) for test in (red,orange)):
-            return True
-    return False
+    return r>155 and g>=r*.72 and r>b+65 and g>b+45
+def soft_gold_band(pixels,minimum):
+    # Measure a single smooth warm light profile, not the old red/orange strokes.
+    scores=[max(0,min(r-b,g-b)) for r,g,b in pixels]
+    peak=max(scores,default=0)
+    if peak<70:return False
+    i=scores.index(peak)
+    core=[j for j,val in enumerate(scores) if val>=peak*.55]
+    if len(core)<minimum:return False
+    if any(b-a>1 for a,b in zip(core,core[1:])):return False
+    # Both shoulders must fade, and the peak must be gold rather than red.
+    if i==0 or i==len(scores)-1:return False
+    if min(scores[:i])>peak*.70 or min(scores[i+1:])>peak*.70:return False
+    r,g,b=pixels[i]
+    return g>=r*.72 and r>b+65
 def check(im,selected):
     for i,(l,t,r,b) in enumerate(rims):
         edges=[((l+75,t-9,r-75,t+9),False),((l+65,b-9,r-65,b+9),False),((l-9,t+75,l+9,b-65),True),((r-9,t+75,r+9,b-65),True)]
@@ -55,8 +46,8 @@ def check(im,selected):
             for frac in (.32,.40,.50,.60,.68):
                 px=round((l+(r-l)*frac)*w/1648)
                 strip=[im.getpixel((px,yy)) for yy in range(round((b-19)*h/928),round((b+19)*h/928))]
-                hits+=flame_band(strip,max(5,round(16*h/928)))
-            assert hits>=3,(i,hits,"expected one continuous red/orange/yellow glow")
+                hits+=soft_gold_band(strip,max(3,round(8*h/928)))
+            assert hits>=3,(i,hits,"expected one feathered gold glow")
         else:
             assert counts[1]<2,(i,counts,"warm glow leaked to unfocused card")
 def shot(name):

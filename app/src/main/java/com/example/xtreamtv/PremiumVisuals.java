@@ -126,8 +126,8 @@ final class PremiumVisuals {
     float band=Math.max(3,h*.027f),stripY=panel.top+Math.max(2,h*.021f);
     int saved=c.save();c.clipRect(panel);
     p.setShader(new LinearGradient(panel.left,0,panel.right,0,left[k],right[k],Shader.TileMode.CLAMP));
-    p.setAlpha((int)(f?205+50*phase:155+65*phase));c.drawRect(panel.left,stripY,panel.right,stripY+band,p);
-    p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,stripY+band,panel.right,stripY+band*2.2f,p);
+    p.setAlpha((int)(f?0:155+65*phase));c.drawRect(panel.left,stripY,panel.right,stripY+band,p);
+    p.setAlpha((int)(f?0:10+18*phase));c.drawRect(panel.left,stripY+band,panel.right,stripY+band*2.2f,p);
     p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
     if(f){
      float scale=Math.max(4f,h*.105f)/25f;

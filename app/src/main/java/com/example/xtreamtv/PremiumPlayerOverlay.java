@@ -33,28 +33,29 @@ final class PremiumPlayerOverlay extends FrameLayout {
   super(activity);a=activity;host=parent;surface=video;item=current;p=a.player;
   live=a.page.equals("Live TV");compact=a.getResources().getConfiguration().screenWidthDp<650;
   setFocusable(false);setClickable(false);setClipChildren(false);setClipToPadding(false);
-  LinearLayout top=a.row();topBar=top;top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(0,0,d(20),0);top.setBackground(artwork(R.drawable.design4_player_header));
-  View logo=new View(a);logo.setContentDescription("Sky");logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);top.addView(logo,new LinearLayout.LayoutParams(0,-1,.36f));
-  LinearLayout titles=a.col();titles.setPadding(d(13),0,d(6),0);top.addView(titles,new LinearLayout.LayoutParams(0,-2,.52f));TextView title=a.text(item.name,compact?16:21);title.setTextColor(WHITE);title.setSingleLine();title.setEllipsize(android.text.TextUtils.TruncateAt.END);titles.addView(title);
-  metadata=a.text("",compact?11:13);metadata.setSingleLine();metadata.setEllipsize(android.text.TextUtils.TruncateAt.END);titles.addView(metadata);
+  LinearLayout top=a.row();topBar=top;top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(d(14),d(5),d(18),d(5));top.setBackground(skyPanel(0));
+  View logo=PremiumVisuals.brand(a);logo.setContentDescription("Sky");logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);top.addView(logo,new LinearLayout.LayoutParams(0,-1,.25f));
+  LinearLayout titles=a.col();titles.setPadding(d(13),0,d(6),0);top.addView(titles,new LinearLayout.LayoutParams(0,-2,.63f));TextView title=a.text(item.name,compact?16:21);title.setTextColor(WHITE);title.setSingleLine();title.setEllipsize(android.text.TextUtils.TruncateAt.END);titles.addView(title);
+  metadata=a.text("",compact?11:13);metadata.setTextColor(0xffbfd6ef);metadata.setSingleLine();metadata.setEllipsize(android.text.TextUtils.TruncateAt.END);titles.addView(metadata);
   TextClock clock=new TextClock(a);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextSize(compact?15:19);clock.setTypeface(a.uiMedium);clock.setTextColor(WHITE);clock.setGravity(Gravity.CENTER);top.addView(clock,new LinearLayout.LayoutParams(0,-1,.12f));addView(top,new FrameLayout.LayoutParams(-1,1,Gravity.TOP));
   LinearLayout bottom=a.col();bottomBar=bottom;bottom.setClipChildren(false);bottom.setClipToPadding(false);addView(bottom,new FrameLayout.LayoutParams(-1,1,Gravity.BOTTOM));
-  LinearLayout dock=a.col();dockBar=dock;dock.setClipChildren(false);dock.setClipToPadding(false);dock.setBackground(artwork(R.drawable.design4_player_dock));bottom.addView(dock,new LinearLayout.LayoutParams(-1,-1));
+  LinearLayout dock=a.col();dockBar=dock;dock.setClipChildren(false);dock.setClipToPadding(false);dock.setBackground(skyPanel(1));bottom.addView(dock,new LinearLayout.LayoutParams(-1,-1));
   LinearLayout timeline=a.row();timelineBar=timeline;timeline.setGravity(Gravity.CENTER_VERTICAL);
   elapsed=a.text("00:00",compact?12:15);elapsed.setGravity(Gravity.CENTER);elapsed.setTextColor(WHITE);timeline.addView(elapsed,new LinearLayout.LayoutParams(d(compact?60:76),-1));
   progress=new SeekBar(a);progress.setId(View.generateViewId());progress.setMax(10000);progress.setPadding(d(10),0,d(10),0);glassTimeline(progress);progress.setContentDescription("Playback progress");progress.setBackground(new Ring(false));timeline.addView(progress,new LinearLayout.LayoutParams(0,-1,1));
   total=a.text("00:00",compact?12:15);total.setGravity(Gravity.CENTER);total.setTextColor(WHITE);timeline.addView(total,new LinearLayout.LayoutParams(d(compact?60:76),-1));
   progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){scrubbing=true;removeCallbacks(timeout);}public void onStopTrackingTouch(SeekBar s){seek(s.getProgress());scrubbing=false;arm();}public void onProgressChanged(SeekBar s,int v,boolean user){if(user){if(!scrubbing)seek(v);else if(p.getDuration()>0)elapsed.setText(time((long)(p.getDuration()*(v/10000d))));if(!scrubbing)arm();}}});
-  LinearLayout controls=a.row();controls.setGravity(Gravity.CENTER);controls.setClipChildren(false);controls.setClipToPadding(false);dock.addView(controls,new LinearLayout.LayoutParams(-1,0,0.68f));
-  LinearLayout transport=a.row();transportBar=transport;transport.setGravity(Gravity.CENTER);transport.setClipChildren(false);transport.setClipToPadding(false);controls.addView(transport,new LinearLayout.LayoutParams(0,-1,1));
+  dock.addView(timeline,new LinearLayout.LayoutParams(-1,0,.22f));
+  LinearLayout transport=a.row();transportBar=transport;transport.setGravity(Gravity.CENTER);transport.setClipChildren(false);transport.setClipToPadding(false);
+  LinearLayout.LayoutParams transportLp=new LinearLayout.LayoutParams(-1,0,.44f);dock.addView(transport,transportLp);
   Control prev=button(transport,0,"Previous",()->adjacent(-1));Control rew=button(transport,1,"Rewind",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();});
   play=button(transport,2,"Play or pause",()->{if(p.getPlayWhenReady())p.pause();else p.play();refresh();});
   Control ff=button(transport,3,"Forward",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();});Control next=button(transport,4,"Next",()->adjacent(1));
   View[] keys={prev,rew,play,ff,next};link(keys);
-  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);controls.addView(opts,new LinearLayout.LayoutParams(0,-1,1));dock.addView(timeline,new LinearLayout.LayoutParams(-1,0,0.32f));
+  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(skyPanel(2));dock.addView(opts,new LinearLayout.LayoutParams(-1,0,.34f));
   View[] actions={option(opts,"Audio",()->new AlertDialog.Builder(a).setTitle("Audio").setItems(new String[]{"Audio tracks","Volume"},(dialog,i)->{if(i==0)a.chooseTrack(C.TRACK_TYPE_AUDIO);else volume();}).setNegativeButton("Cancel",null).show()),option(opts,"Subtitles",()->a.chooseTrack(C.TRACK_TYPE_TEXT)),option(opts,"Aspect",a::aspectDialog),option(opts,"Picture",()->a.choosePlayerRange(item)),option(opts,"Info",this::showInfo)};
   infoButton=actions[4];
-  View[] all=new View[10];System.arraycopy(keys,0,all,0,5);System.arraycopy(actions,0,all,5,5);link(all);for(View key:all){key.setNextFocusUpId(key.getId());key.setNextFocusDownId(progress.getId());}progress.setNextFocusUpId(play.getId());progress.setNextFocusDownId(progress.getId());
+  link(actions);for(int i=0;i<5;i++){keys[i].setNextFocusUpId(progress.getId());keys[i].setNextFocusDownId(actions[i].getId());actions[i].setNextFocusUpId(keys[i].getId());actions[i].setNextFocusDownId(actions[i].getId());}progress.setNextFocusUpId(progress.getId());progress.setNextFocusDownId(play.getId());
   // A dedicated transparent native view owns focus when controls are hidden.
   // Media3 may replace its own accessibility description and focus behaviour.
   wakeTarget=new View(a);
@@ -67,6 +68,15 @@ final class PremiumPlayerOverlay extends FrameLayout {
   host.addView(this,new FrameLayout.LayoutParams(-1,-1));
   p.addListener(listener);
  }
+ // Clean Sky-inspired panels rendered at native display resolution.
+ Drawable skyPanel(int style){
+  int[] colors=style==0?new int[]{0xff071a43,0xff0a214e,0xff06142e}:style==1?new int[]{0x00081739,0xc0081a40,0xfa061535}:new int[]{0xff153c73,0xff0c2451,0xff081b3b};
+  GradientDrawable panel=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,colors);
+  panel.setShape(GradientDrawable.RECTANGLE);
+  // No solid focus outline. The selected control uses the shared feathered gold light.
+  if(style==0)panel.setStroke(d(1),0x603e83bf);
+  return panel;
+ }
  Drawable artwork(int id){BitmapDrawable b=(BitmapDrawable)a.getDrawable(id).mutate();b.setGravity(Gravity.FILL);b.setFilterBitmap(true);return new Drawable(){
    @Override public void draw(Canvas c){b.setBounds(getBounds());b.draw(c);}
    @Override public void setAlpha(int alpha){b.setAlpha(alpha);}
@@ -77,8 +87,8 @@ final class PremiumPlayerOverlay extends FrameLayout {
   int w=MeasureSpec.getSize(ws),h=MeasureSpec.getSize(hs);
   if(w!=sizedW||h!=sizedH){sizedW=w;sizedH=h;
    FrameLayout.LayoutParams top=(FrameLayout.LayoutParams)topBar.getLayoutParams();top.width=Math.round(w*.98f);top.height=Math.round(h*.096f);top.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;top.topMargin=Math.round(h*.01f);
-   FrameLayout.LayoutParams bottom=(FrameLayout.LayoutParams)bottomBar.getLayoutParams();bottom.width=Math.round(w*.972f);bottom.height=Math.round(h*.21f);bottom.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;bottom.bottomMargin=Math.round(h*.018f);
-   dockBar.setPadding(Math.round(w*.017f),Math.round(h*.022f),Math.round(w*.017f),Math.round(h*.014f));
+   FrameLayout.LayoutParams bottom=(FrameLayout.LayoutParams)bottomBar.getLayoutParams();bottom.width=Math.round(w*.972f);bottom.height=Math.round(h*.30f);bottom.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;bottom.bottomMargin=Math.round(h*.018f);
+   dockBar.setPadding(Math.round(w*.025f),Math.round(h*.009f),Math.round(w*.025f),Math.round(h*.008f));transportBar.setPadding(Math.round(w*.19f),0,Math.round(w*.19f),0);
   }
   super.onMeasure(ws,hs);
  }
@@ -89,7 +99,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   infoReturnFocus=infoButton;
   LinearLayout panel=a.col();infoPanel=panel;
   panel.setPadding(d(18),d(10),d(18),d(10));
-  panel.setBackground(artwork(R.drawable.design4_info_panel));
+  panel.setBackground(skyPanel(0));
   panel.setClickable(true);
   panel.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
   TextView title=a.text("Playback Information",20);title.setTextColor(WHITE);
@@ -107,7 +117,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
   TextView close=a.text("Close",16);
   close.setId(View.generateViewId());close.setContentDescription("Close");
-  close.setTextColor(WHITE);close.setGravity(Gravity.CENTER);close.setBackground(artwork(R.drawable.design4_player_key));
+  close.setTextColor(WHITE);close.setGravity(Gravity.CENTER);close.setBackground(skyPanel(2));
   close.setForeground(new Ring(false));close.setFocusable(true);close.setFocusableInTouchMode(true);close.setClickable(true);
   panel.addView(close,new LinearLayout.LayoutParams(-1,d(40)));
   close.setNextFocusUpId(scroll.getId());close.setNextFocusDownId(close.getId());
@@ -141,13 +151,13 @@ final class PremiumPlayerOverlay extends FrameLayout {
  void glassTimeline(SeekBar bar){
   GradientDrawable base=track(new int[]{0xff203d67,0xff406895,0xff263f66},5);
   ClipDrawable buffered=new ClipDrawable(track(new int[]{0xff567ba0,0xff87a9ca},5),Gravity.LEFT,ClipDrawable.HORIZONTAL);
-  ClipDrawable played=new ClipDrawable(track(new int[]{0xffb76a16,0xffffc52b,0xffffe9a5},5),Gravity.LEFT,ClipDrawable.HORIZONTAL);
+  ClipDrawable played=new ClipDrawable(track(new int[]{0xff1478d9,0xff00b9f5,0xff9ceaff},5),Gravity.LEFT,ClipDrawable.HORIZONTAL);
   LayerDrawable layers=new LayerDrawable(new Drawable[]{base,buffered,played});
   int[] ids={android.R.id.background,android.R.id.secondaryProgress,android.R.id.progress};
   for(int i=0;i<3;i++){layers.setId(i,ids[i]);layers.setLayerHeight(i,d(5));layers.setLayerGravity(i,Gravity.CENTER_VERTICAL|Gravity.FILL_HORIZONTAL);}
   bar.setProgressTintList(null);bar.setSecondaryProgressTintList(null);bar.setProgressBackgroundTintList(null);bar.setThumbTintList(null);
   bar.setProgressDrawable(layers);
-  GradientDrawable thumb=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xfffff9dc,0xffffd45c,0xffb5761a});
+  GradientDrawable thumb=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xffffffff,0xffe2f7ff,0xff9ed8ff});
   thumb.setShape(GradientDrawable.OVAL);thumb.setSize(d(15),d(15));bar.setThumb(thumb);bar.setThumbOffset(d(7));
  }
  // Android's focusable-in-touch-mode controls can consume the first tap just
@@ -160,10 +170,10 @@ final class PremiumPlayerOverlay extends FrameLayout {
   });
  }
  void link(View[] views){for(int i=0;i<views.length;i++){views[i].setNextFocusLeftId(views[Math.max(i-1,0)].getId());views[i].setNextFocusRightId(views[Math.min(i+1,views.length-1)].getId());}}
- Control button(LinearLayout row,int type,String label,Runnable action){Control v=new Control(type);v.setId(View.generateViewId());v.setContentDescription(label);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(artwork(R.drawable.design4_player_key));v.setForeground(new Ring(false));focusBeforeClick(v);v.setOnClickListener(x->{android.util.Log.i("SharkPlayerUI","control clicked="+v.getContentDescription());action.run();arm();});LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);row.addView(v,lp);return v;}
+ Control button(LinearLayout row,int type,String label,Runnable action){Control v=new Control(type);v.setId(View.generateViewId());v.setContentDescription(label);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(skyPanel(2));v.setForeground(new Ring(false));focusBeforeClick(v);v.setOnClickListener(x->{android.util.Log.i("SharkPlayerUI","control clicked="+v.getContentDescription());action.run();arm();});LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);row.addView(v,lp);return v;}
  View option(LinearLayout row,String label,Runnable action){
   View v=new OptionControl(label);v.setId(View.generateViewId());v.setContentDescription(label);
-  v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(artwork(R.drawable.design4_player_key));v.setForeground(new Ring(false));
+  v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(skyPanel(2));v.setForeground(new Ring(false));
   LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);row.addView(v,lp);focusBeforeClick(v);v.setOnClickListener(x->{android.util.Log.i("SharkPlayerUI","control clicked="+label);arm();action.run();});return v;
  }
  final class OptionControl extends View {
@@ -172,7 +182,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   @Override protected void onDraw(Canvas c){
    super.onDraw(c);float size=Math.min(getHeight()*.37f,getWidth()*.38f),cy=getHeight()*.36f;
    glyph.setBounds(Math.round((getWidth()-size)/2),Math.round(cy-size/2),Math.round((getWidth()+size)/2),Math.round(cy+size/2));glyph.draw(c);
-   ink.setTextSize(Math.min(d(14),getWidth()*.15f));ink.setTextAlign(Paint.Align.CENTER);c.drawText(label,getWidth()/2f,getHeight()*.81f,ink);
+   ink.setTextSize(Math.min(d(14),getWidth()*.13f));ink.setTextAlign(Paint.Align.CENTER);c.drawText(label,getWidth()/2f,getHeight()*.81f,ink);
   }
  }
  void seek(int value){if(p.isCurrentMediaItemSeekable()&&p.getDuration()>0)p.seekTo((long)(p.getDuration()*(value/10000d)));}
@@ -201,7 +211,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   if(!focused)wakeTarget.post(()->{if(!disposed&&getVisibility()!=VISIBLE)wakeTarget.requestFocus();});
   android.util.Log.i("SharkPlayerUI","overlay hidden; wake focus="+focused);
  }
- boolean handleKey(KeyEvent e){if(disposed)return false;int k=e.getKeyCode();boolean nav=k==19||k==20||k==21||k==22||k==23||k==66||k==82||k==KeyEvent.KEYCODE_BUTTON_A||k==KeyEvent.KEYCODE_NUMPAD_ENTER;if(e.getAction()==KeyEvent.ACTION_UP&&consumeUp){consumeUp=false;return true;}if(e.getAction()!=KeyEvent.ACTION_DOWN)return false;if(infoPanel!=null){if(k==KeyEvent.KEYCODE_BACK||k==KeyEvent.KEYCODE_ESCAPE){dismissInfo(true);consumeUp=true;return true;}return false;}if(k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY||k==KeyEvent.KEYCODE_MEDIA_PAUSE){if(k==KeyEvent.KEYCODE_MEDIA_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE&&p.getPlayWhenReady())p.pause();else p.play();show();consumeUp=true;return true;}if(k==KeyEvent.KEYCODE_MEDIA_REWIND||k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD){if(k==KeyEvent.KEYCODE_MEDIA_REWIND&&p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();if(k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD&&p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();show();consumeUp=true;return true;}if(nav&&getVisibility()!=VISIBLE){show();consumeUp=true;return true;}if(nav)arm();if(k==82){a.choosePlayerRange(item);consumeUp=true;return true;}return false;}
+ boolean handleKey(KeyEvent e){if(disposed)return false;int k=e.getKeyCode();boolean nav=k==19||k==20||k==21||k==22||k==23||k==66||k==82||k==KeyEvent.KEYCODE_BUTTON_A||k==KeyEvent.KEYCODE_NUMPAD_ENTER;if(e.getAction()==KeyEvent.ACTION_UP&&consumeUp){consumeUp=false;return true;}if(e.getAction()!=KeyEvent.ACTION_DOWN)return false;if(infoPanel!=null){if(k==KeyEvent.KEYCODE_BACK||k==KeyEvent.KEYCODE_ESCAPE){dismissInfo(true);consumeUp=true;return true;}return false;}if(k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY||k==KeyEvent.KEYCODE_MEDIA_PAUSE){if(k==KeyEvent.KEYCODE_MEDIA_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE&&p.getPlayWhenReady())p.pause();else p.play();show();consumeUp=true;return true;}if(k==KeyEvent.KEYCODE_MEDIA_REWIND||k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD){if(k==KeyEvent.KEYCODE_MEDIA_REWIND&&p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();if(k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD&&p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();show();consumeUp=true;return true;}if(nav&&getVisibility()!=VISIBLE){show();consumeUp=true;return true;}if(nav)arm();if(k==KeyEvent.KEYCODE_DPAD_UP&&!progress.isFocusable()&&getFocusedChild()==bottomBar){View focus=findFocus();if(focus!=null&&focus.getParent()==transportBar){consumeUp=true;return true;}}if(k==82){a.choosePlayerRange(item);consumeUp=true;return true;}return false;}
  void dispose(){if(disposed)return;dismissInfo(false);disposed=true;removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);wakeTarget.setOnKeyListener(null);wakeTarget.setOnClickListener(null);host.removeView(wakeTarget);host.removeView(this);}
  final class Control extends View {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);final int type;

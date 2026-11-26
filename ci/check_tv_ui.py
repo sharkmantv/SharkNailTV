@@ -110,7 +110,8 @@ def mobile_navigation_expected():
 
 def check_catalogue_nav():
     root=ui()
-    for label in ("Surfshark","Home"):
+    assert find(root,"Surfshark") is None,"Removed VPN shortcut still present"
+    for label in ("Home",):
         node=find(root,label)
         if mobile_navigation_expected():
             assert node is not None and node.get("clickable")=="true",("Missing mobile catalogue button",label)
@@ -190,19 +191,30 @@ def check_player():
     # The video and overlay must both cover the full window, including while controls are visible.
     assert f"video surface {sw}x{sh} overlay {sw}x{sh}" in player_events(),("Video resized into preview",player_events()[-2500:])
     x,y,X,Y=bounds(play_control)
-    assert y>=sh*.77 and Y<=sh*.97,("Control bar not compact",y,Y,sh)
+    assert y>=sh*.73 and Y<=sh*.93,("Transport controls not compact",y,Y,sh)
     assert X-x<sw*.13,("Transport key oversized",x,X,sw)
     assert find(root,"Search titles") is None and find(root,"Search channels") is None,"Unexpected catalogue inside full player"
-    ref=Image.open("app/src/main/res/drawable-nodpi/design4_player_header.png").convert("RGB").resize((round(sw*.98),round(sh*.096)),Image.Resampling.LANCZOS)
-    logo=(round(sw*.018),round(sh*.022),round(sw*.33),round(sh*.083))
-    target=(logo[0]-round(sw*.01),logo[1]-round(sh*.01),logo[2]-round(sw*.01),logo[3]-round(sh*.01))
-    mae=ImageStat.Stat(ImageChops.difference(im.crop(logo),ref.crop(target))).mean
-    assert max(mae)<45,("Header artwork mismatch",mae)
-    # Use the real TV D-pad path across the single control row, not an assumed
-    # touch activation. Verify focus before pressing OK, then verify dialog.
-    for i in range(7):
+    # Design 3: timeline above a centered five-key transport row, then options.
+    transport=[bounds(find(root,label)) for label in ("Previous","Rewind","Play","Forward","Next")]
+    options=[bounds(find(root,label)) for label in ("Audio","Subtitles","Aspect","Picture","Info")]
+    line=bounds(find(root,"Playback progress"))
+    assert line[3]<=transport[0][1]+2 and transport[0][3]<=options[0][1]+2,("Incorrect row order",line,transport,options)
+    assert all(abs(r[1]-transport[0][1])<=2 for r in transport),transport
+    assert all(abs(r[1]-options[0][1])<=2 for r in options),options
+    assert abs((transport[0][0]+transport[-1][2])/2-sw/2)<sw*.02,transport
+    # The clean header must not contain orange/yellow sample stripes behind the title.
+    # White text is neutral; the gradient background is blue. Exclude the colored brand.
+    header=im.crop((round(sw*.28),round(sh*.022),round(sw*.85),round(sh*.094)))
+    warm_rows=[sum(r>140 and r>b*1.5 and g>b*1.15 for r,g,b in (header.getpixel((xx,yy)) for xx in range(header.width)))/header.width for yy in range(header.height)]
+    assert max(warm_rows,default=0)<.05,("Warm header artifacts",max(warm_rows,default=0))
+    assert find(root,"Layout fixture 001") is not None,"Live title not rendered"
+    # Move from central Play down to the option row, then across to Info.
+    adb("shell","input","dpad","keyevent","20")
+    time.sleep(.15)
+    assert expect("Aspect").get("focused")=="true","Option row focus missing"
+    for i in range(2):
         adb("shell","input","dpad","keyevent","22")
-        time.sleep(.12)
+        time.sleep(.15)
     info_control=expect("Info")
     assert info_control.get("focused")=="true",("Info remote focus missing",ET.tostring(ui(),encoding="unicode")[-6000:])
     before_info=player_events().count("Info dialog shown")
@@ -295,14 +307,14 @@ try:
     adb("shell","input","keyevent","23")
     expect("Playback")
     root=ui()
-    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner","Connection Test","Surfshark","Home","Exit")
+    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner","Connection Test","Home","Exit")
     tiles=[bounds(find(root,label)) for label in labels]
     first,second,third=tiles[:4],tiles[4:8],tiles[8:]
     assert all(abs(r[1]-first[0][1])<=2 and abs(r[3]-first[0][3])<=2 for r in first),tiles
     assert all(abs(r[1]-second[0][1])<=2 and abs(r[3]-second[0][3])<=2 for r in second),tiles
     assert all(abs(a[0]-b[0])<=2 and abs(a[2]-b[2])<=2 for a,b in zip(first,second)),tiles
     assert all(abs(r[1]-third[0][1])<=2 and abs(r[3]-third[0][3])<=2 for r in third),tiles
-    assert all(abs(a[0]-b[0])<=2 and abs(a[2]-b[2])<=2 for a,b in zip(first,third)),tiles
+    assert len(third)==3 and find(root,"Surfshark") is None,tiles
     widths=[r[2]-r[0] for r in tiles]
     heights=[r[3]-r[1] for r in tiles]
     assert max(widths)-min(widths)<=2 and max(heights)-min(heights)<=2,tiles
@@ -323,20 +335,20 @@ try:
     assert selected is not None,"Settings tile focus missing"
     x,y,X,Y=bounds(selected)
     h=Y-y;w=X-x
-    def flame_band(pixels):
-        runs=[];run=[]
-        for r,g,b in pixels:
-            if r>=190 and r>b*1.5 and b<125:run.append((r,g,b))
-            elif run:runs.append(run);run=[]
-        if run:runs.append(run)
-        for band in runs:
-            if len(band)<max(5,round(h*.065)):continue
-            core=[i for i,(r,g,b) in enumerate(band) if r>210 and g>=165]
-            if not core:continue
-            left=band[:core[0]];right=band[core[-1]+1:]
-            if all(g>=165 for r,g,b in band[core[0]:core[-1]+1]) and all(any(g<115 for r,g,b in side) and any(80<=g<165 for r,g,b in side) for side in (left,right)):
-                return True
-        return False
+    def soft_gold_band(pixels,minimum):
+        # Measure a single smooth warm light profile, not the old red/orange strokes.
+        scores=[max(0,min(r-b,g-b)) for r,g,b in pixels]
+        peak=max(scores,default=0)
+        if peak<70:return False
+        i=scores.index(peak)
+        core=[j for j,val in enumerate(scores) if val>=peak*.55]
+        if len(core)<minimum:return False
+        if any(b-a>1 for a,b in zip(core,core[1:])):return False
+        # Both shoulders must fade, and the peak must be gold rather than red.
+        if i==0 or i==len(scores)-1:return False
+        if min(scores[:i])>peak*.70 or min(scores[i+1:])>peak*.70:return False
+        r,g,b=pixels[i]
+        return g>=r*.72 and r>b+65
     depth=max(1,round(h*.28))
     for frac in (.40,.50,.60):
         cx=round(x+w*frac);cy=round(y+h*frac)
@@ -344,7 +356,7 @@ try:
                 [settings_image.getpixel((cx,yy)) for yy in range(y,y+depth)],
                 [settings_image.getpixel((cx,yy)) for yy in range(Y-depth,Y)],
                 [settings_image.getpixel((xx,cy)) for xx in range(X-depth,X)]]
-        assert all(flame_band(strip) for strip in strips),("Settings blended warm glow missing",frac)
+        assert all(soft_gold_band(strip,max(2,round(h*.025))) for strip in strips),("Settings blended warm glow missing",frac)
     print("PASS: shared warm glow on all four Settings edges",flush=True)
     print("PASS: Settings opens by touch and DPAD OK")
     tap(expect("Display"))
@@ -360,22 +372,20 @@ try:
     expect("Connection Test")
     tap(expect("CLOSE" if args.saved_login else "OK"))
     expect("Playback")
-    nav=[expect(label) for label in ("Surfshark","Home","Exit")]
+    nav=[expect(label) for label in ("Connection Test","Home","Exit")]
     assert all(n.get("clickable")=="true" and n.get("focusable")=="true" for n in nav),"Settings navigation not actionable"
     assert all(bounds(n)[1]>=second[0][3] for n in nav),"Settings navigation overlaps tiles"
     tap(expect("Exit"))
     expect("Exit Sky Shark?")
     tap(expect("CANCEL"))
     expect("Playback")
-    tap(expect("Surfshark"))
-    expect("Surfshark VPN")
-    tap(expect("CANCEL"))
+    assert find(ui(),"Surfshark") is None,"VPN shortcut still present"
     adb("shell","input","keyevent","4")
     expect("SHARK SKY")
     tap(expect("Settings"))
     tap(expect("Home"))
     expect("SHARK SKY")
-    print("PASS: Settings Surfshark/physical Back/Home navigation and safe Exit confirmation")
+    print("PASS: Settings physical Back/Home navigation and safe Exit confirmation")
     tap(expect("Movies"))
     if not args.saved_login:
         expect("Xtream Codes")
@@ -399,7 +409,7 @@ try:
     check_catalogue_nav()
     check_player()
     # Recheck the footer after returning from full-screen playback. Phones
-    # deliberately expose Home and Surfshark; TVs must not gain these actions.
+    # deliberately expose Home; TVs must not gain these actions.
     check_catalogue_nav()
     root=ui()
     assert not any(find(root,label) is not None for label in ("Search","Retry")), "Movies bottom menu actions still visible"
@@ -453,7 +463,7 @@ try:
     if mobile_navigation_expected():
         tap(expect("Home"))
         expect("SHARK SKY")
-    print("PASS: TV footer unchanged; mobile Surfshark/Home and catalogue options retained")
+    print("PASS: TV footer unchanged; mobile Home and catalogue options retained")
 except Exception:
     try:
         with open(f"failed-ui-{args.resolution}.xml","w") as out:

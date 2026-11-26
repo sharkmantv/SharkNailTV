@@ -260,22 +260,12 @@ public class MainActivity extends Activity {
   LinearLayout r3=row();
   LinearLayout.LayoutParams thirdRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));
   thirdRow.topMargin=dp(rowGap);area.addView(r3,thirdRow);
+  LinearLayout.LayoutParams side=new LinearLayout.LayoutParams(0,-1,.5f);side.width=dp(5);r3.addView(new View(this),side);
   settingsTile(r3,"Connection Test",15,this::connectionTest);
-  settingsTile(r3,"Surfshark",16,this::openSurfshark);
   settingsTile(r3,"Home",13,this::home);
   settingsTile(r3,"Exit",14,this::confirmExit);
+  LinearLayout.LayoutParams sideEnd=new LinearLayout.LayoutParams(0,-1,.5f);sideEnd.width=dp(5);r3.addView(new View(this),sideEnd);
   r.getChildAt(0).requestFocus();
- }
- void openSurfshark(){
-  String pkg="com.surfshark.vpnclient.android";
-  android.content.pm.PackageManager pm=getPackageManager();
-  Intent launch=pm.getLeanbackLaunchIntentForPackage(pkg);
-  if(launch==null)launch=pm.getLaunchIntentForPackage(pkg);
-  if(launch!=null){try{startActivity(launch);return;}catch(ActivityNotFoundException|SecurityException ignored){}}
-  boolean installed;
-  try{pm.getApplicationInfo(pkg,0);installed=true;}catch(android.content.pm.PackageManager.NameNotFoundException e){installed=false;}
-  if(installed){new AlertDialog.Builder(this).setTitle("Surfshark VPN").setMessage("Surfshark is installed, but Android did not provide an available launcher. Check whether Surfshark is enabled in TV app settings.").setPositiveButton("App settings",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+pkg)));}catch(ActivityNotFoundException|SecurityException e){msg("Open Android TV settings and select Apps.");}}).setNegativeButton("Cancel",null).show();return;}
-  new AlertDialog.Builder(this).setTitle("Surfshark VPN").setMessage("Surfshark is not installed on this Android device. Sky Shark opens the official VPN app; QR sign-in and Bypasser are handled there.").setPositiveButton("Open store",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("market://details?id="+pkg)));}catch(ActivityNotFoundException e){msg("Open Google Play and search for Surfshark.");}}).setNegativeButton("Cancel",null).show();
  }
  String currentPlaybackDiagnostics(){
   ExoPlayer p=player;
@@ -603,7 +593,7 @@ public class MainActivity extends Activity {
   LinearLayout nav=row();nav.setGravity(Gravity.CENTER_VERTICAL);
   int width=getResources().getConfiguration().screenWidthDp;
   footer.addView(nav,new LinearLayout.LayoutParams(dp(width<400?160:190),dp(48)));
-  button(nav,"Surfshark",this::openSurfshark);button(nav,"Home",this::home);
+  button(nav,"Home",this::home);
   body.addView(footer,new LinearLayout.LayoutParams(-1,dp(48)));
  }
  void browser(boolean restore){screen(page);{LinearLayout head=(LinearLayout)body.getChildAt(0);TextView menu=text("⋮",24);menu.setGravity(Gravity.CENTER);menu.setContentDescription(page+" options");menu.setFocusable(true);menu.setClickable(true);premiumHomeFocus(menu);head.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(43)));menu.setOnClickListener(v->{if(page.equals("Live TV"))liveOptions();else catalogueOptions();});}LinearLayout heads=row();heads.addView(text("Categories",14),new LinearLayout.LayoutParams(0,dp(25),1));heads.addView(text(page.equals("Live TV")?"Channels":"Titles",14),new LinearLayout.LayoutParams(0,dp(25),1.4f));boolean live=page.equals("Live TV");if(live)heads.addView(new View(this),new LinearLayout.LayoutParams(0,dp(25),1.6f));body.addView(heads);LinearLayout r=row();body.addView(r,new LinearLayout.LayoutParams(-1,0,1));left=list();right=list();final RecyclerView grid=right;grid.addOnLayoutChangeListener((v,l,t,rr,b,ol,ot,orr,ob)->{if(rr-l!=orr-ol||b-t!=ob-ot)grid.post(()->updatePosterGeometry(grid));});r.addView(left,new LinearLayout.LayoutParams(0,-1,1));r.addView(right,new LinearLayout.LayoutParams(0,-1,live?1.4f:2.5f));catAdapter();setItemsAdapter(items,this::pick);if(live){LinearLayout c=col();c.setPadding(dp(4),0,0,0);r.addView(c,new LinearLayout.LayoutParams(0,-1,1.6f));preview=new FrameLayout(this);preview.setBackgroundColor(Color.BLACK);preview.setForeground(previewPulse());c.addView(preview,new LinearLayout.LayoutParams(-1,0,1.7f));TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));epg=text(selected==null?"Programme information":selected.name,13);epg.setMaxLines(7);epg.setGravity(Gravity.TOP);epg.setPadding(dp(9),dp(5),dp(9),dp(3));LinearLayout guidePanel=col();guidePanel.setBackground(bg(0xff193554,0xff0b172e,0xff3b78b5,1));LinearLayout.LayoutParams guideLp=new LinearLayout.LayoutParams(-1,0,1);guideLp.topMargin=dp(4);c.addView(guidePanel,guideLp);guidePanel.addView(epg,new LinearLayout.LayoutParams(-1,0,1));programmeProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);programmeProgress.setMax(100);programmeProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(UI_GOLD));programmeProgress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff335175));programmeProgress.setVisibility(View.INVISIBLE);LinearLayout.LayoutParams barLp=new LinearLayout.LayoutParams(-1,dp(6));barLp.setMargins(dp(9),0,dp(9),dp(6));guidePanel.addView(programmeProgress,barLp);LinearLayout b=row();button(b,"Full screen",()->{if(selected!=null)playFull(selected);});button(b,"Favourite",this::fav);c.addView(b);}catalogueFooter();if(restore){if(page.equals(returnCatalogue)&&returnAnchor>=0)restoreCataloguePosition();else{left.scrollToPosition(catPos);focusAt(right,itemPos);}}}
