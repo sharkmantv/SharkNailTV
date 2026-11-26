@@ -254,27 +254,34 @@ try:
     assert screen[1]+sh*.46<=cy<=screen[1]+sh*.66,(cy,screen,tiles)
     print("PASS: Settings evenly spaced, aligned, and vertically centered",tiles)
     settings_image=capture("settings")
-    # Verify selected tile has the shared rainbow border, thick on each edge.
+    # Verify the continuous shared warm glow on all four sides.
     selected=next((find(root,label) for label in labels if find(root,label).get("focused")=="true"),None)
     assert selected is not None,"Settings tile focus missing"
     x,y,X,Y=bounds(selected)
     h=Y-y;w=X-x
-    def spectrum(rgb,kind):
-        r,g,b=rgb[:3]
-        if kind=="warm":return r>205 and g>110 and r>b*1.3
-        if kind=="pink":return r>165 and b>105 and r>g*1.25 and b>g*1.1
-        return b>180 and b>r*1.2 and (g>110 or b>g*1.2)
-    depth=max(1,round(h*.24))
-    minimum=max(3,round(h*.025))
+    def flame_band(pixels):
+        runs=[];run=[]
+        for r,g,b in pixels:
+            if r>=190 and r>b*1.5 and b<125:run.append((r,g,b))
+            elif run:runs.append(run);run=[]
+        if run:runs.append(run)
+        for band in runs:
+            if len(band)<max(5,round(h*.065)):continue
+            core=[i for i,(r,g,b) in enumerate(band) if r>210 and g>=165]
+            if not core:continue
+            left=band[:core[0]];right=band[core[-1]+1:]
+            if all(g>=165 for r,g,b in band[core[0]:core[-1]+1]) and all(any(g<115 for r,g,b in side) and any(80<=g<165 for r,g,b in side) for side in (left,right)):
+                return True
+        return False
+    depth=max(1,round(h*.28))
     for frac in (.40,.50,.60):
         cx=round(x+w*frac);cy=round(y+h*frac)
-        strips=[("warm",[settings_image.getpixel((xx,cy)) for xx in range(x,x+depth)]),
-                ("pink",[settings_image.getpixel((cx,yy)) for yy in range(y,y+depth)]),
-                ("pink",[settings_image.getpixel((cx,yy)) for yy in range(Y-depth,Y)]),
-                ("cool",[settings_image.getpixel((xx,cy)) for xx in range(X-depth,X)])]
-        for kind,strip in strips:
-            assert sum(spectrum(rgb,kind) for rgb in strip)>=minimum,("Settings spectrum rim missing",kind,frac)
-    print("PASS: shared Sky spectrum focus on Settings",flush=True)
+        strips=[[settings_image.getpixel((xx,cy)) for xx in range(x,x+depth)],
+                [settings_image.getpixel((cx,yy)) for yy in range(y,y+depth)],
+                [settings_image.getpixel((cx,yy)) for yy in range(Y-depth,Y)],
+                [settings_image.getpixel((xx,cy)) for xx in range(X-depth,X)]]
+        assert all(flame_band(strip) for strip in strips),("Settings blended warm glow missing",frac)
+    print("PASS: shared warm glow on all four Settings edges",flush=True)
     print("PASS: Settings opens by touch and DPAD OK")
     tap(expect("Connection Test"))
     expect("Connection Test")

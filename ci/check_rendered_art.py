@@ -1,4 +1,4 @@
-"""Verify rendered artwork, single Sky spectrum border, and remote focus across all four cards."""
+"""Verify rendered artwork, single blended warm glow, and remote focus across all four cards."""
 import subprocess,time
 from PIL import Image
 def adb(*args):
@@ -19,23 +19,46 @@ rims=[(58,510,439,831),(475,510,829,828),(867,511,1219,828),(1257,511,1601,828)]
 def chroma_count(im,box,pred,vertical=False):
     p=crop(im,*box)
     return sum(pred(r,g,b) for r,g,b in p.getdata())/max(1,p.height if vertical else p.width)
+def warm(rgb):
+    r,g,b=rgb
+    return r>=190 and r>b*1.5 and b<125
+def yellow(rgb):
+    r,g,b=rgb
+    return r>210 and g>=165 and b<130
+def red(rgb):
+    r,g,b=rgb
+    return r>=195 and g<115 and b<90
+def orange(rgb):
+    r,g,b=rgb
+    return r>=205 and 80<=g<165 and b<100
+def flame_band(pixels,minimum):
+    runs=[]; run=[]
+    for p in pixels:
+        if warm(p): run.append(p)
+        elif run: runs.append(run);run=[]
+    if run:runs.append(run)
+    for band in runs:
+        if len(band)<minimum:continue
+        core=[i for i,p in enumerate(band) if yellow(p)]
+        if not core:continue
+        left=band[:core[0]];right=band[core[-1]+1:]
+        if all(yellow(p) for p in band[core[0]:core[-1]+1]) and all(any(test(p) for p in side) for side in (left,right) for test in (red,orange)):
+            return True
+    return False
 def check(im,selected):
     for i,(l,t,r,b) in enumerate(rims):
-        # Sample the actual rendered spectrum in all four edge zones.
-        gold=lambda R,G,B:R>205 and G>125 and R>B*1.3 and G>B*1.12
-        pink=lambda R,G,B:R>165 and B>110 and R>G*1.3 and B>G*1.12
-        cyan=lambda R,G,B:B>180 and G>130 and B>R*1.2
-        blue=lambda R,G,B:B>180 and B>R*1.35 and B>G*1.10
-        zones=[((l-9,t+80,l+9,b-80),gold,True),
-               ((l+70,t-9,r-70,t+9),pink,False),
-               ((l+70,b-9,r-70,b+9),pink,False),
-               ((r-9,t+80,r+9,b-80),lambda R,G,B:cyan(R,G,B) or blue(R,G,B),True)]
-        counts=[chroma_count(im,box,pred,vertical) for box,pred,vertical in zones]
+        edges=[((l+75,t-9,r-75,t+9),False),((l+65,b-9,r-65,b+9),False),((l-9,t+75,l+9,b-65),True),((r-9,t+75,r+9,b-65),True)]
+        counts=[chroma_count(im,box,lambda R,G,B:yellow((R,G,B)),vertical) for box,vertical in edges]
         if i==selected:
-            assert min(counts)>2,(i,counts,"incomplete spectrum border")
+            assert min(counts)>2,(i,counts,"incomplete warm glow")
+            hits=0
+            for frac in (.32,.40,.50,.60,.68):
+                px=round((l+(r-l)*frac)*w/1648)
+                strip=[im.getpixel((px,yy)) for yy in range(round((b-19)*h/928),round((b+19)*h/928))]
+                hits+=flame_band(strip,max(5,round(16*h/928)))
+            assert hits>=3,(i,hits,"expected one continuous red/orange/yellow glow")
         else:
-            # Pink is absent from the original metallic bottom rim.
-            assert counts[2]<2,(i,counts,"spectrum leaked to unfocused tile")
+            assert counts[1]<2,(i,counts,"warm glow leaked to unfocused card")
 def shot(name):
     with open(name,"wb") as out:out.write(adb("exec-out","screencap","-p"))
     return Image.open(name).convert("RGB")
@@ -46,4 +69,4 @@ for i in range(1,4):
 for i in range(3):
     adb("shell","input","keyevent","21");time.sleep(.15)
 check(shot("premium-focus-return.png"),0)
-print("PASS: all four artwork panels, header, single Sky spectrum border and independent remote focus")
+print("PASS: all four artwork panels, header, single blended warm glow and independent remote focus")
