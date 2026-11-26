@@ -113,7 +113,16 @@ if approved.is_file():
 else:
     lg_home=lg.copy()
     print("NOTICE: approved replacement Home PNG has not been uploaded; using cleaned original")
+# Pre-filter the approved wordmark at the actual UHD destination size.
+# RGBA resampling is premultiplied by Pillow; gently remove staircase noise
+# in the source alpha while preserving the selected shape, text and position.
+from PIL import ImageOps
+lg_home=ImageOps.contain(lg_home,(round(426*3840/1648),round(109*2160/928)),Image.Resampling.LANCZOS)
+alpha=lg_home.getchannel("A")
+alpha=alpha.filter(ImageFilter.MedianFilter(3)).filter(ImageFilter.GaussianBlur(.65))
+lg_home.putalpha(alpha)
 lg_home.save(dst/"sky_shark_home_brand.png")
+print("PASS: Home wordmark antialiased at UHD target size",lg_home.size)
 areas=[(20,477,438,390),(459,477,385,390),(845,477,389,390),(1235,477,397,390)]
 rims=[(43,493,453,849),(463,497,840,845),(852,497,1230,845),(1242,497,1620,845)]
 def X(x):return round(x*3840/1648)

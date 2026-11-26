@@ -267,8 +267,11 @@ public class MainActivity extends Activity {
   android.content.pm.PackageManager pm=getPackageManager();
   Intent launch=pm.getLeanbackLaunchIntentForPackage(pkg);
   if(launch==null)launch=pm.getLaunchIntentForPackage(pkg);
-  if(launch!=null){try{startActivity(launch);return;}catch(ActivityNotFoundException ignored){}}
-  new AlertDialog.Builder(this).setTitle("Surfshark VPN").setMessage("Install the official Surfshark app to sign in and manage VPN connections and Bypasser settings.").setPositiveButton("Open store",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("market://details?id="+pkg)));}catch(ActivityNotFoundException e){msg("Open Google Play and search for Surfshark.");}}).setNegativeButton("Cancel",null).show();
+  if(launch!=null){try{startActivity(launch);return;}catch(ActivityNotFoundException|SecurityException ignored){}}
+  boolean installed;
+  try{pm.getApplicationInfo(pkg,0);installed=true;}catch(android.content.pm.PackageManager.NameNotFoundException e){installed=false;}
+  if(installed){new AlertDialog.Builder(this).setTitle("Surfshark VPN").setMessage("Surfshark is installed, but Android did not provide an available launcher. Check whether Surfshark is enabled in TV app settings.").setPositiveButton("App settings",(d,w)->{try{startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+pkg)));}catch(ActivityNotFoundException|SecurityException e){msg("Open Android TV settings and select Apps.");}}).setNegativeButton("Cancel",null).show();return;}
+  new AlertDialog.Builder(this).setTitle("Surfshark VPN").setMessage("Surfshark is not installed on this Android device. Sky Shark opens the official VPN app; QR sign-in and Bypasser are handled there.").setPositiveButton("Open store",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("market://details?id="+pkg)));}catch(ActivityNotFoundException e){msg("Open Google Play and search for Surfshark.");}}).setNegativeButton("Cancel",null).show();
  }
  String currentPlaybackDiagnostics(){
   ExoPlayer p=player;
