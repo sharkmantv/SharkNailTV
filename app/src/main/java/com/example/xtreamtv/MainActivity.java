@@ -136,7 +136,7 @@ public class MainActivity extends Activity {
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();}
  static class Item { String id,name,ext,art="",year="",tmdb=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
@@ -235,8 +235,12 @@ public class MainActivity extends Activity {
  void settingsTile(LinearLayout r,String label,int icon,Runnable action){
   PremiumVisuals.Tile tile=new PremiumVisuals.Tile(this,label,icon,false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(5),dp(5),dp(5),dp(5));r.addView(tile,lp);tile.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)v.requestFocus();return false;});tile.setOnClickListener(v->action.run());
  }
+ void restorePlaybackDefaults(){
+  prefs.edit().remove("display_mode").remove("resize_mode").remove("audio_lang").remove("text_lang").remove("subtitles_on").remove("show_codec_info").remove("match_frame_rate").remove("range_live").remove("range_vod").remove("format").putBoolean("default_live_engine",true).apply();
+  decoderPrefs().edit().clear().apply();liveExt="ts";
+ }
  void resetVisualSettings(){
-  new AlertDialog.Builder(this).setTitle("Reset playback and display preferences?").setMessage("Your Xtream login and favourites will be kept.").setNegativeButton("Cancel",null).setPositiveButton("Reset",(d,n)->{prefs.edit().remove("display_mode").remove("resize_mode").remove("audio_lang").remove("text_lang").remove("subtitles_on").remove("show_codec_info").remove("default_live_engine").remove("match_frame_rate").remove("range_live").remove("range_vod").apply();applyDisplayMode();settings();}).show();
+  new AlertDialog.Builder(this).setTitle("Reset playback and display preferences?").setMessage("Restore stock ExoPlayer for Live TV, Movies and Series, automatic display and TS live format. Xtream login and favourites will be kept.").setNegativeButton("Cancel",null).setPositiveButton("Reset",(d,n)->{restorePlaybackDefaults();applyDisplayMode();settings();}).show();
  }
  void settings(){
   page="Settings";screen("Settings");
@@ -285,7 +289,7 @@ public class MainActivity extends Activity {
   String match="Unknown";
   if(rate>0){float ratio=hz/rate;match=Math.abs(ratio-Math.round(ratio))<0.01f&&ratio>=0.99f?"Matched multiple":"Not an integer multiple";}
   int bitrate=f==null?-1:f.bitrate;
-  return playbackDiagnostics+"\n\nEngine: "+(page.equals("Live TV")&&defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match
+  return playbackDiagnostics+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
    +"\nDropped frames (reported): "+droppedVideoFrames
    +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
@@ -417,15 +421,15 @@ public class MainActivity extends Activity {
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
   TextView hint=text("SDR uses OpenGL tone mapping on compatible devices. Auto preserves the source. HDR prefers native HDR tracks. Changes apply at the next playback.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
-  LinearLayout rate=row();button(rate,"Live engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Match FPS (custom): "+(prefs.getBoolean("match_frame_rate",false)?"On":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",false)).apply();playbackSettings();});body.addView(rate);
+  LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Match FPS (custom): "+(prefs.getBoolean("match_frame_rate",false)?"On":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",false)).apply();playbackSettings();});body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
-  LinearLayout back=row();button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
+  LinearLayout back=row();button(back,"Reset playback defaults",this::resetVisualSettings);button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
  }
  boolean defaultLiveEngine(){return prefs.getBoolean("default_live_engine",true);}
- String rangeFor(boolean live){return live&&defaultLiveEngine()?"Auto":prefs.getString(live?"range_live":"range_vod",live?"Prefer SDR":"Auto");}
+ String rangeFor(boolean live){return defaultLiveEngine()?"Auto":prefs.getString(live?"range_live":"range_vod",live?"Prefer SDR":"Auto");}
  String rangeName(String mode){return mode.equals("Prefer SDR")?"SDR":mode.equals("Prefer HDR")?"HDR":"Auto";}
  void rangeSettings(boolean live){
-  if(live&&defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Live TV uses native picture output in Default mode. Switch Live engine to Custom to change SDR/HDR preferences.").setPositiveButton("OK",null).show();return;}
+  if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Default mode uses native picture output. Switch Playback engine to Custom to change SDR/HDR preferences.").setPositiveButton("OK",null).show();return;}
   String[] choices={"Auto","SDR (tone mapping)","HDR (native preferred)"},values={"Auto","Prefer SDR","Prefer HDR"};
   new AlertDialog.Builder(this).setTitle(live?"Live TV picture mode":"Movie and series picture mode").setSingleChoiceItems(choices,Arrays.asList(values).indexOf(rangeFor(live)),(d,n)->{prefs.edit().putString(live?"range_live":"range_vod",values[n]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();
  }
@@ -457,7 +461,7 @@ public class MainActivity extends Activity {
  }
  String displaySummary(){
   android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode m=d.getMode();
-  int req=prefs.getInt("display_mode",0),chosen=chooseDisplayMode(m,d.getSupportedModes(),req);
+  int req=defaultLiveEngine()?0:prefs.getInt("display_mode",0),chosen=chooseDisplayMode(m,d.getSupportedModes(),req);
   String policy=req==0?"System automatic":req==DISPLAY_MAX?"Highest at current resolution":req==DISPLAY_60?"60 Hz":req==DISPLAY_120?"120 Hz":"Specific display mode";
   String result=req==0?"System controlled":chosen==0?"Unavailable; system fallback":chosen==m.getModeId()?"Active":"Requested; firmware decides";
   return String.format(Locale.US,"Current display: %d × %d · %.2f Hz\n%s · %s",m.getPhysicalWidth(),m.getPhysicalHeight(),m.getRefreshRate(),policy,result);
@@ -477,9 +481,9 @@ public class MainActivity extends Activity {
  }
  void applyDisplayMode(){
   android.view.Display d=getWindowManager().getDefaultDisplay();
-  int chosen=chooseDisplayMode(d.getMode(),d.getSupportedModes(),prefs.getInt("display_mode",0));
+  int chosen=defaultLiveEngine()?0:chooseDisplayMode(d.getMode(),d.getSupportedModes(),prefs.getInt("display_mode",0));
   WindowManager.LayoutParams attrs=getWindow().getAttributes();
-  if(attrs.preferredDisplayModeId!=chosen){attrs.preferredDisplayModeId=chosen;getWindow().setAttributes(attrs);}
+  if(attrs.preferredDisplayModeId!=chosen||attrs.preferredRefreshRate!=0f){attrs.preferredDisplayModeId=chosen;attrs.preferredRefreshRate=0f;getWindow().setAttributes(attrs);}
   android.util.Log.i("SharkDisplay",displaySummary());updateDisplayStatus();
  }
  String prefix(){return page.equals("Live TV")?"live":page.equals("Movies")?"vod":"series";}
@@ -820,7 +824,7 @@ public class MainActivity extends Activity {
  }
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath){
   long started=android.os.SystemClock.elapsedRealtime();release();
-  final boolean stock=page.equals("Live TV")&&defaultLiveEngine();
+  final boolean stock=defaultLiveEngine();
   if(stock){WindowManager.LayoutParams attrs=getWindow().getAttributes();if(attrs.preferredDisplayModeId!=0||attrs.preferredRefreshRate!=0f){attrs.preferredDisplayModeId=0;attrs.preferredRefreshRate=0f;getWindow().setAttributes(attrs);}}
   else applyDisplayMode();
   startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
@@ -865,7 +869,7 @@ public class MainActivity extends Activity {
   if(!stock&&gpu)p.setVideoEffects(Collections.singletonList(new androidx.media3.effect.ScaleAndRotateTransformation.Builder().build()));
   FrameRateSample sample=new FrameRateSample();frameRateSample=sample;p.setVideoFrameMetadataListener((pts,releaseNs,format,mediaFormat)->sample.accept(pts));
   video=v;player=p;playbackItem=i;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(prefs.getInt("resize_mode",0));
-  p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
+  if(!stock)p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
    .setPreferredTextLanguage(prefs.getString("text_lang",null))
    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles_on",true)).build());
@@ -899,7 +903,7 @@ public class MainActivity extends Activity {
     }else audioStartedAt=-1;
     ui.postDelayed(this,750);
    }};
-   void startWatch(){if(vod)ui.postDelayed(watch,750);}
+   void startWatch(){if(vod&&!stock)ui.postDelayed(watch,750);}
    @Override public void onTracksChanged(Tracks tracks){
     if(player!=p||recovering||rangeSelected||!range.equals("Prefer HDR"))return;
     boolean selectedDesired=false;Tracks.Group candidate=null;int index=-1;long score=-1;
@@ -920,7 +924,7 @@ public class MainActivity extends Activity {
    @Override public void onRenderedFirstFrame(){
     if(player!=p||recovering)return;
     firstFrame=true;if(startupFirstMs<0)startupFirstMs=android.os.SystemClock.elapsedRealtime()-startupBeginMs;ui.removeCallbacks(watch);
-    if(vod&&attempt==1)rememberDecoder(i);
+    if(!stock&&vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
     playbackDiagnostics=(activeDecoder.isEmpty()?"Decoder unavailable":activeDecoder)+(f==null?"":" · "+f.width+"×"+f.height+(f.bitrate>0?" · "+String.format(Locale.US,"%.1f Mb/s",f.bitrate/1000000.0):""))
      +"\n"+(isHdr(f)?"HDR source":"SDR / unknown source")+" · "+(gpu?"OpenGL SDR output requested":sdrPath==1?"TextureView SDR path; verify TV output":"Native source output");
@@ -937,7 +941,7 @@ public class MainActivity extends Activity {
     }
     boolean decoderError=e.errorCode==PlaybackException.ERROR_CODE_DECODER_INIT_FAILED||e.errorCode==PlaybackException.ERROR_CODE_DECODING_FAILED||e.errorCode==PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED;
     playbackDiagnostics="Playback error: "+e.getErrorCodeName()+" · "+activeDecoder;
-    if(stopped||!decoderError||(!vod&&sdrPath!=0)){ui.removeCallbacks(watch);msg("Playback failed: "+e.getErrorCodeName());return;}
+    if(stock||stopped||!decoderError||(!vod&&sdrPath!=0)){ui.removeCallbacks(watch);msg("Playback failed: "+e.getErrorCodeName());return;}
     recover(e.getErrorCodeName(),firstFrame?Math.max(0,p.getCurrentPosition()):position);
    }
    void recover(String reason,long resume){
@@ -1068,7 +1072,7 @@ public class MainActivity extends Activity {
  void choosePlayerRange(Item item){
   String[] choices={"Auto (source)","SDR (tone mapping)","HDR (prefer HDR source)"};
   String[] values={"Auto","Prefer SDR","Prefer HDR"};
-  boolean live=page.equals("Live TV");if(live&&defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Native picture output. To change SDR/HDR, select Custom in Playback settings.").setPositiveButton("Close",null).show();return;}int current=Arrays.asList(values).indexOf(rangeFor(live));
+  boolean live=page.equals("Live TV");if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Native picture output. To change SDR/HDR, select Custom in Playback settings.").setPositiveButton("Close",null).show();return;}int current=Arrays.asList(values).indexOf(rangeFor(live));
   new AlertDialog.Builder(this).setTitle("Video dynamic range").setSingleChoiceItems(choices,current,(dialog,n)->{
    dialog.dismiss();String range=values[n];if(range.equals(rangeFor(live)))return;
    prefs.edit().putString(live?"range_live":"range_vod",range).apply();
