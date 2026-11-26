@@ -9,6 +9,10 @@ class Fixture(BaseHTTPRequestHandler):
         action = q.get("action", [""])[0]
         if action == "get_vod_categories":
             data = [{"category_id": "1", "category_name": "Fixture movies"}]
+        elif action == "get_series_categories":
+            data = [{"category_id": "1", "category_name": "Fixture series"}]
+        elif action == "get_series":
+            data = [{"series_id": n, "name": "Series fixture %03d" % n} for n in range(1, 41)]
         elif action == "get_live_categories":
             data = [{"category_id": "1", "category_name": "Fixture channels"}]
         elif action == "get_live_streams":
@@ -60,6 +64,7 @@ def enter_field(node,value):
     # Enter fixture credentials slowly, verifying the address before Connect.
     target=bounds(node)
     secret=node.get("password")=="true"
+    original_hint=node.get("text","")
     for attempt in range(3):
         tap(node)
         time.sleep(.7)
@@ -73,7 +78,7 @@ def enter_field(node,value):
         current=next((n for n in ui().iter("node") if n.get("class")=="android.widget.EditText" and n.get("focused")=="true"),None)
         if current is not None:
             actual=current.get("text","")
-            if (not secret and actual==value) or (secret and len(actual)==len(value)):
+            if (not secret and actual==value) or (secret and actual!=original_hint and len(actual)==len(value)):
                 return
     raise AssertionError("Could not reliably enter fixture "+("password" if secret else "login field"))
 
@@ -122,7 +127,16 @@ try:
     assert len(fields)>=3, "Missing Xtream login fields"
     for node,value in zip(fields,["http://127.0.0.1:18765","fixture","fixture"]):
         enter_field(node,value)
-        adb("shell","input","keyevent","4")
+        if "mInputShown=true" in adb("shell","dumpsys","input_method"):
+            adb("shell","input","keyevent","4")
+            time.sleep(.4)
+    current_fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
+    assert current_fields[0].get("text")=="http://127.0.0.1:18765"
+    assert current_fields[1].get("text")=="fixture"
+    if current_fields[2].get("text") in ("","Password"):
+        enter_field(current_fields[2],"fixture")
+        if "mInputShown=true" in adb("shell","dumpsys","input_method"):
+            adb("shell","input","keyevent","4")
     tap(expect("Connect"))
     expect("Fixture movies")
     deadline=time.monotonic()+35
@@ -148,6 +162,13 @@ try:
     for label in ("Home","Search","Retry"):
         expect(label)
     tap(expect("Home"))
+    tap(expect("Series"))
+    expect("Fixture series")
+    expect("Series fixture 001")
+    with open("premium-series-preview.png","wb") as out:
+        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
+    adb("shell","input","keyevent","4")
+    expect("SHARK SKY")
     tap(expect("Settings"))
     tap(expect("Cleaner"))
     tap(expect("Clear app cache"))

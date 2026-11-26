@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
  final Runnable refreshEpg=new Runnable(){public void run(){if(!stopped&&!full&&page.equals("Live TV")&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(!stopped&&page.equals("Live TV"))ui.postDelayed(this,60000);}};
  static class Programme{String title,description,rawStart,rawEnd;long start,end;}
  static class GuideData{final List<Programme> shows;final long fetched=System.currentTimeMillis();final boolean extended;GuideData(List<Programme>s,boolean x){shows=s;extended=x;}}
- final ThreadPoolExecutor posterIo=new ThreadPoolExecutor(3,3,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(32),new ThreadPoolExecutor.DiscardOldestPolicy());
+ final ThreadPoolExecutor posterIo=new ThreadPoolExecutor(3,3,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(64),new ThreadPoolExecutor.AbortPolicy());
  final android.util.LruCache<String,String> posterUrls=new android.util.LruCache<>(500);
  final android.util.LruCache<String,android.graphics.Bitmap> posterCache=new android.util.LruCache<String,android.graphics.Bitmap>(24*1024*1024){@Override protected int sizeOf(String k,android.graphics.Bitmap b){return b.getAllocationByteCount();}};
  android.content.SharedPreferences prefs;
@@ -50,6 +50,8 @@ public class MainActivity extends Activity {
  PlayerView video;
  TextView rangeButton;
  LinearLayout playerHeader,playerDetails;
+ PremiumPlayerOverlay premiumPlayer;
+ Future<?> catalogueJob;
  ProgressBar programmeProgress;
  String playbackDiagnostics="No video information yet";
  int activeSdrPath=-1;
@@ -83,6 +85,7 @@ public class MainActivity extends Activity {
  };
  void clearCatalogue(){synchronized(catalogueLock){catalogueGeneration++;catalogue.evictAll();}}
  void catalogueTask(String key,long ttl,boolean force,int req,Work<List<Item>> fetch,Done<List<Item>> done){
+  if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}
   final int token=screenToken;
   final long generation;
   final CatalogueEntry cached;
@@ -91,9 +94,10 @@ public class MainActivity extends Activity {
    if(token==screenToken&&req==loadToken&&!isFinishing())done.run(new ArrayList<>(cached.items));
    return;
   }
-  io.execute(()->{
+  catalogueJob=io.submit(()->{
    try{
     List<Item> loaded=fetch.run();
+    if(Thread.currentThread().isInterrupted())return;
     // Do not evict the entire useful cache for one oversized provider response.
     if(loaded.size()<=12000)synchronized(catalogueLock){if(generation==catalogueGeneration&&req==loadToken&&token==screenToken)catalogue.put(key,new CatalogueEntry(loaded));}
     ui.post(()->{if(token==screenToken&&req==loadToken&&!isFinishing())done.run(new ArrayList<>(loaded));});
@@ -160,7 +164,7 @@ public class MainActivity extends Activity {
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
- void screen(String title){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.025f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
+ void screen(String title){if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.025f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
  void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
  void home(){
   page="Home";screen("SHARK SKY");
@@ -318,7 +322,8 @@ public class MainActivity extends Activity {
  void displayDialog(){android.view.Display display=getWindowManager().getDefaultDisplay();android.view.Display.Mode[] modes=display.getSupportedModes();String[] labels=new String[modes.length+2];labels[0]="Automatic (system)";labels[1]="Highest refresh at current resolution";for(int i=0;i<modes.length;i++)labels[i+2]=modes[i].getPhysicalWidth()+" × "+modes[i].getPhysicalHeight()+" · "+String.format(Locale.US,"%.2f Hz",modes[i].getRefreshRate());new AlertDialog.Builder(this).setTitle("Supported display modes").setItems(labels,(d,i)->{prefs.edit().putInt("display_mode",i==0?0:i==1?-1:modes[i-2].getModeId()).apply();applyDisplayMode();playbackSettings();}).setNegativeButton("Cancel",null).show();}
  void applyDisplayMode(){android.view.Display display=getWindowManager().getDefaultDisplay();android.view.Display.Mode current=display.getMode();int request=prefs.getInt("display_mode",0),chosen=0;float rate=0;for(android.view.Display.Mode m:display.getSupportedModes()){if(request>0&&m.getModeId()==request){chosen=request;break;}if(request==-1&&m.getPhysicalWidth()==current.getPhysicalWidth()&&m.getPhysicalHeight()==current.getPhysicalHeight()&&m.getRefreshRate()>rate){rate=m.getRefreshRate();chosen=m.getModeId();}}WindowManager.LayoutParams a=getWindow().getAttributes();a.preferredDisplayModeId=chosen;getWindow().setAttributes(a);}
  String prefix(){return page.equals("Live TV")?"live":page.equals("Movies")?"vod":"series";}
- static List<Item> parse(JSONArray a,String id,String name){List<Item> list=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject j=a.optJSONObject(i);if(j!=null&&!j.optString(id).isEmpty()){Item item=new Item(j.optString(id),j.optString(name),j.optString("container_extension","mp4"));if(!id.equals("category_id")){item.art=j.optString("stream_icon",j.optString("cover",""));item.year=j.optString("year",j.optString("releaseDate",j.optString("release_date","")));item.tmdb=j.optString("tmdb_id",j.optString("tmdb",""));}list.add(item);}}return list;}
+ static String firstArtwork(JSONObject j){for(String field:new String[]{"stream_icon","cover","cover_big","movie_image","poster_path"}){String u=j.optString(field,"").trim();if(u.startsWith("https://")||u.startsWith("http://"))return u;}return "";}
+ static List<Item> parse(JSONArray a,String id,String name){List<Item> list=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject j=a.optJSONObject(i);if(j!=null&&!j.optString(id).isEmpty()){Item item=new Item(j.optString(id),j.optString(name),j.optString("container_extension","mp4"));if(!id.equals("category_id")){item.art=firstArtwork(j);item.year=j.optString("year",j.optString("releaseDate",j.optString("release_date","")));item.tmdb=j.optString("tmdb_id",j.optString("tmdb",""));}list.add(item);}}return list;}
  void open(String p){page=p;cat="";seriesId="";catPos=itemPos=0;selected=null;cats=new ArrayList<>();items=new ArrayList<>();browser(false);loadCats();}
  RecyclerView list(){RecyclerView r=new RecyclerView(this);r.setLayoutManager(new LinearLayoutManager(this));r.setHasFixedSize(true);r.setItemAnimator(null);return r;}
  class Rows extends RecyclerView.Adapter<Rows.H>{List<Item> data;Pick pick;Rows(List<Item>d,Pick p){data=d;pick=p;}class H extends RecyclerView.ViewHolder{TextView t;H(TextView t){super(t);this.t=t;}}
@@ -348,7 +353,7 @@ public class MainActivity extends Activity {
  android.graphics.Bitmap posterBitmap(String url)throws Exception{
   if(url==null||!(url.startsWith("https://")||url.startsWith("http://")))return null;
   android.graphics.Bitmap cached=posterCache.get(url);if(cached!=null)return cached;
-  HttpURLConnection conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(5000);conn.setReadTimeout(7000);
+  HttpURLConnection conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(3500);conn.setReadTimeout(5000);
   try{if(conn.getResponseCode()!=200)return null;try(InputStream in=conn.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted()||out.size()+n>8*1024*1024)return null;out.write(buf,0,n);}byte[] data=out.toByteArray();android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,bounds);if(bounds.outWidth<=0||bounds.outHeight<=0)return null;android.graphics.BitmapFactory.Options opt=new android.graphics.BitmapFactory.Options();opt.inSampleSize=1;while(bounds.outWidth/opt.inSampleSize>1000||bounds.outHeight/opt.inSampleSize>1500)opt.inSampleSize*=2;android.graphics.Bitmap b=android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,opt);if(b!=null)posterCache.put(url,b);return b;}}finally{conn.disconnect();}
  }
  boolean showPosters(){return page.equals("Movies")||(page.equals("Series")&&seriesId.isEmpty());}
@@ -392,16 +397,27 @@ public class MainActivity extends Activity {
   class H extends RecyclerView.ViewHolder{ImageView art;TextView title;Future<?> job;Item bound;H(LinearLayout v,ImageView a,TextView t){super(v);art=a;title=t;}}
   @Override public H onCreateViewHolder(ViewGroup parent,int viewType){
    LinearLayout v=col();v.setPadding(dp(3),dp(3),dp(3),dp(3));v.setFocusable(true);v.setClickable(true);v.setBackground(posterFocus());premiumHomeFocus(v);
-   ImageView a=new ImageView(MainActivity.this);a.setScaleType(ImageView.ScaleType.CENTER_CROP);a.setBackgroundColor(0xff0b1529);v.addView(a,new LinearLayout.LayoutParams(-1,-1));
-   TextView t=text("",12);t.setVisibility(View.GONE);
+   FrameLayout frame=new FrameLayout(MainActivity.this);v.addView(frame,new LinearLayout.LayoutParams(-1,-1));ImageView a=new ImageView(MainActivity.this);a.setScaleType(ImageView.ScaleType.CENTER_CROP);a.setBackgroundColor(0xff0b1529);frame.addView(a,new FrameLayout.LayoutParams(-1,-1));
+    TextView t=text("",14);t.setGravity(Gravity.CENTER);t.setPadding(dp(4),dp(4),dp(4),dp(4));t.setMaxLines(4);frame.addView(t,new FrameLayout.LayoutParams(-1,-1));
    RecyclerView.LayoutParams lp=new RecyclerView.LayoutParams(-1,cardHeight);lp.setMargins(dp(3),dp(3),dp(3),dp(3));v.setLayoutParams(lp);
    H h=new H(v,a,t);v.setOnFocusChangeListener((view,focused)->{if(focused&&h.bound!=null&&status!=null)status.setText(h.bound.name);});
    v.setOnClickListener(view->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});return h;
   }
-  @Override public void onBindViewHolder(H h,int pos){ViewGroup.LayoutParams lp=h.itemView.getLayoutParams();if(lp!=null&&lp.height!=cardHeight){lp.height=cardHeight;h.itemView.setLayoutParams(lp);}if(h.job!=null)h.job.cancel(true);Item i=data.get(pos);h.bound=i;h.title.setText(i.name);h.itemView.setContentDescription(i.name);h.art.setImageDrawable(null);if(h.itemView.hasFocus()&&status!=null)status.setText(i.name);int token=screenToken;String key=tmdbKey();
-   h.job=posterIo.submit(()->{android.graphics.Bitmap b=null;try{b=posterBitmap(artwork(i,type,key));}catch(Exception ignored){}if(b==null&&!Thread.currentThread().isInterrupted())try{b=posterBitmap(i.art);}catch(Exception ignored){}final android.graphics.Bitmap result=b;if(result!=null&&!Thread.currentThread().isInterrupted())ui.post(()->{if(h.bound==i&&token==screenToken&&!isFinishing())h.art.setImageBitmap(result);});});
+  @Override public void onBindViewHolder(H h,int pos){ViewGroup.LayoutParams lp=h.itemView.getLayoutParams();if(lp!=null&&lp.height!=cardHeight){lp.height=cardHeight;h.itemView.setLayoutParams(lp);}if(h.job!=null){h.job.cancel(true);posterIo.purge();}Item i=data.get(pos);h.bound=i;h.title.setText(i.name);h.title.setVisibility(View.VISIBLE);h.itemView.setContentDescription(i.name);h.art.setImageDrawable(null);if(h.itemView.hasFocus()&&status!=null)status.setText(i.name);int token=screenToken;String key=tmdbKey();
+   loadPoster(h,i,token,key,0);
   }
-  @Override public void onViewRecycled(H h){if(h.job!=null)h.job.cancel(true);h.bound=null;h.art.setImageDrawable(null);super.onViewRecycled(h);}
+  void paintPoster(H h,Item i,int token,android.graphics.Bitmap b){if(b!=null&&!Thread.currentThread().isInterrupted())ui.post(()->{if(h.bound==i&&token==screenToken&&!isFinishing()){h.art.setImageBitmap(b);h.title.setVisibility(View.GONE);}});}
+   void loadPoster(H h,Item i,int token,String key,int retry){
+    if(h.bound!=i||token!=screenToken||isFinishing())return;
+    try{h.job=posterIo.submit(()->{
+     String cacheKey=key+"|"+type+"|"+i.tmdb+"|"+i.name+"|"+yearOf(i);
+     String known=posterUrls.get(cacheKey);android.graphics.Bitmap cached=known==null?null:posterCache.get(known);
+     if(cached!=null){paintPoster(h,i,token,cached);return;}
+     try{paintPoster(h,i,token,posterBitmap(i.art));}catch(Exception ignored){}
+     if(!key.isEmpty()&&!Thread.currentThread().isInterrupted())try{String best=artwork(i,type,key);if(!best.equals(i.art))paintPoster(h,i,token,posterBitmap(best));}catch(Exception ignored){}
+    });}catch(RejectedExecutionException busy){if(retry<8)h.itemView.postDelayed(()->loadPoster(h,i,token,key,retry+1),250);}
+   }
+   @Override public void onViewRecycled(H h){if(h.job!=null){h.job.cancel(true);posterIo.purge();}h.bound=null;h.art.setImageDrawable(null);super.onViewRecycled(h);}
   public int getItemCount(){return data.size();}
  }
  void focusAt(RecyclerView r,int p){if(r.getAdapter()==null||r.getAdapter().getItemCount()==0)return;int i=Math.max(0,Math.min(p,r.getAdapter().getItemCount()-1));r.scrollToPosition(i);r.post(()->{RecyclerView.ViewHolder h=r.findViewHolderForAdapterPosition(i);if(h!=null)h.itemView.requestFocus();else r.requestFocus();});}
@@ -411,10 +427,10 @@ public class MainActivity extends Activity {
  void retryCatalogue(){clearCatalogue();if(cats.isEmpty())loadCats();else loadItems();}
  void liveOptions(){if(full||!page.equals("Live TV"))return;new AlertDialog.Builder(this).setTitle("Live TV options").setItems(new String[]{"Home","Search","TV Guide","Retry"},(d,n)->{switch(n){case 0:home();break;case 1:search();break;case 2:openGuide();break;case 3:retryCatalogue();break;}}).setNegativeButton("Cancel",null).show();}
  void loadCats(){String k=prefix(),url=api("get_"+k+"_categories","");int req=++loadToken;msg("Loading categories…");catalogueTask("cats:"+k,CATEGORY_TTL,false,req,()->parse(new JSONArray(get(url)),"category_id","category_name"),a->{cats=new ArrayList<>();cats.add(new Item("","All",""));if(page.equals("Live TV"))cats.add(new Item("@fav","Favourites",""));cats.addAll(a);catAdapter();focusAt(left,0);loadItems();});}
- void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(page.equals("Live TV")&&right!=null)right.setAdapter(new Rows(Collections.emptyList(),this::pick));msg("Loading…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
+ void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(right!=null){items=new ArrayList<>();setItemsAdapter(items,this::pick);}msg("Loading "+page+"…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
  void search(){EditText e=new EditText(this);e.setSingleLine();styleInput(e);new AlertDialog.Builder(this).setTitle("Search current list").setView(e).setPositiveButton("Search",(d,w)->{String q=e.getText().toString().toLowerCase(Locale.ROOT);List<Item>a=new ArrayList<>();for(Item i:items)if(i.name.toLowerCase(Locale.ROOT).contains(q))a.add(i);setItemsAdapter(a,(i,p)->pick(i,items.indexOf(i)));focusAt(right,0);}).setNegativeButton("Cancel",null).show();}
  void pick(Item i,int p){itemPos=p;if(page.equals("Live TV")){if(selected!=null&&selected.id.equals(i.id)&&player!=null){playFull(i);return;}selected=i;attach(preview,i,false);loadEpg(i);return;}if(page.equals("Series")&&seriesId.isEmpty()){episodes(i);return;}playFull(i);}
- void episodes(Item s){int req=++loadToken;String url=api("get_series_info","&series_id="+enc(s.id));catalogueTask("episodes:"+s.id,STREAM_TTL,false,req,()->{JSONObject j=new JSONObject(get(url)).optJSONObject("episodes");List<Item>a=new ArrayList<>();if(j!=null){List<String> keys=new ArrayList<>();j.keys().forEachRemaining(keys::add);Collections.sort(keys);for(String k:keys){JSONArray e=j.optJSONArray(k);if(e!=null)for(int n=0;n<e.length();n++){JSONObject o=e.optJSONObject(n);if(o!=null&&!o.optString("id").isEmpty())a.add(new Item(o.optString("id"),"S"+k+" E"+o.optString("episode_num")+" · "+o.optString("title"),o.optString("container_extension","mp4")));}}}return a;},a->{if(req!=loadToken)return;seriesId=s.id;items=a;setItemsAdapter(items,this::pick);msg(s.name);focusAt(right,0);});}
+ void episodes(Item s){msg("Loading episodes…");int req=++loadToken;String url=api("get_series_info","&series_id="+enc(s.id));catalogueTask("episodes:"+s.id,STREAM_TTL,false,req,()->{JSONObject j=new JSONObject(get(url)).optJSONObject("episodes");List<Item>a=new ArrayList<>();if(j!=null){List<String> keys=new ArrayList<>();j.keys().forEachRemaining(keys::add);Collections.sort(keys);for(String k:keys){JSONArray e=j.optJSONArray(k);if(e!=null)for(int n=0;n<e.length();n++){JSONObject o=e.optJSONObject(n);if(o!=null&&!o.optString("id").isEmpty())a.add(new Item(o.optString("id"),"S"+k+" E"+o.optString("episode_num")+" · "+o.optString("title"),o.optString("container_extension","mp4")));}}}return a;},a->{if(req!=loadToken)return;seriesId=s.id;items=a;setItemsAdapter(items,this::pick);msg(s.name);focusAt(right,0);});}
  static String epgText(String value){
   if(value==null||value.isEmpty()||value.equals("null"))return "";
   if(value.length()>=4&&value.matches("[A-Za-z0-9+/]+={0,2}")&&value.length()%4==0)try{
@@ -777,6 +793,7 @@ public class MainActivity extends Activity {
   n.setVideoURI(Uri.parse(stream(i)));n.requestFocus();n.start();addRangeButton(host,i,null);
  }
  void removeRangeButton(){
+  if(premiumPlayer!=null){premiumPlayer.dispose();premiumPlayer=null;}
   if(playerDetails!=null){ViewGroup group=(ViewGroup)playerDetails.getParent();if(group!=null)group.removeView(playerDetails);playerDetails=null;}
   if(playerHeader!=null){ViewGroup group=(ViewGroup)playerHeader.getParent();if(group!=null)group.removeView(playerHeader);playerHeader=null;}
   if(rangeButton!=null){ViewGroup group=(ViewGroup)rangeButton.getParent();if(group!=null)group.removeView(rangeButton);rangeButton=null;}
@@ -842,21 +859,12 @@ public class MainActivity extends Activity {
   if(playerView==null){
    TextView button=text("Picture  •  "+rangeLabel(),14);button.setGravity(Gravity.CENTER);button.setPadding(dp(14),0,dp(14),0);button.setBackground(focus());premiumHomeFocus(button);button.setFocusable(true);button.setClickable(true);FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-2,dp(40),Gravity.TOP|Gravity.RIGHT);lp.topMargin=dp(18);lp.rightMargin=dp(22);host.addView(button,lp);rangeButton=button;button.setOnClickListener(v->choosePlayerRange(item));return;
   }
-  stylePlayer(playerView);
-  LinearLayout header=col();header.setPadding(dp(18),dp(8),dp(18),dp(10));header.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xf012326a,0xcb10274c,0x0007152c}));
-  LinearLayout titleRow=row();header.addView(titleRow,new LinearLayout.LayoutParams(-1,dp(38)));
-  TextView title=text(item.name,21);title.setSingleLine();title.setEllipsize(android.text.TextUtils.TruncateAt.END);titleRow.addView(title,new LinearLayout.LayoutParams(0,-1,1));
-  TextClock playerClock=new TextClock(this);playerClock.setFormat24Hour("HH:mm");playerClock.setFormat12Hour("h:mm a");playerClock.setTextColor(UI_TEXT);playerClock.setTextSize(18);playerClock.setTypeface(uiRegular);titleRow.addView(playerClock);
-  LinearLayout actions=row();header.addView(actions,new LinearLayout.LayoutParams(-1,dp(42)));actions.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);
-  playerAction(actions,"Audio",()->chooseTrack(C.TRACK_TYPE_AUDIO));playerAction(actions,"Subtitles",()->chooseTrack(C.TRACK_TYPE_TEXT));playerAction(actions,"Aspect",this::aspectDialog);
-  playerAction(actions,"Video info",()->new AlertDialog.Builder(this).setTitle("Video information").setMessage(playbackDiagnostics).setPositiveButton("Close",null).show());
-  TextView picture=playerAction(actions,"Picture • "+rangeLabel(),()->choosePlayerRange(item));rangeButton=picture;
-  addPlayerDetails(host,item,playerView);
-  playerHeader=header;host.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));header.setVisibility(playerView.isControllerFullyVisible()?View.VISIBLE:View.GONE);
-  playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(playerHeader==header){header.setVisibility(visibility);if(playerDetails!=null)playerDetails.setVisibility(visibility);}});
-  playerView.showController();
+  playerView.hideController();playerView.setUseController(false);playerView.setControllerAutoShow(false);
+  premiumPlayer=new PremiumPlayerOverlay(this,host,playerView,item);
+  premiumPlayer.show();
  }
  @Override public boolean dispatchKeyEvent(KeyEvent event){
+  if(full&&premiumPlayer!=null&&premiumPlayer.handleKey(event))return true;
   if(!full&&(page.equals("Live TV")||page.equals("Movies")||page.equals("Series"))&&event.getKeyCode()==KeyEvent.KEYCODE_MENU){
    // Open on release: otherwise the newly focused dialog receives the trailing Menu key-up.
    if(event.getAction()==KeyEvent.ACTION_UP&&!event.isCanceled()){if(page.equals("Live TV"))liveOptions();else catalogueOptions();}return true;
@@ -927,7 +935,7 @@ public class MainActivity extends Activity {
  }
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
- @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
+ @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
  @Override protected void onDestroy(){screenToken++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();clearCatalogue();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
  boolean updateBusy=false;

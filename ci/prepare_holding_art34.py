@@ -68,6 +68,16 @@ for y in range(Y(488),Y(928)):
         cool=(min(r,round(g*.82+b*.18)),min(255,round(max(g,b*.91))),min(255,round(max(b,g*1.10))),a)
         px[x,y]=tuple(round(v*(1-strength)+c*strength) for v,c in zip((r,g,b,a),cool))
 print("PASS: fixed source focus tint neutralised in the outer rim/reflection")
+# Extract multicolour Sky wordmark from the approved first Home tile.
+wordmark=im.crop((X(112),Y(531),X(391),Y(699))).convert("RGBA")
+wp=wordmark.load()
+for yy in range(wordmark.height):
+    for xx in range(wordmark.width):
+        rr,gg,bb,aa=wp[xx,yy]
+        chroma=max(rr,gg,bb)-min(rr,gg,bb)
+        wp[xx,yy]=(rr,gg,bb,round(255*max(0,min(1,(chroma-24)/35))))
+wordmark.save(dst/"player_sky_colour.png")
+assert wordmark.getchannel("A").getextrema()==(0,255)
 back=im.copy()
 for i,((x,y,w,h),(l,t,r,b)) in enumerate(zip(areas,rims)):
     box=(X(x),Y(y),X(x+w),Y(y+h)); ww=box[2]-box[0];hh=box[3]-box[1]

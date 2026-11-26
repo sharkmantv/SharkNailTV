@@ -207,6 +207,7 @@ jobs:
             premium-focus-*.png
             premium-settings-preview.png
             premium-live-preview.png
+            premium-series-preview.png
             failed-ui.xml
             failed-ui.png
           if-no-files-found: ignore
