@@ -153,22 +153,24 @@ def check_player():
         raise AssertionError("Missing player event: "+message+"\n"+player_events()[-12000:])
     # Verify the real auto-hide transition and focused playback surface.
     wait_player_event("overlay hidden")
-    expect("Show playback controls",timeout=30)
+    target=expect("Show playback controls",timeout=30)
+    assert target.get("focusable")=="true", "Hidden player must expose a remote-focus target"
     before=player_events().count("overlay shown")
     # Supply the actual TV D-pad input source, not the phone keyboard default.
     adb("shell","input","dpad","keyevent","23")
     wait_player_event("overlay shown",after=before,timeout=25)
     # Paused controls stay visible while UIAutomator captures the hierarchy.
     before=player_events().count("playWhenReady=false")
-    adb("shell","input","dpad","keyevent","127")
+    adb("shell","input","dpad","keyevent","23")
     wait_player_event("playWhenReady=false",after=before)
-    expect("Play",timeout=30)
+    play_control=expect("Play",timeout=30)
+    assert play_control.get("focused")=="true", "Play/pause must retain TV focus"
     root=ui()
     for label in ("Sky","Play","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
         assert find(root,label) is not None,("Missing premium player control",label)
     capture("player")
     before=player_events().count("playWhenReady=true")
-    adb("shell","input","dpad","keyevent","126")
+    adb("shell","input","dpad","keyevent","23")
     wait_player_event("playWhenReady=true",after=before)
     adb("shell","input","keyevent","4")
     expect("Layout fixture 001")

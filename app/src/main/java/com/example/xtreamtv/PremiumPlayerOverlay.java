@@ -16,6 +16,7 @@ import java.util.Locale;
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 final class PremiumPlayerOverlay extends FrameLayout {
  MainActivity a; FrameLayout host; PlayerView surface; MainActivity.Item item; ExoPlayer p;
+ final View wakeTarget;
  boolean live,compact,disposed,scrubbing,consumeUp;
  static final int GOLD=0xffffca22,WHITE=0xfff7fbff;
  SeekBar progress; TextView elapsed,total,metadata; Control play;
@@ -46,7 +47,17 @@ final class PremiumPlayerOverlay extends FrameLayout {
   LinearLayout opts=a.row();opts.setGravity(Gravity.CENTER);opts.setPadding(d(12),d(4),d(12),0);opts.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xcc091b3c,0x8805152f,0x44051028}));bottom.addView(opts,new LinearLayout.LayoutParams(-1,d(compact?35:46)));
   View[] actions={option(opts,"Audio",()->new AlertDialog.Builder(a).setTitle("Audio").setItems(new String[]{"Audio tracks","Volume"},(dialog,i)->{if(i==0)a.chooseTrack(C.TRACK_TYPE_AUDIO);else volume();}).setNegativeButton("Cancel",null).show()),option(opts,"Subtitles",()->a.chooseTrack(C.TRACK_TYPE_TEXT)),option(opts,"Aspect",a::aspectDialog),option(opts,"Picture",()->a.choosePlayerRange(item)),option(opts,"Info",()->new AlertDialog.Builder(a).setTitle(item.name).setMessage(a.playbackDiagnostics).setPositiveButton("Close",null).show())};
   link(actions);for(int i=0;i<keys.length;i++){keys[i].setNextFocusUpId(progress.getId());keys[i].setNextFocusDownId(actions[i].getId());actions[i].setNextFocusUpId(keys[i].getId());}progress.setNextFocusDownId(play.getId());
-  host.addView(this,new FrameLayout.LayoutParams(-1,-1));surface.setFocusable(true);surface.setFocusableInTouchMode(true);surface.setContentDescription("Show playback controls");surface.setOnClickListener(v->{if(getVisibility()==VISIBLE)hide();else show();});surface.setOnKeyListener((v,k,e)->handleKey(e));p.addListener(listener);
+  // A dedicated transparent native view owns focus when controls are hidden.
+  // Media3 may replace its own accessibility description and focus behaviour.
+  wakeTarget=new View(a);
+  wakeTarget.setId(View.generateViewId());wakeTarget.setFocusable(true);wakeTarget.setFocusableInTouchMode(true);
+  wakeTarget.setClickable(true);wakeTarget.setContentDescription("Show playback controls");
+  wakeTarget.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+  wakeTarget.setOnClickListener(v->show());
+  wakeTarget.setOnKeyListener((v,k,e)->handleKey(e));
+  host.addView(wakeTarget,new FrameLayout.LayoutParams(-1,-1));
+  host.addView(this,new FrameLayout.LayoutParams(-1,-1));
+  p.addListener(listener);
  }
  int d(int n){return a.dp(n);}
  void tint(SeekBar s){s.setProgressTintList(ColorStateList.valueOf(GOLD));s.setThumbTintList(ColorStateList.valueOf(GOLD));s.setProgressBackgroundTintList(ColorStateList.valueOf(0xff677a9a));}
@@ -59,10 +70,27 @@ final class PremiumPlayerOverlay extends FrameLayout {
  String time(long millis){long s=Math.max(0,millis/1000);return s>=3600?String.format(Locale.US,"%d:%02d:%02d",s/3600,s/60%60,s%60):String.format(Locale.US,"%02d:%02d",s/60,s%60);}
  void refresh(){if(disposed||a.player!=p)return;Format f=p.getVideoFormat(),audio=p.getAudioFormat();StringBuilder s=new StringBuilder(live?"LIVE":"");if(f!=null&&f.height>0){if(s.length()>0)s.append(" · ");s.append(f.height>=2160?"4K UHD":f.height>=1080?"1080p":f.height+"p");if(MainActivity.isHdr(f))s.append(" · HDR");}if(audio!=null&&audio.channelCount>0){if(s.length()>0)s.append(" · ");s.append(audio.channelCount==6?"5.1 audio":audio.channelCount==2?"Stereo":audio.channelCount+" ch audio");}metadata.setText(s.toString());long duration=p.getDuration();boolean canSeek=p.isCurrentMediaItemSeekable()&&duration>0;progress.setEnabled(canSeek);progress.setFocusable(canSeek);if(!scrubbing){elapsed.setText(live&&!canSeek?"LIVE":time(p.getCurrentPosition()));total.setText(duration>0?time(duration):"—");progress.setProgress(canSeek?(int)Math.min(10000,Math.max(0,10000d*p.getCurrentPosition()/duration)):0);progress.setSecondaryProgress(canSeek?(int)Math.min(10000,10000d*p.getBufferedPosition()/duration):0);}play.setContentDescription(p.getPlayWhenReady()?"Pause":"Play");play.invalidate();}
  void arm(){removeCallbacks(timeout);if(isShown()&&!scrubbing&&!disposed&&p.getPlayWhenReady())postDelayed(timeout,6000);}
- void show(){if(disposed||a.player!=p)return;setVisibility(VISIBLE);android.util.Log.i("SharkPlayerUI","overlay shown");refresh();if(!hasFocus())play.requestFocus();removeCallbacks(ticker);post(ticker);arm();}
- void hide(){if(disposed)return;removeCallbacks(timeout);removeCallbacks(ticker);setVisibility(GONE);surface.requestFocus();android.util.Log.i("SharkPlayerUI","overlay hidden");}
+ void show(){
+  if(disposed||a.player!=p)return;
+  boolean opening=getVisibility()!=VISIBLE||wakeTarget.getVisibility()==VISIBLE;
+  setVisibility(VISIBLE);wakeTarget.setVisibility(GONE);refresh();
+  if(opening||!hasFocus()){
+   play.requestFocus();
+   post(()->{if(!disposed&&getVisibility()==VISIBLE&&!hasFocus())play.requestFocus();});
+  }
+  android.util.Log.i("SharkPlayerUI","overlay shown");
+  removeCallbacks(ticker);post(ticker);arm();
+ }
+ void hide(){
+  if(disposed)return;
+  removeCallbacks(timeout);removeCallbacks(ticker);
+  wakeTarget.setVisibility(VISIBLE);setVisibility(GONE);
+  boolean focused=wakeTarget.requestFocus();
+  if(!focused)wakeTarget.post(()->{if(!disposed&&getVisibility()!=VISIBLE)wakeTarget.requestFocus();});
+  android.util.Log.i("SharkPlayerUI","overlay hidden; wake focus="+focused);
+ }
  boolean handleKey(KeyEvent e){if(disposed)return false;int k=e.getKeyCode();boolean nav=k==19||k==20||k==21||k==22||k==23||k==66||k==82||k==KeyEvent.KEYCODE_BUTTON_A||k==KeyEvent.KEYCODE_NUMPAD_ENTER;if(e.getAction()==KeyEvent.ACTION_UP&&consumeUp){consumeUp=false;return true;}if(e.getAction()!=KeyEvent.ACTION_DOWN)return false;if(k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY||k==KeyEvent.KEYCODE_MEDIA_PAUSE){if(k==KeyEvent.KEYCODE_MEDIA_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE&&p.getPlayWhenReady())p.pause();else p.play();show();consumeUp=true;return true;}if(k==KeyEvent.KEYCODE_MEDIA_REWIND||k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD){if(k==KeyEvent.KEYCODE_MEDIA_REWIND&&p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();if(k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD&&p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();show();consumeUp=true;return true;}if(nav&&getVisibility()!=VISIBLE){show();consumeUp=true;return true;}if(nav)arm();if(k==82){a.choosePlayerRange(item);consumeUp=true;return true;}return false;}
- void dispose(){if(disposed)return;disposed=true;removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);surface.setOnKeyListener(null);surface.setOnClickListener(null);surface.setContentDescription(null);surface.setFocusableInTouchMode(false);host.removeView(this);}
+ void dispose(){if(disposed)return;disposed=true;removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);wakeTarget.setOnKeyListener(null);wakeTarget.setOnClickListener(null);host.removeView(wakeTarget);host.removeView(this);}
  final class Control extends View {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);final int type;
   Control(int t){super(PremiumPlayerOverlay.this.a);type=t;}
