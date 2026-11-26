@@ -142,31 +142,34 @@ def check_player():
         if re.search(r"640×360",log): break
         time.sleep(.5)
     else: raise AssertionError("Fixture video never rendered first frame")
-    def wait_player_event(message, timeout=45):
+    def player_events():
+        return adb("logcat","-d","-s","SharkPlayerUI:I")
+    def wait_player_event(message, after=0, timeout=45):
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline:
-            if message in adb("logcat","-d","-s","SharkPlayerUI:I"):
+            if player_events().count(message)>after:
                 return
             time.sleep(.25)
-        raise AssertionError("Missing player event: "+message)
-    # Use the actual timeout event, not an assumed wall-clock delay.
+        raise AssertionError("Missing player event: "+message+"\n"+player_events()[-12000:])
+    # Verify the real auto-hide transition and focused playback surface.
     wait_player_event("overlay hidden")
-    adb("logcat","-c")
-    adb("shell","input","keyevent","23")
-    wait_player_event("overlay shown")
-    # Keep the overlay visible while paused so a slow accessibility dump cannot
-    # race the auto-hide timer. Verify actual playback state transitions too.
-    adb("logcat","-c")
-    adb("shell","input","keyevent","127")
-    wait_player_event("playWhenReady=false")
+    expect("Show playback controls",timeout=30)
+    before=player_events().count("overlay shown")
+    # Supply the actual TV D-pad input source, not the phone keyboard default.
+    adb("shell","input","dpad","keyevent","23")
+    wait_player_event("overlay shown",after=before,timeout=25)
+    # Paused controls stay visible while UIAutomator captures the hierarchy.
+    before=player_events().count("playWhenReady=false")
+    adb("shell","input","dpad","keyevent","127")
+    wait_player_event("playWhenReady=false",after=before)
     expect("Play",timeout=30)
     root=ui()
     for label in ("Sky","Play","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
         assert find(root,label) is not None,("Missing premium player control",label)
     capture("player")
-    adb("logcat","-c")
-    adb("shell","input","keyevent","126")
-    wait_player_event("playWhenReady=true")
+    before=player_events().count("playWhenReady=true")
+    adb("shell","input","dpad","keyevent","126")
+    wait_player_event("playWhenReady=true",after=before)
     adb("shell","input","keyevent","4")
     expect("Layout fixture 001")
     print("PASS: actual first frame and premium playback overlay/remote toggle",flush=True)

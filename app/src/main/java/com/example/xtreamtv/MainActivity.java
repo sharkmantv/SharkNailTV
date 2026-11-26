@@ -864,7 +864,7 @@ public class MainActivity extends Activity {
   premiumPlayer.show();
  }
  @Override public boolean dispatchKeyEvent(KeyEvent event){
-  if(full&&premiumPlayer!=null&&premiumPlayer.handleKey(event))return true;
+  if(full&&premiumPlayer!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)android.util.Log.i("SharkPlayerUI","remote key="+event.getKeyCode()+" source="+event.getSource());if(premiumPlayer.handleKey(event))return true;}
   if(!full&&(page.equals("Live TV")||page.equals("Movies")||page.equals("Series"))&&event.getKeyCode()==KeyEvent.KEYCODE_MENU){
    // Open on release: otherwise the newly focused dialog receives the trailing Menu key-up.
    if(event.getAction()==KeyEvent.ACTION_UP&&!event.isCanceled()){if(page.equals("Live TV"))liveOptions();else catalogueOptions();}return true;
