@@ -10,11 +10,11 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
 dependencies {
-    implementation(files("libs/media3-ffmpeg-1.12.0-beta01.aar"))
+    implementation(files("libs/media3-ffmpeg-1.12.0-rc01.aar"))
     implementation("androidx.core:core:1.13.1")
     implementation("androidx.recyclerview:recyclerview:1.3.0")
-    implementation("androidx.media3:media3-exoplayer:1.12.0-beta01")
-    implementation("androidx.media3:media3-exoplayer-hls:1.12.0-beta01")
-    implementation("androidx.media3:media3-ui:1.12.0-beta01")
-    implementation("androidx.media3:media3-effect:1.12.0-beta01")
+    implementation("androidx.media3:media3-exoplayer:1.12.0-rc01")
+    implementation("androidx.media3:media3-exoplayer-hls:1.12.0-rc01")
+    implementation("androidx.media3:media3-ui:1.12.0-rc01")
+    implementation("androidx.media3:media3-effect:1.12.0-rc01")
 }

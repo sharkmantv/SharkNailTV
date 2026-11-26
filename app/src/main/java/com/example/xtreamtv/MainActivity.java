@@ -229,7 +229,7 @@ public class MainActivity extends Activity {
   LinearLayout r=row();area.addView(r,new LinearLayout.LayoutParams(-1,dp(tileHeight)));
   settingsTile(r,"Xtream Codes",4,()->login("Settings"));settingsTile(r,"Playback",5,this::playbackSettings);settingsTile(r,"Display",6,this::displayDialog);settingsTile(r,"Audio",7,()->languageDialog("audio_lang","Preferred audio language"));
   LinearLayout r2=row();LinearLayout.LayoutParams secondRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));secondRow.topMargin=dp(rowGap);area.addView(r2,secondRow);
-  settingsTile(r2,"Subtitles",8,()->languageDialog("text_lang","Preferred subtitle language"));settingsTile(r2,"Updates",9,this::update);settingsTile(r2,"About",10,()->new AlertDialog.Builder(this).setTitle("Shark Sky Premium").setMessage("Version "+BuildConfig.VERSION_NAME+" · Media3 1.12.0-beta01").setPositiveButton("OK",null).show());settingsTile(r2,"Cleaner",11,this::maintenance);
+  settingsTile(r2,"Subtitles",8,()->languageDialog("text_lang","Preferred subtitle language"));settingsTile(r2,"Updates",9,this::update);settingsTile(r2,"About",10,()->new AlertDialog.Builder(this).setTitle("Shark Sky Premium").setMessage("Version "+BuildConfig.VERSION_NAME+" · Media3 1.12.0-rc01").setPositiveButton("OK",null).show());settingsTile(r2,"Cleaner",11,this::maintenance);
   // Match the first eight tiles: same artwork, same dimensions and pulse.
   LinearLayout r3=row();
   LinearLayout.LayoutParams thirdRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));

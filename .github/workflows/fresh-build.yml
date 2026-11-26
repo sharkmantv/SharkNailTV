@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Build and verify exact-beta FFmpeg audio extension
+      - name: Build and verify matching Media3 RC FFmpeg audio extension
         run: bash ci/build_ffmpeg_beta.sh
       - name: Retrieve verified open-source UHD artwork
         env:

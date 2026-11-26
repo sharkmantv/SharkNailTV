@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(pwd)"
-MEDIA3_REF=da29e44e446f0b3ddc16ebfb8c1da9628e8aa6fc
+MEDIA3_REF=96802c557266dd026e0fb36e0dc4e8b169b13b36
 FFMPEG_REF=3f92512fd1fd6f5e6d6eb45a156c352835314d69
 NDK_VERSION=28.2.13676358
 SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
@@ -37,7 +37,7 @@ done
 aar="$(find "$WORK/media" -path '*decoder_ffmpeg*' -name '*-release.aar' -type f -print -quit)"
 test -n "$aar"
 mkdir -p "$ROOT/app/libs" "$WORK/inspect" "$ROOT/app/src/main/assets/licenses" "$WORK/source"
-cp "$aar" "$ROOT/app/libs/media3-ffmpeg-1.12.0-beta01.aar"
+cp "$aar" "$ROOT/app/libs/media3-ffmpeg-1.12.0-rc01.aar"
 unzip -q "$aar" -d "$WORK/inspect"
 for abi in armeabi-v7a arm64-v8a x86 x86_64; do
   test -f "$WORK/inspect/jni/$abi/libffmpegJNI.so"
@@ -64,4 +64,4 @@ Reverse engineering for debugging modifications to the LGPL library is permitted
 EOF
 cp "$ROOT/app/src/main/assets/licenses/"*.txt "$WORK/source/"
 tar -czf "$ROOT/ffmpeg-source.tar.gz" -C "$WORK/source" .
-sha256sum "$ROOT/app/libs/media3-ffmpeg-1.12.0-beta01.aar"
+sha256sum "$ROOT/app/libs/media3-ffmpeg-1.12.0-rc01.aar"
