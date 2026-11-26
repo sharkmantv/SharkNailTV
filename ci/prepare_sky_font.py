@@ -13,7 +13,7 @@ def get(path,expected):
     return data
 data=get("NunitoSans%5BYTLC%2Copsz%2Cwdth%2Cwght%5D.ttf","ccc8565733e7d037ede2c9cc971ceb6375e28733")
 out=Path("app/src/main/assets/fonts");out.mkdir(parents=True,exist_ok=True)
-for name,weight in [("regular",400),("medium",600)]:
+for name,weight in [("regular",600),("medium",700)]:
     f=TTFont(io.BytesIO(data))
     axes={axis.axisTag:axis.defaultValue for axis in f["fvar"].axes}
     axes["wght"]=weight

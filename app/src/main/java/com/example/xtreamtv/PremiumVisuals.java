@@ -34,7 +34,7 @@ final class PremiumVisuals {
   a.recycle();
  }
  static Bitmap headerBrand;
- static View brand(MainActivity a){if(headerBrand==null){BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;headerBrand=BitmapFactory.decodeResource(a.getResources(),R.drawable.sky_shark_logo_34,o);}ImageView v=new ImageView(a);v.setImageBitmap(headerBrand);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
+ static View brand(MainActivity a){if(headerBrand==null){BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;headerBrand=BitmapFactory.decodeResource(a.getResources(),R.drawable.sky_shark_logo_clean,o);}ImageView v=new ImageView(a);v.setImageBitmap(headerBrand);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
  static final class Backdrop extends Drawable{
   final Paint p=new Paint(3);final boolean withHero;
   Backdrop(boolean h){withHero=h;}
@@ -165,7 +165,7 @@ final class PremiumVisuals {
      float ih=h*.42f,iw=ih*src.width()/src.height();
      c.drawBitmap(fourSharks,src,new RectF((w-iw)/2,h*.12f,(w+iw)/2,h*.12f+ih),bitmapPaint);
     }
-    p.setTypeface(font(getContext(),false));
+    p.setTypeface(font(getContext(),true));
     p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(h*.21f,w*.105f));
     p.setColor(0xfff4f5ff);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.5f,h*.76f-(fm.ascent+fm.descent)*.5f,p);
     if(f&&animate&&isShown())postInvalidateDelayed(40);
@@ -174,7 +174,7 @@ final class PremiumVisuals {
    if(!reflection){
     skyTile(c,p,w,h,f,phase,icon);
     float is=Math.min(h*.59f,w*.18f);icon(c,p,icon,false,w*.07f,(h-is)/2,is);
-    p.setTypeface(font(getContext(),false));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
+    p.setTypeface(font(getContext(),true));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
     if(f&&animate&&isShown())postInvalidateDelayed(40);return;
    }
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);

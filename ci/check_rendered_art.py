@@ -13,7 +13,7 @@ for i,(x,X) in enumerate(((55,440),(480,825),(865,1215),(1250,1600))):
         a=crop(im,x+35,y,X-35,Y);b=crop(ref,x+35,y,X-35,Y)
         hit=sum(sum(abs(u-v) for u,v in zip(p,q))<100 for p,q in zip(a.getdata(),b.getdata()))/(a.width*a.height)
         assert hit>.80,(i,y,hit,"artwork differs")
-a=crop(im,574,5,1074,133);b=crop(ref,574,5,1074,133)
+a=crop(im,611,5,1037,114);b=crop(ref,611,5,1037,114)
 assert sum(sum(abs(u-v) for u,v in zip(p,q))<100 for p,q in zip(a.getdata(),b.getdata()))/(a.width*a.height)>.82,"header logo mismatch"
 rims=[(58,510,439,831),(475,510,829,828),(867,511,1219,828),(1257,511,1601,828)]
 def chroma_count(im,box,pred,vertical=False):

@@ -32,7 +32,7 @@ final class PremiumMockupHome {
   ImageView art=new ImageView(a);art.setImageBitmap(backdrop);art.setScaleType(ImageView.ScaleType.FIT_XY);
   art.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);art.setFocusable(false);
   root.place(art,0,0,1648,928);
-  View logo=PremiumVisuals.brand(a);root.place(logo,574,5,500,128);
+  View logo=PremiumVisuals.brand(a);root.place(logo,611,5,426,109);
   // Anchored to the lower lip of each character in the approved render.
   int[][] mouths={{300,294},{669,295},{1008,301},{1439,285}};
   for(int i=0;i<4;i++)root.place(new MouthDrop(a,i),mouths[i][0]-16,mouths[i][1],32,106);

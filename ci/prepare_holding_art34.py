@@ -43,6 +43,10 @@ if args.enhanced_dir:
     im=enhanced
 lg=Image.open(logo)
 assert lg.mode=="RGBA" and lg.getchannel("A").getextrema()==(0,255)
+# Remove stray blue horizontal artefact above the lettering, outside the fin.
+lg=lg.copy()
+ImageDraw.Draw(lg).rectangle((430,0,lg.width-1,5),fill=(0,0,0,0))
+lg.save(dst/"sky_shark_logo_clean.png")
 areas=[(20,477,438,390),(459,477,385,390),(845,477,389,390),(1235,477,397,390)]
 rims=[(43,493,453,849),(463,497,840,845),(852,497,1230,845),(1242,497,1620,845)]
 def X(x):return round(x*3840/1648)
@@ -93,7 +97,7 @@ for i,(x,y,w,h) in enumerate(areas):
     recon.alpha_composite(Image.open(dst/("design34_card_%d.png"%i)),(X(x),Y(y)))
 assert recon.tobytes()==im.tobytes(),"UHD transparent layer reconstruction failed"
 ref=im.copy()
-lg=lg.resize((X(500),Y(128)),Image.Resampling.LANCZOS)
-ref.alpha_composite(lg,(X(574),Y(5)))
+lg=lg.resize((X(426),Y(109)),Image.Resampling.LANCZOS)
+ref.alpha_composite(lg,(X(611),Y(5)))
 ref.convert("RGB").resize((1648,928),Image.Resampling.LANCZOS).save("design34_reference.png")
 print("PASS: 3840x2160 prepared source, exact approved logo, four transparent layers")
