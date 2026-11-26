@@ -14,8 +14,8 @@ final class FlamePulse {
  static final int[] SPECTRUM={0xff2877ff,0xff48eaff,0xffb32dff,0xffff526d,0xffff9e42,0xffffd65a,0xffed3dbe,0xff6446ff,0xff2877ff};
  static final float[] STOPS={0,.125f,.25f,.375f,.5f,.625f,.75f,.875f,1};
  static final class Spectrum {
-  Shader halo,body,core;float x,y,w,h;
-  Spectrum(RectF r){x=r.centerX();y=r.centerY();w=r.width();h=r.height();halo=shader(r,0);body=shader(r,.12f);core=shader(r,.63f);}
+  Shader halo,body,transition,core;float x,y,w,h;
+  Spectrum(RectF r){x=r.centerX();y=r.centerY();w=r.width();h=r.height();halo=shader(r,0);body=shader(r,.02f);transition=shader(r,.24f);core=shader(r,.52f);}
  }
  static final java.util.WeakHashMap<Paint,Spectrum> CACHE=new java.util.WeakHashMap<>();
  static Shader shader(RectF r,float white){
@@ -34,8 +34,9 @@ final class FlamePulse {
   for(int step=0;step<=24;step++){
    float mix=step/24f;
    glow.setStrokeWidth(((25+phase*5)*(1-mix)+3*mix)*scale);
-   if(step>=12)glow.setShader(s.core);
-   glow.setAlpha(step<12?255:Math.round(165+90*mix));c.drawRoundRect(rim,radius,radius,glow);
+   // Retain saturated spectrum through most of the band; brighten only its narrow centre.
+   if(step>=22)glow.setShader(s.core);else if(step>=17)glow.setShader(s.transition);
+   glow.setAlpha(255);c.drawRoundRect(rim,radius,radius,glow);
   }
   glow.setShader(s.core);glow.setAlpha(255);glow.setStrokeWidth((2+phase)*scale);
   c.drawRoundRect(rim,radius,radius,glow);
