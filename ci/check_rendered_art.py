@@ -37,17 +37,19 @@ def check(im,selected):
                 hi=round((b+15)*h/928)
                 return [(y,im.getpixel((px,y))) for y in range(lo,hi+1)]
             orange=lambda R,G,B:R>210 and 70<=G<=175 and B<100
+            # Bright pale-yellow highlight is part of the same continuous gold core.
+            core=lambda R,G,B:R>220 and G>145 and R>B*1.25 and G>B*1.25
             successes=0
             for fraction in (.32,.40,.50,.60,.68):
                 seq=profile(l+(r-l)*fraction)
-                gidx=[n for n,(_,rgb) in enumerate(seq) if gold(*rgb)]
+                gidx=[n for n,(_,rgb) in enumerate(seq) if core(*rgb)]
                 if not gidx: continue
                 first,last=min(gidx),max(gidx)
                 left=[rgb for _,rgb in seq[:first]]
                 right=[rgb for _,rgb in seq[last+1:]]
                 if (any(red(*rgb) for rgb in left) and any(red(*rgb) for rgb in right)
                     and any(orange(*rgb) for rgb in left) and any(orange(*rgb) for rgb in right)
-                    and all(gold(*rgb) or orange(*rgb) for _,rgb in seq[first:last+1])):
+                    and all(core(*rgb) or orange(*rgb) for _,rgb in seq[first:last+1])):
                     successes+=1
             assert successes>=3,(i,successes,"expected one blended red/orange/gold rim")
         else:
