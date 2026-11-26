@@ -185,26 +185,30 @@ def check_player():
     for label in ("Sky","Play","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
         assert find(root,label) is not None,("Missing premium player control",label)
     im=capture("player")
-    # Actual rendered bevel and separate raised transport keys; do not accept
-    # a flat solid blue rectangle or merely matching accessibility labels.
-    x,y,X,Y=bounds(play_control)
+    from PIL import ImageChops, ImageStat
     sw,sh=im.size
-    cy=(y+Y)//2
-    edge_x=round(sw*.025)+max(1,round(sw/960))
-    inner_x=round(sw*.13)
-    edge=[im.getpixel((edge_x,cy+k)) for k in range(-3,4)]
-    interior=[im.getpixel((inner_x,cy+k)) for k in range(-3,4)]
-    assert sum(b>g>r and g<100 and r<45 for r,g,b in interior)>=5,("Player glass centre too bright",interior)
-    assert sum(b>g>r for r,g,b in edge)>=5,("Missing metallic bevel",edge)
-    px,py,pX,pY=bounds(find(root,"Previous"))
-    key_width=pX-px
-    # Unfocused key top bevel and dark key face, away from the icon.
-    keyx=round(px+key_width*.25)
-    strip=[im.getpixel((keyx,yy)) for yy in range(py, min(pY,py+max(5,round((pY-py)*.18))))]
-    assert max(sum(rgb) for rgb in strip)-min(sum(rgb) for rgb in strip)>90,("Raised transport key detail missing",strip)
-    print("PASS: actual dark-glass player, metallic bevel and raised transport key",flush=True)
+    # The video and overlay must both cover the full window, including while controls are visible.
+    assert f"video surface {sw}x{sh} overlay {sw}x{sh}" in player_events(),("Video resized into preview",player_events()[-2500:])
+    x,y,X,Y=bounds(play_control)
+    assert y>=sh*.77 and Y<=sh*.97,("Control bar not compact",y,Y,sh)
+    assert X-x<sw*.13,("Transport key oversized",x,X,sw)
+    assert find(root,"Search titles") is None and find(root,"Search channels") is None,"Unexpected catalogue inside full player"
+    ref=Image.open("app/src/main/res/drawable-nodpi/design4_player_header.png").convert("RGB").resize((round(sw*.98),round(sh*.096)),Image.Resampling.LANCZOS)
+    logo=(round(sw*.018),round(sh*.022),round(sw*.33),round(sh*.083))
+    target=(logo[0]-round(sw*.01),logo[1]-round(sh*.01),logo[2]-round(sw*.01),logo[3]-round(sh*.01))
+    mae=ImageStat.Stat(ImageChops.difference(im.crop(logo),ref.crop(target))).mean
+    assert max(mae)<45,("Header artwork mismatch",mae)
+    tap(expect("Info"))
+    expect("Close")
+    info=ui()
+    combined=" ".join(n.get("text","") for n in info.iter("node"))
+    for label in ("Engine:","Stream FPS:","Display:","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:"):
+        assert label in combined,("Missing diagnostics",label)
+    capture("player-info")
+    tap(expect("Close"))
+    print("PASS: full video surface, approved artwork, compact controls and complete diagnostic text",flush=True)
     before=player_events().count("playWhenReady=true")
-    adb("shell","input","dpad","keyevent","23")
+    tap(expect("Play"))
     wait_player_event("playWhenReady=true",after=before)
     adb("shell","input","keyevent","4")
     expect("Layout fixture 001")
