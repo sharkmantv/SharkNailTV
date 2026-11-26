@@ -33,7 +33,8 @@ final class PremiumVisuals {
   if(atlasId!=0)fourSharks=BitmapFactory.decodeResource(c.getResources(),atlasId,o);
   a.recycle();
  }
- static View brand(MainActivity a){prepare(a);ImageView v=new ImageView(a);v.setImageBitmap(logo);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
+ static Bitmap headerBrand;
+ static View brand(MainActivity a){if(headerBrand==null){BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;headerBrand=BitmapFactory.decodeResource(a.getResources(),R.drawable.sky_shark_logo_34,o);}ImageView v=new ImageView(a);v.setImageBitmap(headerBrand);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
  static final class Backdrop extends Drawable{
   final Paint p=new Paint(3);final boolean withHero;
   Backdrop(boolean h){withHero=h;}
