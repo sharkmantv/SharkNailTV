@@ -42,16 +42,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Build and verify exact-beta FFmpeg audio extension
+        run: bash ci/build_ffmpeg_beta.sh
+      - name: Retrieve verified open-source UHD artwork
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=45768595897
+          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json headSha,headBranch | jq -e '.headSha=="6171d3d9309e2d5b728963dcb30cd6323eec2fad" and .headBranch=="artwork/realesrgan-4k"'
+          timeout 95m gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
+          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json conclusion | jq -e '.conclusion=="success"'
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name Sky-Shark-AI-enhanced-4K --dir enhanced-artwork
+          test -s enhanced-artwork/verification.json
+          test -s enhanced-artwork/comparison.png
       - name: Generate and verify transparent PNG symbols
         run: |
           python -m pip install Pillow==11.3.0 fonttools==4.59.2
           python ci/prepare_sky_font.py
           python ci/extract_premium_art.py
-          python ci/prepare_holding_art34.py
+          python ci/prepare_holding_art34.py --enhanced-dir enhanced-artwork
           echo '8b93640d45757966232af87dafbbc0d4dcfe11e9a05bd9f3143a7c609b6e50ba  app/src/main/res/drawable-nodpi/four_sharks_atlas.png' | sha256sum -c -
           python -c "from PIL import Image; im=Image.open('app/src/main/res/drawable-nodpi/four_sharks_atlas.png'); assert im.mode=='RGBA' and im.size==(1672,941) and im.getchannel('A').getextrema()==(0,255)"
-      - name: Build and verify exact-beta FFmpeg audio extension
-        run: bash ci/build_ffmpeg_beta.sh
       - name: Compile
         run: gradle --no-daemon :app:assembleRelease
       - name: Sign and verify
@@ -186,6 +198,8 @@ jobs:
           path: |
             premium-home-preview.png
             premium-home-4k.png
+            enhanced-artwork/comparison.png
+            enhanced-artwork/verification.json
             premium-focus-*.png
             premium-settings-preview.png
             premium-live-preview.png
@@ -237,7 +251,7 @@ jobs:
             test "$(gh release view "$tag" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
             test "$(gh release view "$tag" --repo "$GH_REPO" --json targetCommitish --jq .targetCommitish)" = "$GITHUB_SHA"
           else
-            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.34" --notes "Verified build and emulator upgrade from 5.0.33. Real TV visual and playback testing outstanding."
+            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.34" --notes "Verified build and emulator upgrade from 5.0.33; AI-enhanced 3840x2160 artwork (Real-ESRGAN conservative blend). Real TV visual and playback testing outstanding."
           fi
           for asset in SharkNailTV.apk update.json ffmpeg-source.tar.gz; do gh release upload "$tag" "$asset" --repo "$GH_REPO" --clobber; done
           gh release view "$tag" --repo "$GH_REPO" --json assets | jq -e --arg digest "sha256:$checksum" --argjson size "$bytes" '(.assets | length)==3 and any(.assets[]; .name=="SharkNailTV.apk" and .size==$size and .digest==$digest) and any(.assets[]; .name=="update.json" and .size>0) and any(.assets[]; .name=="ffmpeg-source.tar.gz" and .size>0)'

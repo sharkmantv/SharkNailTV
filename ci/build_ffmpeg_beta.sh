@@ -22,7 +22,18 @@ git -C "$MODULE/src/main/jni/ffmpeg" checkout --detach FETCH_HEAD
 test "$(git -C "$MODULE/src/main/jni/ffmpeg" rev-parse HEAD)" = "$FFMPEG_REF"
 printf '\nandroid { ndkVersion = "%s" }\n' "$NDK_VERSION" >> "$MODULE/build.gradle.kts"
 (cd "$MODULE/src/main/jni" && ./build_ffmpeg.sh "$MODULE/src/main" "$ANDROID_HOME/ndk/$NDK_VERSION" linux-x86_64 24 ac3 eac3 dca mlp truehd)
-(cd "$WORK/media" && ./gradlew :lib-decoder-ffmpeg:assembleRelease --no-daemon)
+# Maven Central may return transient 429 while resolving Kotlin dependencies.
+# Keep the pinned upstream revision and compiler; retry only transient download failures.
+for attempt in 1 2 3; do
+  if (cd "$WORK/media" && ./gradlew :lib-decoder-ffmpeg:assembleRelease --no-daemon) 2>&1 | tee "$WORK/ffmpeg-gradle.log"; then
+    break
+  fi
+  if [ "$attempt" = 3 ] || ! grep -Eqi '429|Too Many Requests|502|503|504|Read timed out|Connection reset' "$WORK/ffmpeg-gradle.log"; then
+    exit 1
+  fi
+  echo "Transient dependency download failure; retrying exact FFmpeg build"
+  sleep "$((attempt * 60))"
+done
 aar="$(find "$WORK/media" -path '*decoder_ffmpeg*' -name '*-release.aar' -type f -print -quit)"
 test -n "$aar"
 mkdir -p "$ROOT/app/libs" "$WORK/inspect" "$ROOT/app/src/main/assets/licenses" "$WORK/source"

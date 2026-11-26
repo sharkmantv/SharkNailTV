@@ -1,7 +1,7 @@
 """Pin the new artwork, create transparent UHD card layers and check reconstruction."""
 from pathlib import Path
-from PIL import Image, ImageDraw
-import hashlib
+from PIL import Image, ImageDraw, ImageChops, ImageStat
+import hashlib, argparse, json
 dst=Path("app/src/main/res/drawable-nodpi")
 home=dst/"sky_shark_home_34.png"
 logo=dst/"sky_shark_logo_34.png"
@@ -9,6 +9,38 @@ for f,sha in [(home,"4359e0a0a6976b6d2c6bbf172eb7504b7f7241fb0d3722198193db623e3
     assert hashlib.sha256(f.read_bytes()).hexdigest()==sha,("Wrong asset",f)
 im=Image.open(home).convert("RGBA")
 assert im.size==(3840,2160),im.size
+parser=argparse.ArgumentParser()
+parser.add_argument("--enhanced-dir",type=Path)
+args=parser.parse_args()
+if args.enhanced_dir:
+    root=args.enhanced_dir
+    report=json.loads((root/"verification.json").read_text())
+    assert report["source_git_blob"]=="c7cfeda2fd67972172a3fc6dc1e7e4b40556c2f8"
+    assert report["output_dimensions"]==[3840,2160] and report["native_generation"] is False
+    for name in ("sky_shark_ai_4k.png","sky_shark_conservative_4k.png","comparison.png"):
+        fp=root/name
+        expected=report["outputs"][name]
+        assert fp.stat().st_size==expected["bytes"] and hashlib.sha256(fp.read_bytes()).hexdigest()==expected["sha256"],name
+        with Image.open(fp) as test: test.verify()
+    with Image.open(root/"sky_shark_conservative_4k.png") as candidate:
+        assert candidate.format=="PNG" and candidate.size==im.size
+        enhanced=candidate.convert("RGBA")
+    # Guard the approved artwork's layout, colours and text geometry; no generated logo replacements.
+    original_rgb=im.convert("RGB")
+    candidate_rgb=enhanced.convert("RGB")
+    difference=ImageChops.difference(original_rgb,candidate_rgb)
+    mae=sum(ImageStat.Stat(difference).mean)/3
+    assert mae<=12,("Excessive global artwork change",mae)
+    for i in range(4):
+        box=(i*960,0,(i+1)*960,2160)
+        d=sum(ImageStat.Stat(difference.crop(box)).mean)/3
+        assert d<=18,("Excessive panel artwork change",i,d)
+    # Same geometry at reduced scale, to catch layout/colour shifts independently of fine details.
+    thumb=ImageChops.difference(original_rgb.resize((480,270),Image.Resampling.LANCZOS),
+                               candidate_rgb.resize((480,270),Image.Resampling.LANCZOS))
+    assert sum(ImageStat.Stat(thumb).mean)/3<=5,"Enhanced artwork changes low-frequency layout/colours"
+    print("PASS: verified enhanced PNG and approved-layout preservation; mean pixel delta",mae)
+    im=enhanced
 lg=Image.open(logo)
 assert lg.mode=="RGBA" and lg.getchannel("A").getextrema()==(0,255)
 areas=[(20,477,438,390),(459,477,385,390),(845,477,389,390),(1235,477,397,390)]
