@@ -2,13 +2,12 @@ name: Shark Sky manual APK candidate
 on:
   push:
     branches: ['design/player-design4-5.0.45']
-    paths: ['ci/artwork/sky_shark_design4_reference.png']
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: shark-sky-premium-5030-visual
+  group: shark-sky-player-design4-5045
   cancel-in-progress: true
 jobs:
   build:

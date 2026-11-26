@@ -198,15 +198,37 @@ def check_player():
     target=(logo[0]-round(sw*.01),logo[1]-round(sh*.01),logo[2]-round(sw*.01),logo[3]-round(sh*.01))
     mae=ImageStat.Stat(ImageChops.difference(im.crop(logo),ref.crop(target))).mean
     assert max(mae)<45,("Header artwork mismatch",mae)
-    tap(expect("Info"))
+    # Use the real TV D-pad path across the single control row, not an assumed
+    # touch activation. Verify focus before pressing OK, then verify dialog.
+    for i in range(7):
+        adb("shell","input","dpad","keyevent","22")
+        time.sleep(.12)
+    info_control=expect("Info")
+    assert info_control.get("focused")=="true",("Info remote focus missing",ET.tostring(ui(),encoding="unicode")[-6000:])
+    before_info=player_events().count("Info dialog shown")
+    adb("shell","input","dpad","keyevent","23")
+    wait_player_event("Info dialog shown",after=before_info,timeout=15)
     expect("Close")
     info=ui()
     combined=" ".join(n.get("text","") for n in info.iter("node"))
     for label in ("Engine:","Stream FPS:","Display:","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:"):
         assert label in combined,("Missing diagnostics",label)
     capture("player-info")
-    tap(expect("Close"))
-    print("PASS: full video surface, approved artwork, compact controls and complete diagnostic text",flush=True)
+    close=expect("Close")
+    assert close.get("clickable")=="true","Close is not actionable"
+    before_close=player_events().count("Info dismissed")
+    adb("shell","input","keyevent","4")
+    wait_player_event("Info dismissed",after=before_close,timeout=15)
+    # Also exercise accessibility click/physical touch after the remote path.
+    node=expect("Info")
+    before_info=player_events().count("Info dialog shown")
+    tap(node)
+    wait_player_event("Info dialog shown",after=before_info,timeout=15)
+    close=expect("Close")
+    before_close=player_events().count("Info dismissed")
+    tap(close)
+    wait_player_event("Info dismissed",after=before_close,timeout=15)
+    print("PASS: full video surface, approved artwork, compact controls, remote/touch Info and complete diagnostic text",flush=True)
     before=player_events().count("playWhenReady=true")
     tap(expect("Play"))
     wait_player_event("playWhenReady=true",after=before)

@@ -81,13 +81,19 @@ final class PremiumPlayerOverlay extends FrameLayout {
  void logVideoBounds(){post(()->{if(!disposed&&isShown())android.util.Log.i("SharkPlayerUI","video surface "+surface.getWidth()+"x"+surface.getHeight()+" overlay "+getWidth()+"x"+getHeight());});}
  void showInfo(){
   removeCallbacks(timeout);
-  LinearLayout panel=a.col();panel.setPadding(d(20),d(12),d(20),d(12));panel.setBackground(artwork(R.drawable.design4_info_panel));
-  TextView title=a.text("Playback Information",20);title.setGravity(Gravity.CENTER_VERTICAL);title.setTextColor(WHITE);panel.addView(title,new LinearLayout.LayoutParams(-1,d(42)));
-  ScrollView scroll=new ScrollView(a);scroll.setFillViewport(false);scroll.setFocusable(true);scroll.setFocusableInTouchMode(true);scroll.setContentDescription("Full playback diagnostics");
+  android.util.Log.i("SharkPlayerUI","Info selected");
+  LinearLayout panel=a.col();panel.setPadding(d(18),d(10),d(18),d(10));panel.setBackground(artwork(R.drawable.design4_info_panel));
+  TextView title=a.text("Playback Information",20);title.setTextColor(WHITE);panel.addView(title,new LinearLayout.LayoutParams(-1,d(38)));
+  ScrollView scroll=new ScrollView(a);scroll.setFillViewport(false);scroll.setFocusable(true);scroll.setContentDescription("Full playback diagnostics");
   TextView details=new TextView(a);details.setTextColor(WHITE);details.setTypeface(a.uiRegular);details.setTextSize(compact?13:15);details.setSingleLine(false);details.setMaxLines(Integer.MAX_VALUE);details.setEllipsize(null);details.setText(item.name+"\n"+a.currentPlaybackDiagnostics());details.setLineSpacing(d(3),1.0f);
-  scroll.addView(details,new ScrollView.LayoutParams(-1,-2));panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-  TextView close=a.text("Close",16);close.setTextColor(WHITE);close.setGravity(Gravity.CENTER);close.setBackground(artwork(R.drawable.design4_player_key));close.setForeground(new Ring(false));close.setFocusable(true);close.setClickable(true);panel.addView(close,new LinearLayout.LayoutParams(-1,d(36)));
-  android.app.Dialog dlg=new android.app.Dialog(a);dlg.setContentView(panel);close.setOnClickListener(v->dlg.dismiss());dlg.setOnDismissListener(v->{arm();});dlg.show();Window win=dlg.getWindow();if(win!=null){win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));win.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);win.setGravity(Gravity.TOP|Gravity.RIGHT);win.setLayout(Math.round(getWidth()*(compact?.63f:.38f)),Math.round(getHeight()*.62f));WindowManager.LayoutParams attr=win.getAttributes();attr.x=Math.round(getWidth()*.016f);attr.y=Math.round(getHeight()*.12f);win.setAttributes(attr);}scroll.requestFocus();
+  scroll.addView(details,new ScrollView.LayoutParams(-1,-2));
+  panel.addView(scroll,new LinearLayout.LayoutParams(-1,Math.max(d(100),Math.round(getHeight()*.40f))));
+  AlertDialog dlg=new AlertDialog.Builder(a).setView(panel).setPositiveButton("Close",null).create();
+  dlg.setOnDismissListener(v->{arm();android.util.Log.i("SharkPlayerUI","Info dismissed");});
+  dlg.show();
+  Window win=dlg.getWindow();if(win!=null){win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(NAVY));win.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);win.setGravity(Gravity.TOP|Gravity.RIGHT);win.setLayout(Math.round(getWidth()*(compact?.67f:.38f)),-2);WindowManager.LayoutParams attr=win.getAttributes();attr.x=Math.round(getWidth()*.016f);attr.y=Math.round(getHeight()*.12f);win.setAttributes(attr);}
+  android.widget.Button close=dlg.getButton(AlertDialog.BUTTON_POSITIVE);if(close!=null){close.setTextColor(WHITE);close.setBackground(artwork(R.drawable.design4_player_key));close.setForeground(new Ring(false));close.requestFocus();}
+  android.util.Log.i("SharkPlayerUI","Info dialog shown");
  }
  int d(int n){return a.dp(n);}
  void tint(SeekBar s){s.setProgressTintList(ColorStateList.valueOf(GOLD));s.setThumbTintList(ColorStateList.valueOf(GOLD));s.setProgressBackgroundTintList(ColorStateList.valueOf(0xff677a9a));}
