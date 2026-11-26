@@ -142,18 +142,31 @@ def check_player():
         if re.search(r"640×360",log): break
         time.sleep(.5)
     else: raise AssertionError("Fixture video never rendered first frame")
-    # Ensure the overlay is hidden before exercising the remote's show-controls path.
-    time.sleep(7)
+    def wait_player_event(message, timeout=45):
+        deadline=time.monotonic()+timeout
+        while time.monotonic()<deadline:
+            if message in adb("logcat","-d","-s","SharkPlayerUI:I"):
+                return
+            time.sleep(.25)
+        raise AssertionError("Missing player event: "+message)
+    # Use the actual timeout event, not an assumed wall-clock delay.
+    wait_player_event("overlay hidden")
+    adb("logcat","-c")
     adb("shell","input","keyevent","23")
-    capture("player")
+    wait_player_event("overlay shown")
+    # Keep the overlay visible while paused so a slow accessibility dump cannot
+    # race the auto-hide timer. Verify actual playback state transitions too.
+    adb("logcat","-c")
+    adb("shell","input","keyevent","127")
+    wait_player_event("playWhenReady=false")
+    expect("Play",timeout=30)
     root=ui()
-    for label in ("Sky","Pause","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
+    for label in ("Sky","Play","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
         assert find(root,label) is not None,("Missing premium player control",label)
-    # Toggle pause with a media key, then verify the new control state.
-    adb("shell","input","keyevent","85")
-    expect("Play",timeout=10)
-    adb("shell","input","keyevent","85")
-    expect("Pause",timeout=10)
+    capture("player")
+    adb("logcat","-c")
+    adb("shell","input","keyevent","126")
+    wait_player_event("playWhenReady=true")
     adb("shell","input","keyevent","4")
     expect("Layout fixture 001")
     print("PASS: actual first frame and premium playback overlay/remote toggle",flush=True)
