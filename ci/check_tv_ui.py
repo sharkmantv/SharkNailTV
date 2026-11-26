@@ -101,6 +101,22 @@ def expect(label, timeout=30):
             return node
         time.sleep(1)
     raise AssertionError("Missing UI label: "+label)
+def mobile_navigation_expected():
+    features=set(adb("shell","pm","list","features").splitlines())
+    television=any("feature:"+f in features for f in ("android.software.leanback","android.hardware.type.television"))
+    mode=adb("shell","dumpsys","uimode")
+    television=television or bool(re.search(r"mCurUiMode=0x[0-9a-fA-F]*4(?:\s|$)",mode))
+    return not television and "feature:android.hardware.touchscreen" in features
+
+def check_catalogue_nav():
+    root=ui()
+    for label in ("Back","Home"):
+        node=find(root,label)
+        if mobile_navigation_expected():
+            assert node is not None and node.get("clickable")=="true",("Missing mobile catalogue button",label)
+        else:
+            assert node is None,("Unexpected TV catalogue footer",label)
+
 def capture(section):
     path=f"premium-{section}-{args.resolution}.png"
     with open(path,"wb") as out:
@@ -281,6 +297,7 @@ try:
         tap(expect("Connect"))
     expect("Fixture movies")
     check_posters("Layout fixture ","movies")
+    check_catalogue_nav()
     check_player()
     assert not any(find(ui(),label) is not None for label in ("Home","Search","Retry")), "Movies bottom actions still visible"
     tap(expect("Movies options"))
@@ -291,7 +308,9 @@ try:
     expect("Fixture series")
     expect("Series fixture 001")
     check_posters("Series fixture ","series")
-    adb("shell","input","keyevent","4")
+    check_catalogue_nav()
+    if mobile_navigation_expected(): tap(expect("Home"))
+    else: adb("shell","input","keyevent","4")
     expect("SHARK SKY")
     tap(expect("Settings"))
     tap(expect("Cleaner"))
@@ -306,7 +325,8 @@ try:
     expect("Test channel 001")
     capture("live")
     root=ui()
-    assert not any(find(root,label) is not None for label in ("Home","Search","TV Guide","Retry")), "Live bottom actions still visible"
+    check_catalogue_nav()
+    assert not any(find(root,label) is not None for label in ("Search","TV Guide","Retry")), "Unwanted Live bottom actions still visible"
     tap(expect("Live TV options"))
     for label in ("Home","Search","TV Guide","Retry"):
         expect(label)
@@ -327,7 +347,10 @@ try:
     expect("Select a channel to see its programme schedule")
     adb("shell","input","keyevent","4")
     expect("Test channel 001")
-    print("PASS: Live TV bottom row removed; touch and remote options retain all actions")
+    if mobile_navigation_expected():
+        tap(expect("Back"))
+        expect("SHARK SKY")
+    print("PASS: TV footer unchanged; mobile Back/Home and catalogue options retained")
 except Exception:
     try:
         with open(f"failed-ui-{args.resolution}.xml","w") as out:
