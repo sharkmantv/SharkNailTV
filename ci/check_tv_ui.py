@@ -184,7 +184,20 @@ def check_player():
     root=ui()
     for label in ("Sky","Play","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
         assert find(root,label) is not None,("Missing premium player control",label)
-    capture("player")
+    im=capture("player")
+    # Verify the actual square dark-glass panel, rather than just button labels.
+    x,y,X,Y=bounds(play_control)
+    sw,sh=im.size
+    cy=(y+Y)//2
+    # The native dock begins at 24dp inset on the 960dp-wide landscape fixture.
+    # Its centre must remain deep navy while the side illumination is visible.
+    edge_x=round(sw*.025)+max(1,round(sw/960))
+    inner_x=round(sw*.13)
+    edge=[im.getpixel((edge_x,cy+k)) for k in range(-3,4)]
+    interior=[im.getpixel((inner_x,cy+k)) for k in range(-3,4)]
+    assert sum(b>g>r and b>110 for r,g,b in edge)>=5,("Missing blue glass edge",edge)
+    assert sum(b>g>r and g<85 and r<35 for r,g,b in interior)>=5,("Player glass centre too bright",interior)
+    print("PASS: actual dark-glass player and illuminated edge",flush=True)
     before=player_events().count("playWhenReady=true")
     adb("shell","input","dpad","keyevent","23")
     wait_player_event("playWhenReady=true",after=before)
