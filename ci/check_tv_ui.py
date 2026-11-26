@@ -233,7 +233,31 @@ try:
     assert abs(cx-(screen[0]+sw/2))<sw*.025,tiles
     assert screen[1]+sh*.46<=cy<=screen[1]+sh*.66,(cy,screen,tiles)
     print("PASS: Settings evenly spaced, aligned, and vertically centered",tiles)
-    capture("settings")
+    settings_image=capture("settings")
+    # The focus rim must stay thick and continuous at both screen resolutions.
+    selected=next((find(root,label) for label in labels if find(root,label).get("focused")=="true"),None)
+    assert selected is not None,"Settings tile focus missing"
+    x,y,X,Y=bounds(selected)
+    h=Y-y
+    def gold(pixel):
+        r,g,b=pixel[:3]
+        return r>=215 and g>=165 and r>b*1.5 and g>b*1.4
+    def longest(seq):
+        best=run=0
+        for yes in seq:
+            run=run+1 if yes else 0
+            best=max(best,run)
+        return best
+    depth=max(1,round(h*.15))
+    minimum=max(3,round(h*.024))
+    for frac in (.35,.50,.65):
+        cx=round(x+(X-x)*frac)
+        cy=round(y+h*frac)
+        spans=[longest(gold(settings_image.getpixel((cx,yy))) for yy in range(Y-depth,Y)),
+               longest(gold(settings_image.getpixel((xx,cy))) for xx in range(x,x+depth)),
+               longest(gold(settings_image.getpixel((xx,cy))) for xx in range(X-depth,X))]
+        assert min(spans)>=minimum,("Settings focus rim too thin",spans,minimum)
+    print("PASS: thick continuous Settings pulse",flush=True)
     print("PASS: Settings opens by touch and DPAD OK")
     adb("shell","input","keyevent","4")
     expect("SHARK SKY")

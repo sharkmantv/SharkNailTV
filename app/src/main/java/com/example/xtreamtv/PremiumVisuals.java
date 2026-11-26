@@ -120,11 +120,11 @@ final class PremiumVisuals {
     p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
     if(f){
      // Anchor every stroke to the same outside edge. All glow and core grow inward.
-     float line=Math.max(2,h*(.014f+.014f*phase));
+     float line=Math.max(4,h*(.030f+.026f*phase));
      int clip=c.save();c.clipRect(panel);
      p.setStyle(Paint.Style.STROKE);p.setStrokeJoin(Paint.Join.MITER);
      for(int j=3;j>=1;j--){
-      float width=line+j*Math.max(1,h*.008f);
+      float width=line+j*Math.max(1.5f,h*.012f);
       RectF glow=new RectF(panel);glow.inset(width/2,width/2);
       p.setStrokeWidth(width);p.setColor(Color.argb((int)((18+phase*18)*(4-j)),255,182,10));c.drawRect(glow,p);
      }
