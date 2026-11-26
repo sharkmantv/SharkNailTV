@@ -253,42 +253,27 @@ try:
     assert screen[1]+sh*.46<=cy<=screen[1]+sh*.66,(cy,screen,tiles)
     print("PASS: Settings evenly spaced, aligned, and vertically centered",tiles)
     settings_image=capture("settings")
-    # Check the shared flame band in rendered pixels: continuous warm core
-    # with red/orange shoulders and sufficient width, not just a gold outline.
+    # Verify selected tile has the shared rainbow border, thick on each edge.
     selected=next((find(root,label) for label in labels if find(root,label).get("focused")=="true"),None)
     assert selected is not None,"Settings tile focus missing"
     x,y,X,Y=bounds(selected)
-    h=Y-y
-    def warm(rgb):
+    h=Y-y;w=X-x
+    def spectrum(rgb,kind):
         r,g,b=rgb[:3]
-        return r>=205 and r>=g*.94 and r>b*1.45 and b<160
-    def gold(rgb):
-        r,g,b=rgb[:3]
-        return r>=220 and g>=175 and r>b*1.35
-    def red(rgb):
-        r,g,b=rgb[:3]
-        return r>=200 and g<155 and r>g*1.4 and b<100
-    def blended(pixels):
-        runs=[];run=[]
-        for rgb in pixels:
-            if warm(rgb): run.append(rgb)
-            elif run: runs.append(run);run=[]
-        if run: runs.append(run)
-        for band in runs:
-            if len(band)<max(5,round(h*.065)): continue
-            core=[i for i,rgb in enumerate(band) if gold(rgb)]
-            if core and any(red(rgb) for rgb in band[:core[0]]) and any(red(rgb) for rgb in band[core[-1]+1:]):
-                return True
-        return False
+        if kind=="warm":return r>205 and g>110 and r>b*1.3
+        if kind=="pink":return r>165 and b>105 and r>g*1.25 and b>g*1.1
+        return b>180 and b>r*1.2 and (g>110 or b>g*1.2)
     depth=max(1,round(h*.24))
-    for frac in (.35,.50,.65):
-        cx=round(x+(X-x)*frac)
-        cy=round(y+h*frac)
-        strips=[[settings_image.getpixel((cx,yy)) for yy in range(Y-depth,Y)],
-                [settings_image.getpixel((xx,cy)) for xx in range(x,x+depth)],
-                [settings_image.getpixel((xx,cy)) for xx in range(X-depth,X)]]
-        assert all(blended(strip) for strip in strips),("Settings shared flame rim missing",frac)
-    print("PASS: thick continuous shared Home flame on Settings",flush=True)
+    minimum=max(3,round(h*.025))
+    for frac in (.40,.50,.60):
+        cx=round(x+w*frac);cy=round(y+h*frac)
+        strips=[("warm",[settings_image.getpixel((xx,cy)) for xx in range(x,x+depth)]),
+                ("pink",[settings_image.getpixel((cx,yy)) for yy in range(y,y+depth)]),
+                ("pink",[settings_image.getpixel((cx,yy)) for yy in range(Y-depth,Y)]),
+                ("cool",[settings_image.getpixel((xx,cy)) for xx in range(X-depth,X)])]
+        for kind,strip in strips:
+            assert sum(spectrum(rgb,kind) for rgb in strip)>=minimum,("Settings spectrum rim missing",kind,frac)
+    print("PASS: shared Sky spectrum focus on Settings",flush=True)
     print("PASS: Settings opens by touch and DPAD OK")
     nav=[expect(label) for label in ("Back","Home","Exit")]
     assert all(n.get("clickable")=="true" and n.get("focusable")=="true" for n in nav),"Settings navigation not actionable"
