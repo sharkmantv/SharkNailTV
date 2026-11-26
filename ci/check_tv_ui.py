@@ -185,19 +185,24 @@ def check_player():
     for label in ("Sky","Play","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
         assert find(root,label) is not None,("Missing premium player control",label)
     im=capture("player")
-    # Verify the actual square dark-glass panel, rather than just button labels.
+    # Actual rendered bevel and separate raised transport keys; do not accept
+    # a flat solid blue rectangle or merely matching accessibility labels.
     x,y,X,Y=bounds(play_control)
     sw,sh=im.size
     cy=(y+Y)//2
-    # The native dock begins at 24dp inset on the 960dp-wide landscape fixture.
-    # Its centre must remain deep navy while the side illumination is visible.
     edge_x=round(sw*.025)+max(1,round(sw/960))
     inner_x=round(sw*.13)
     edge=[im.getpixel((edge_x,cy+k)) for k in range(-3,4)]
     interior=[im.getpixel((inner_x,cy+k)) for k in range(-3,4)]
-    assert sum(b>g>r and b>110 for r,g,b in edge)>=5,("Missing blue glass edge",edge)
-    assert sum(b>g>r and g<85 and r<35 for r,g,b in interior)>=5,("Player glass centre too bright",interior)
-    print("PASS: actual dark-glass player and illuminated edge",flush=True)
+    assert sum(b>g>r and g<100 and r<45 for r,g,b in interior)>=5,("Player glass centre too bright",interior)
+    assert sum(b>g>r for r,g,b in edge)>=5,("Missing metallic bevel",edge)
+    px,py,pX,pY=bounds(find(root,"Previous"))
+    key_width=pX-px
+    # Unfocused key top bevel and dark key face, away from the icon.
+    keyx=round(px+key_width*.25)
+    strip=[im.getpixel((keyx,yy)) for yy in range(py, min(pY,py+max(5,round((pY-py)*.18))))]
+    assert max(sum(rgb) for rgb in strip)-min(sum(rgb) for rgb in strip)>90,("Raised transport key detail missing",strip)
+    print("PASS: actual dark-glass player, metallic bevel and raised transport key",flush=True)
     before=player_events().count("playWhenReady=true")
     adb("shell","input","dpad","keyevent","23")
     wait_player_event("playWhenReady=true",after=before)

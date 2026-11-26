@@ -68,18 +68,32 @@ final class PremiumPlayerOverlay extends FrameLayout {
  void glassTimeline(SeekBar bar){
   GradientDrawable base=track(new int[]{0xff203d67,0xff406895,0xff263f66},5);
   ClipDrawable buffered=new ClipDrawable(track(new int[]{0xff567ba0,0xff87a9ca},5),Gravity.LEFT,ClipDrawable.HORIZONTAL);
-  ClipDrawable played=new ClipDrawable(track(new int[]{0xff15a6e7,0xff82ebff,0xffb9f6ff},5),Gravity.LEFT,ClipDrawable.HORIZONTAL);
+  ClipDrawable played=new ClipDrawable(track(new int[]{0xffb76a16,0xffffc52b,0xffffe9a5},5),Gravity.LEFT,ClipDrawable.HORIZONTAL);
   LayerDrawable layers=new LayerDrawable(new Drawable[]{base,buffered,played});
   int[] ids={android.R.id.background,android.R.id.secondaryProgress,android.R.id.progress};
   for(int i=0;i<3;i++){layers.setId(i,ids[i]);layers.setLayerHeight(i,d(5));layers.setLayerGravity(i,Gravity.CENTER_VERTICAL|Gravity.FILL_HORIZONTAL);}
   bar.setProgressTintList(null);bar.setSecondaryProgressTintList(null);bar.setProgressBackgroundTintList(null);bar.setThumbTintList(null);
   bar.setProgressDrawable(layers);
-  GradientDrawable thumb=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xfffcffff,0xffb9e9ff,0xff42a4dc});
+  GradientDrawable thumb=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xfffff9dc,0xffffd45c,0xffb5761a});
   thumb.setShape(GradientDrawable.OVAL);thumb.setSize(d(15),d(15));bar.setThumb(thumb);bar.setThumbOffset(d(7));
  }
  void link(View[] views){for(int i=0;i<views.length;i++){views[i].setNextFocusLeftId(views[Math.max(i-1,0)].getId());views[i].setNextFocusRightId(views[Math.min(i+1,views.length-1)].getId());}}
- Control button(LinearLayout row,int type,String label,Runnable action){Control v=new Control(type);v.setId(View.generateViewId());v.setContentDescription(label);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(new Ring(false));v.setOnClickListener(x->{action.run();arm();});int size=d(compact?48:72);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(size,size);lp.setMargins(d(compact?8:18),0,d(compact?8:18),0);row.addView(v,lp);return v;}
- TextView option(LinearLayout row,String label,Runnable action){TextView v=a.text(label,compact?12:16);v.setId(View.generateViewId());v.setGravity(Gravity.CENTER);v.setTextColor(WHITE);v.setSingleLine();v.setCompoundDrawablePadding(d(5));Drawable glyph=new OptionGlyph(label);glyph.setBounds(0,0,d(compact?15:19),d(compact?15:19));v.setCompoundDrawables(glyph,null,null,null);v.setPadding(d(compact?4:10),0,d(compact?4:10),0);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(new Ring(false));row.addView(v,new LinearLayout.LayoutParams(0,-1,1));v.setOnClickListener(x->{arm();action.run();});return v;}
+ Control button(LinearLayout row,int type,String label,Runnable action){Control v=new Control(type);v.setId(View.generateViewId());v.setContentDescription(label);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(new ControlPlate());v.setForeground(new Ring(false));v.setOnClickListener(x->{action.run();arm();});int size=d(compact?48:72);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(size,size);lp.setMargins(d(compact?8:18),0,d(compact?8:18),0);row.addView(v,lp);return v;}
+ View option(LinearLayout row,String label,Runnable action){
+  View v=new OptionControl(label);v.setId(View.generateViewId());v.setContentDescription(label);
+  v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(new Ring(false));
+  row.addView(v,new LinearLayout.LayoutParams(0,-1,1));v.setOnClickListener(x->{arm();action.run();});return v;
+ }
+ final class OptionControl extends View {
+  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);final String label;final OptionGlyph glyph;
+  OptionControl(String name){super(PremiumPlayerOverlay.this.a);label=name;glyph=new OptionGlyph(name);ink.setTypeface(a.uiMedium);ink.setTextSize(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,compact?12:16,a.getResources().getDisplayMetrics()));ink.setColor(WHITE);}
+  @Override protected void onDraw(Canvas c){
+   super.onDraw(c);float size=d(compact?15:19), gap=d(7);
+   float textWidth=ink.measureText(label),x=(getWidth()-size-gap-textWidth)/2f,cy=getHeight()/2f;
+   glyph.setBounds(Math.round(x),Math.round(cy-size/2),Math.round(x+size),Math.round(cy+size/2));glyph.draw(c);
+   Paint.FontMetrics fm=ink.getFontMetrics();c.drawText(label,x+size+gap,cy-(fm.ascent+fm.descent)/2,ink);
+  }
+ }
  void seek(int value){if(p.isCurrentMediaItemSeekable()&&p.getDuration()>0)p.seekTo((long)(p.getDuration()*(value/10000d)));}
  void adjacent(int delta){int index=-1;for(int i=0;i<a.items.size();i++)if(a.items.get(i).id.equals(item.id)){index=i;break;}int n=index+delta;if(index>=0&&n>=0&&n<a.items.size()){a.itemPos=n;MainActivity.Item target=a.items.get(n);if(live)a.selected=target;a.playFull(target);}}
  void volume(){AudioManager audio=(AudioManager)a.getSystemService(Context.AUDIO_SERVICE);if(audio==null)return;LinearLayout panel=a.col();panel.setPadding(d(24),d(16),d(24),d(16));SeekBar bar=new SeekBar(a);bar.setMax(audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));bar.setProgress(audio.getStreamVolume(AudioManager.STREAM_MUSIC));tint(bar);bar.setContentDescription("Volume");bar.setEnabled(!audio.isVolumeFixed());panel.addView(bar,new LinearLayout.LayoutParams(-1,d(44)));bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int n,boolean user){if(user&&!audio.isVolumeFixed())try{audio.setStreamVolume(AudioManager.STREAM_MUSIC,n,0);}catch(SecurityException ignored){}}});new AlertDialog.Builder(a).setTitle(audio.isVolumeFixed()?"Use TV volume control":"Volume").setView(panel).setPositiveButton("Done",null).show();}
@@ -148,33 +162,66 @@ final class PremiumPlayerOverlay extends FrameLayout {
   }
   @Override public void setAlpha(int a){}@Override public void setColorFilter(ColorFilter f){}@Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
  }
- final class Dock extends Drawable {
+ // Raised square transport keys. Static cached shaders; only focus pulse animates.
+ final class ControlPlate extends Drawable {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
-  Shader glass,topGlow,bottomGlow,leftGlow,rightGlow,reflection;
-  @Override protected void onBoundsChange(Rect b){
-   super.onBoundsChange(b);
-   float w=b.width(),h=b.height();if(w<=0||h<=0)return;
-   float edge=Math.max(d(6),h*.095f), side=Math.max(d(9),w*.018f);
-   // Dark glass body with continuous optical falloff from the illuminated edges.
-   glass=new LinearGradient(0,0,0,h,new int[]{0xff123a70,0xff091f47,0xff061731,0xff081b3b,0xff0d2b59},new float[]{0,.20f,.45f,.78f,1},Shader.TileMode.CLAMP);
-   topGlow=new LinearGradient(0,0,0,edge,new int[]{0xc04adfff,0x7039b6ff,0x202c8de4,0x002c8de4},new float[]{0,.14f,.46f,1},Shader.TileMode.CLAMP);
-   bottomGlow=new LinearGradient(0,h-edge,0,h,new int[]{0x001d7ddb,0x203399ff,0x7053bfff,0xb05bdfff},new float[]{0,.54f,.86f,1},Shader.TileMode.CLAMP);
-   leftGlow=new LinearGradient(0,0,side,0,new int[]{0xb24cd9ff,0x64379eff,0x00379eff},new float[]{0,.14f,1},Shader.TileMode.CLAMP);
-   rightGlow=new LinearGradient(w-side,0,w,0,new int[]{0x00379eff,0x64379eff,0xb24cd9ff},new float[]{0,.86f,1},Shader.TileMode.CLAMP);
-   reflection=new RadialGradient(w*.30f,0,Math.max(1,w*.28f),new int[]{0x55328fff,0x16328fff,0x00328fff},new float[]{0,.25f,1},Shader.TileMode.CLAMP);
+  Shader edge,face,shine;
+  @Override protected void onBoundsChange(Rect b){float h=b.height();if(h<=0)return;
+   edge=new LinearGradient(0,0,0,h,new int[]{0xffb3d8f2,0xff335d84,0xff0b203a,0xff527c9f},new float[]{0,.18f,.65f,1},Shader.TileMode.CLAMP);
+   face=new LinearGradient(0,0,0,h,new int[]{0xff294d78,0xff142e50,0xff081a34,0xff112d4d},new float[]{0,.20f,.60f,1},Shader.TileMode.CLAMP);
+   shine=new LinearGradient(0,0,0,h*.45f,new int[]{0x42e1f3ff,0x00e1f3ff},null,Shader.TileMode.CLAMP);
   }
   @Override public void draw(Canvas c){
+   Rect b=getBounds();float w=b.width(),h=b.height();if(edge==null||w<=0||h<=0)return;
+   c.save();c.translate(b.left,b.top);float m=d(3),e=d(1);
+   pen.setShader(null);pen.setColor(0xc8030b1c);c.drawRect(m,m+e,w-m,h-m,pen);
+   pen.setShader(edge);c.drawRect(m,m,w-m,h-m-e,pen);
+   pen.setShader(face);c.drawRect(m+e,m+e,w-m-e,h-m-2*e,pen);
+   pen.setShader(shine);c.drawRect(m+e,m+e,w-m-e,h*.45f,pen);
+   pen.setShader(null);c.restore();
+  }
+  @Override public void setAlpha(int alpha){}@Override public void setColorFilter(ColorFilter f){}@Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+ }
+ final class Dock extends Drawable {
+  final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
+  Shader frame,metal,glass,gloss,sideLight,lower,topSpecular,drop;
+  final Path topFacet=new Path(),leftFacet=new Path(),rightFacet=new Path(),bottomFacet=new Path(),sheen=new Path();
+  float bevel;
+  @Override protected void onBoundsChange(Rect b){
+   super.onBoundsChange(b);float w=b.width(),h=b.height();if(w<=0||h<=0)return;
+   bevel=Math.max(d(5),Math.min(d(9),h*.047f));float k=bevel;
+   frame=new LinearGradient(0,0,w,h,new int[]{0xff9ccff1,0xff163d65,0xff08172e,0xff6195bd,0xff172b46},new float[]{0,.22f,.53f,.80f,1},Shader.TileMode.CLAMP);
+   metal=new LinearGradient(0,0,0,h,new int[]{0xffb4d8f2,0xff3f7daa,0xff132e53,0xff08182e,0xff47759e,0xffb4d6eb},new float[]{0,.055f,.20f,.65f,.94f,1},Shader.TileMode.CLAMP);
+   glass=new LinearGradient(0,k,0,h-k,new int[]{0xff234978,0xff142e53,0xff0a1a34,0xff0c213e,0xff142e50},new float[]{0,.18f,.44f,.76f,1},Shader.TileMode.CLAMP);
+   gloss=new LinearGradient(0,k,0,h*.48f,new int[]{0x42b6d9ff,0x145fa9f1,0x005fa9f1},new float[]{0,.35f,1},Shader.TileMode.CLAMP);
+   sideLight=new RadialGradient(w*.18f,0,Math.max(1,w*.54f),new int[]{0x303e95ed,0x103e95ed,0x003e95ed},new float[]{0,.35f,1},Shader.TileMode.CLAMP);
+   lower=new LinearGradient(0,h*.76f,0,h-k,new int[]{0x00000000,0x94040e22},null,Shader.TileMode.CLAMP);
+   topSpecular=new LinearGradient(k,0,w-k,0,new int[]{0x0066cdff,0xaac3efff,0x276ba7d3,0x7aa9d9ff,0x0066cdff},new float[]{0,.16f,.43f,.80f,1},Shader.TileMode.CLAMP);
+   drop=new LinearGradient(0,0,0,h,new int[]{0xffc1dff7,0xff2e6597,0xff0c2340,0xff061428},new float[]{0,.06f,.35f,1},Shader.TileMode.CLAMP);
+   quad(topFacet,0,0,w,0,w-k,k,k,k);
+   quad(leftFacet,0,0,k,k,k,h-k,0,h);
+   quad(rightFacet,w,0,w,h,w-k,h-k,w-k,k);
+   quad(bottomFacet,0,h,k,h-k,w-k,h-k,w,h);
+   quad(sheen,k,k,w-k,k,w-k,h*.15f,k,h*.40f);
+  }
+  void quad(Path p,float x,float y,float a,float b,float i,float j,float u,float v){p.reset();p.moveTo(x,y);p.lineTo(a,b);p.lineTo(i,j);p.lineTo(u,v);p.close();}
+  @Override public void draw(Canvas c){
    Rect b=getBounds();float w=b.width(),h=b.height();if(w<=0||h<=0||glass==null)return;
-   c.save();c.translate(b.left,b.top);
-   pen.setStyle(Paint.Style.FILL);pen.setAlpha(255);
-   // All edges are square; the illumination is blended rather than a hard outline.
-   pen.setShader(glass);c.drawRect(0,0,w,h,pen);
-   pen.setShader(reflection);c.drawRect(0,0,w,h,pen);
-   pen.setShader(topGlow);c.drawRect(0,0,w,h,pen);
-   pen.setShader(bottomGlow);c.drawRect(0,0,w,h,pen);
-   pen.setShader(leftGlow);c.drawRect(0,0,w,h,pen);
-   pen.setShader(rightGlow);c.drawRect(0,0,w,h,pen);
-   pen.setShader(null);pen.setAlpha(255);c.restore();
+   c.save();c.translate(b.left,b.top);float k=bevel;
+   pen.setStyle(Paint.Style.FILL);pen.setAlpha(255);pen.setShader(frame);c.drawRect(0,0,w,h,pen);
+   pen.setShader(metal);c.drawPath(topFacet,pen);c.drawPath(bottomFacet,pen);
+   pen.setShader(drop);c.drawPath(leftFacet,pen);
+   pen.setShader(frame);c.drawPath(rightFacet,pen);
+   pen.setShader(null);pen.setColor(0xff040e20);c.drawRect(k*.78f,k*.78f,w-k*.78f,h-k*.78f,pen);
+   pen.setShader(glass);c.drawRect(k,k,w-k,h-k,pen);
+   pen.setShader(sideLight);c.drawRect(k,k,w-k,h-k,pen);
+   pen.setShader(gloss);c.drawPath(sheen,pen);
+   pen.setShader(lower);c.drawRect(k,h*.76f,w-k,h-k,pen);
+   pen.setShader(topSpecular);c.drawRect(k,k,w-k,k+d(1),pen);
+   pen.setShader(null);pen.setColor(0x605d8ab5);
+   c.drawRect(k+d(12),h*.755f,w-k-d(12),h*.755f+d(1),pen);
+   pen.setColor(0x66101a2c);c.drawRect(k+d(12),h*.755f+d(1),w-k-d(12),h*.755f+d(2),pen);
+   pen.setAlpha(255);c.restore();
   }
   @Override public void setAlpha(int alpha){}@Override public void setColorFilter(ColorFilter f){}@Override public int getOpacity(){return PixelFormat.OPAQUE;}
  }
