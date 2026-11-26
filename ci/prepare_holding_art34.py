@@ -72,12 +72,48 @@ sky=im.crop((Xr(760),Yr(115),Xr(1060),Yr(125))).convert("RGB")
 assert all(r<35 and g<65 for r,g,b in sky.getdata()),"Old lettering remains in cleaned sky"
 del before_repair,patch,mask,m,tile,sky
 print("PASS: repaired second fin and cleaned old logo remnants; unchanged lower UHD artwork")
+# Replace only the background silhouette, retaining the original characters,
+# card layers and floor. Coordinates follow the approved 1648x928 preview.
+sky_outline=[[0,0],[0,504],[46,504],[67,489],[31,452],[39,360],[55,339],[57,312],[80,279],[81,285],[101,278],[108,265],[116,266],[106,262],[118,244],[135,235],[151,236],[153,211],[160,203],[173,200],[201,170],[205,154],[194,124],[185,114],[190,106],[218,106],[236,112],[287,149],[335,161],[378,188],[378,195],[393,206],[404,224],[378,255],[370,254],[355,271],[354,291],[369,307],[369,318],[412,353],[413,372],[430,384],[441,402],[451,378],[438,370],[436,330],[445,305],[468,276],[496,260],[505,237],[531,236],[539,224],[546,225],[551,215],[559,215],[589,177],[590,147],[572,121],[574,117],[598,113],[617,118],[663,150],[694,155],[753,182],[756,198],[771,214],[769,226],[750,254],[792,286],[816,343],[824,401],[837,420],[843,415],[843,378],[859,351],[863,319],[878,297],[906,285],[925,270],[933,244],[948,238],[944,222],[953,212],[953,197],[993,171],[1031,161],[1060,139],[1079,133],[1100,139],[1092,158],[1095,174],[1130,206],[1146,233],[1162,236],[1170,271],[1187,271],[1197,283],[1216,288],[1235,308],[1242,331],[1240,352],[1257,375],[1271,319],[1307,287],[1292,264],[1297,236],[1376,129],[1408,109],[1432,106],[1467,121],[1495,146],[1558,245],[1562,269],[1573,271],[1587,282],[1620,322],[1628,356],[1625,430],[1617,440],[1616,429],[1615,450],[1595,481],[1617,498],[1647,498],[1647,0]]
+mask=Image.new("L",im.size)
+ImageDraw.Draw(mask).polygon([(Xr(x),Yr(y)) for x,y in sky_outline],fill=255)
+# Feather inward at character edges to keep existing metallic rim lighting.
+mask=mask.filter(ImageFilter.MinFilter(5)).filter(ImageFilter.GaussianBlur(2))
+gradient=Image.new("RGBA",(256,144))
+gp=gradient.load()
+for yy in range(144):
+    for xx in range(256):
+        u=xx/255;v=yy/143
+        gp[xx,yy]=(round(10+2*u),round(12-3*u),round(60+8*u+19*v),255)
+gradient=gradient.resize(im.size,Image.Resampling.BILINEAR)
+original_floor=im.crop((0,Yr(520),im.width,im.height)).tobytes()
+im=Image.composite(gradient,im,mask)
+assert im.crop((0,Yr(520),im.width,im.height)).tobytes()==original_floor
+# All three former top patches are inside the replaced background.
+for x,y in ((90,35),(310,40),(800,110),(1200,65)):
+    r,g,b,_=im.getpixel((Xr(x),Yr(y)))
+    assert 8<=r<=14 and 8<=g<=14 and 57<=b<=90,(x,y,r,g,b)
+del mask,gradient,original_floor
+print("PASS: Sky navy-indigo background replaces old top bars and blue streaks")
 lg=Image.open(logo)
 assert lg.mode=="RGBA" and lg.getchannel("A").getextrema()==(0,255)
 # Remove stray blue horizontal artefact above the lettering, outside the fin.
 lg=lg.copy()
 ImageDraw.Draw(lg).rectangle((430,0,lg.width-1,5),fill=(0,0,0,0))
 lg.save(dst/"sky_shark_logo_clean.png")
+# The Home wordmark is independent of the header logo. Accept the exact
+# approved transparent PNG when it is present, otherwise retain the old mark.
+approved=Path(__file__).parent/"artwork/sky_shark_approved_transparent.png"
+if approved.is_file():
+    lg_home=Image.open(approved).convert("RGBA")
+    assert lg_home.width>=1000 and lg_home.width/lg_home.height>=2.5
+    lo,hi=lg_home.getchannel("A").getextrema()
+    assert lo==0 and hi>=245
+    print("PASS: selected new transparent Home wordmark")
+else:
+    lg_home=lg.copy()
+    print("NOTICE: approved replacement Home PNG has not been uploaded; using cleaned original")
+lg_home.save(dst/"sky_shark_home_brand.png")
 areas=[(20,477,438,390),(459,477,385,390),(845,477,389,390),(1235,477,397,390)]
 rims=[(43,493,453,849),(463,497,840,845),(852,497,1230,845),(1242,497,1620,845)]
 def X(x):return round(x*3840/1648)
@@ -128,7 +164,8 @@ for i,(x,y,w,h) in enumerate(areas):
     recon.alpha_composite(Image.open(dst/("design34_card_%d.png"%i)),(X(x),Y(y)))
 assert recon.tobytes()==im.tobytes(),"UHD transparent layer reconstruction failed"
 ref=im.copy()
-lg=lg.resize((X(426),Y(109)),Image.Resampling.LANCZOS)
-ref.alpha_composite(lg,(X(611),Y(5)))
+from PIL import ImageOps
+lg_home=ImageOps.contain(lg_home,(X(426),Y(109)),Image.Resampling.LANCZOS)
+ref.alpha_composite(lg_home,(X(611)+(X(426)-lg_home.width)//2,Y(5)+(Y(109)-lg_home.height)//2))
 ref.convert("RGB").resize((1648,928),Image.Resampling.LANCZOS).save("design34_reference.png")
 print("PASS: 3840x2160 prepared source, exact approved logo, four transparent layers")

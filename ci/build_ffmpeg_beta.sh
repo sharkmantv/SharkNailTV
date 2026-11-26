@@ -24,11 +24,32 @@ printf '\nandroid { ndkVersion = "%s" }\n' "$NDK_VERSION" >> "$MODULE/build.grad
 (cd "$MODULE/src/main/jni" && ./build_ffmpeg.sh "$MODULE/src/main" "$ANDROID_HOME/ndk/$NDK_VERSION" linux-x86_64 24 ac3 eac3 dca mlp truehd)
 # Maven Central may return transient 429 while resolving Kotlin dependencies.
 # Keep the pinned upstream revision and compiler; retry only transient download failures.
-for attempt in 1 2 3; do
-  if (cd "$WORK/media" && ./gradlew :lib-decoder-ffmpeg:assembleRelease --no-daemon) 2>&1 | tee "$WORK/ffmpeg-gradle.log"; then
+# Use Maven Central's alternate official endpoint for JetBrains dependencies.
+# Restrict this to the upstream FFmpeg build, preserving all pinned versions.
+cat > "$WORK/central-fallback.gradle" <<'GRADLE'
+gradle.beforeSettings { settings ->
+    settings.pluginManagement.repositories {
+        maven {
+            url = uri('https://repo1.maven.org/maven2')
+            content { includeGroupByRegex('org[.]jetbrains([.].*)?') }
+        }
+        gradlePluginPortal()
+    }
+}
+gradle.beforeProject { project ->
+    project.buildscript.repositories {
+        maven {
+            url = uri('https://repo1.maven.org/maven2')
+            content { includeGroupByRegex('org[.]jetbrains([.].*)?') }
+        }
+    }
+}
+GRADLE
+for attempt in 1 2 3 4; do
+  if (cd "$WORK/media" && ./gradlew -I "$WORK/central-fallback.gradle" :lib-decoder-ffmpeg:assembleRelease --no-daemon) 2>&1 | tee "$WORK/ffmpeg-gradle.log"; then
     break
   fi
-  if [ "$attempt" = 3 ] || ! grep -Eqi '429|Too Many Requests|502|503|504|Read timed out|Connection reset' "$WORK/ffmpeg-gradle.log"; then
+  if [ "$attempt" = 4 ] || ! grep -Eqi '429|Too Many Requests|502|503|504|Read timed out|Connection reset' "$WORK/ffmpeg-gradle.log"; then
     exit 1
   fi
   echo "Transient dependency download failure; retrying exact FFmpeg build"
