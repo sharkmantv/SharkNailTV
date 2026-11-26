@@ -185,24 +185,19 @@ def check_player():
     for label in ("Sky","Play","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
         assert find(root,label) is not None,("Missing premium player control",label)
     im=capture("player")
-    # Actual rendered bevel and separate raised transport keys; do not accept
-    # a flat solid blue rectangle or merely matching accessibility labels.
-    x,y,X,Y=bounds(play_control)
+    # Check the actual screenshot against the approved static frame at
+    # fully opaque header pixels, independent of live video and controls.
+    from PIL import ImageChops, ImageStat
     sw,sh=im.size
-    cy=(y+Y)//2
-    edge_x=round(sw*.025)+max(1,round(sw/960))
-    inner_x=round(sw*.13)
-    edge=[im.getpixel((edge_x,cy+k)) for k in range(-3,4)]
-    interior=[im.getpixel((inner_x,cy+k)) for k in range(-3,4)]
-    assert sum(b>g>r and g<100 and r<45 for r,g,b in interior)>=5,("Player glass centre too bright",interior)
-    assert sum(b>g>r for r,g,b in edge)>=5,("Missing metallic bevel",edge)
-    px,py,pX,pY=bounds(find(root,"Previous"))
-    key_width=pX-px
-    # Unfocused key top bevel and dark key face, away from the icon.
-    keyx=round(px+key_width*.25)
-    strip=[im.getpixel((keyx,yy)) for yy in range(py, min(pY,py+max(5,round((pY-py)*.18))))]
-    assert max(sum(rgb) for rgb in strip)-min(sum(rgb) for rgb in strip)>90,("Raised transport key detail missing",strip)
-    print("PASS: actual dark-glass player, metallic bevel and raised transport key",flush=True)
+    ref=Image.open("app/src/main/res/drawable-nodpi/design1_player_frame.png").convert("RGB").resize((sw,sh),Image.Resampling.LANCZOS)
+    rect=(round(sw*.22),round(sh*.01),round(sw*.78),round(sh*.16))
+    mae=ImageStat.Stat(ImageChops.difference(im.crop(rect),ref.crop(rect))).mean
+    assert max(mae)<30,("Approved shark header does not match actual render",mae)
+    x,y,X,Y=bounds(play_control)
+    assert y>=sh*.82 and Y<=sh*.98,("Player dock not confined to bottom control band",y,Y,sh)
+    assert X-x<sw*.14,("Transport key oversized",x,X,sw)
+    assert find(root,"Search titles") is not None, "Missing functional title list"
+    print("PASS: approved artwork header, functional title list and compact control band",flush=True)
     before=player_events().count("playWhenReady=true")
     adb("shell","input","dpad","keyevent","23")
     wait_player_event("playWhenReady=true",after=before)
