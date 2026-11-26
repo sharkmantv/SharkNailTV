@@ -238,9 +238,20 @@ def check_player():
     tap(close)
     wait_player_event("Info dismissed",after=before_close,timeout=15)
     print("PASS: full video surface, approved artwork, compact controls, remote/touch Info and complete diagnostic text",flush=True)
+    # First touch on a different focused control must activate, not merely focus.
+    assert expect("Info").get("focused")=="true","Info focus not restored after touch Close"
     before=player_events().count("playWhenReady=true")
+    clicks=player_events().count("control clicked=Play")
     tap(expect("Play"))
-    wait_player_event("playWhenReady=true",after=before)
+    try:
+        wait_player_event("control clicked=Play",after=clicks,timeout=10)
+        wait_player_event("playWhenReady=true",after=before,timeout=15)
+    except AssertionError:
+        capture("player-resume-failure")
+        print("RESUME FAILURE HIERARCHY:",ET.tostring(ui(),encoding="unicode"),flush=True)
+        print("RESUME FAILURE EVENTS:",player_events()[-12000:],flush=True)
+        raise
+    assert player_events().count("control clicked=Play")==clicks+1,"Single tap activated Play more than once"
     adb("shell","input","keyevent","4")
     expect("Layout fixture 001")
     print("PASS: actual first frame and premium playback overlay/remote toggle",flush=True)

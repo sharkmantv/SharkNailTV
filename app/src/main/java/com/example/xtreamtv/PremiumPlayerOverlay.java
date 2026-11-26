@@ -114,7 +114,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   close.setNextFocusLeftId(close.getId());close.setNextFocusRightId(close.getId());
   scroll.setNextFocusUpId(scroll.getId());scroll.setNextFocusDownId(close.getId());
   scroll.setNextFocusLeftId(scroll.getId());scroll.setNextFocusRightId(scroll.getId());
-  close.setOnClickListener(v->dismissInfo(true));
+  focusBeforeClick(close);close.setOnClickListener(v->dismissInfo(true));
   dockFocusMode=bottomBar.getDescendantFocusability();dockAccessibility=bottomBar.getImportantForAccessibility();
   bottomBar.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
   bottomBar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
@@ -150,12 +150,21 @@ final class PremiumPlayerOverlay extends FrameLayout {
   GradientDrawable thumb=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xfffff9dc,0xffffd45c,0xffb5761a});
   thumb.setShape(GradientDrawable.OVAL);thumb.setSize(d(15),d(15));bar.setThumb(thumb);bar.setThumbOffset(d(7));
  }
+ // Android's focusable-in-touch-mode controls can consume the first tap just
+ // taking focus on ACTION_UP. Acquire focus on DOWN so that the normal View
+ // click path fires exactly once on UP, even after closing the Info panel.
+ void focusBeforeClick(View v){
+  v.setOnTouchListener((target,event)->{
+   if(event.getActionMasked()==MotionEvent.ACTION_DOWN&&target.isEnabled())target.requestFocus();
+   return false;
+  });
+ }
  void link(View[] views){for(int i=0;i<views.length;i++){views[i].setNextFocusLeftId(views[Math.max(i-1,0)].getId());views[i].setNextFocusRightId(views[Math.min(i+1,views.length-1)].getId());}}
- Control button(LinearLayout row,int type,String label,Runnable action){Control v=new Control(type);v.setId(View.generateViewId());v.setContentDescription(label);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(artwork(R.drawable.design4_player_key));v.setForeground(new Ring(false));v.setOnClickListener(x->{action.run();arm();});LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);row.addView(v,lp);return v;}
+ Control button(LinearLayout row,int type,String label,Runnable action){Control v=new Control(type);v.setId(View.generateViewId());v.setContentDescription(label);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(artwork(R.drawable.design4_player_key));v.setForeground(new Ring(false));focusBeforeClick(v);v.setOnClickListener(x->{android.util.Log.i("SharkPlayerUI","control clicked="+v.getContentDescription());action.run();arm();});LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);row.addView(v,lp);return v;}
  View option(LinearLayout row,String label,Runnable action){
   View v=new OptionControl(label);v.setId(View.generateViewId());v.setContentDescription(label);
   v.setFocusable(true);v.setFocusableInTouchMode(true);v.setClickable(true);v.setBackground(artwork(R.drawable.design4_player_key));v.setForeground(new Ring(false));
-  LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);row.addView(v,lp);v.setOnClickListener(x->{arm();action.run();});return v;
+  LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);row.addView(v,lp);focusBeforeClick(v);v.setOnClickListener(x->{android.util.Log.i("SharkPlayerUI","control clicked="+label);arm();action.run();});return v;
  }
  final class OptionControl extends View {
   final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);final String label;final OptionGlyph glyph;
