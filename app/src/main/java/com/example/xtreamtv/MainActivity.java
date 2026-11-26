@@ -901,7 +901,7 @@ public class MainActivity extends Activity {
  }
  void playFull(Item i){
   if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
-  release();screenToken++;loadToken++;epgToken++;full=true;status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null)video.requestFocus();
+  release();screenToken++;loadToken++;epgToken++;full=true;status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null&&premiumPlayer==null)video.requestFocus();
  }
  void positionLiveSurface(){
   if(liveSurfaceHost==null||preview==null||full||preview.getWidth()<=0||preview.getHeight()<=0)return;

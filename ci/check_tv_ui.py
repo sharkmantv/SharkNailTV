@@ -1,10 +1,52 @@
 """Check UI geometry using synthetic IPTV data, never a real subscription."""
-import json, re, subprocess, threading, time, xml.etree.ElementTree as ET
+import argparse, io, json, re, subprocess, threading, time, xml.etree.ElementTree as ET
+from pathlib import Path
+from PIL import Image
+parser=argparse.ArgumentParser()
+parser.add_argument("--resolution", choices=("1080p","4k"), default="1080p")
+parser.add_argument("--fixture-video", required=True)
+parser.add_argument("--saved-login", action="store_true")
+args=parser.parse_args()
+expected_size=(3840,2160) if args.resolution=="4k" else (1920,1080)
+poster=io.BytesIO()
+Image.new("RGB",(780,1170),(190,39,95)).save(poster,format="PNG")
+poster_bytes=poster.getvalue()
+video_bytes=Path(args.fixture_video).read_bytes()
+assert len(video_bytes)>10000
+poster_url="http://127.0.0.1:18765/poster.png"
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 class Fixture(BaseHTTPRequestHandler):
     def do_GET(self):
+        path=urlparse(self.path).path
+        if path=="/poster.png":
+            self.send_response(200)
+            self.send_header("Content-Type","image/png")
+            self.send_header("Content-Length",str(len(poster_bytes)))
+            self.end_headers()
+            self.wfile.write(poster_bytes)
+            return
+        if path.startswith("/movie/fixture/fixture/") and path.endswith(".mp4"):
+            match=re.fullmatch(r"bytes=(\d+)-(\d*)",self.headers.get("Range",""))
+            start=int(match.group(1)) if match else 0
+            end=min(int(match.group(2)),len(video_bytes)-1) if match and match.group(2) else len(video_bytes)-1
+            if start>end:
+                self.send_response(416)
+                self.send_header("Content-Range","bytes */"+str(len(video_bytes)))
+                self.end_headers()
+                return
+            data=video_bytes[start:end+1]
+            self.send_response(206 if match else 200)
+            self.send_header("Content-Type","video/mp4")
+            self.send_header("Accept-Ranges","bytes")
+            self.send_header("Content-Length",str(len(data)))
+            if match:
+                self.send_header("Content-Range",f"bytes {start}-{end}/{len(video_bytes)}")
+            self.end_headers()
+            try: self.wfile.write(data)
+            except (BrokenPipeError,ConnectionResetError): pass
+            return
         q = parse_qs(urlparse(self.path).query)
         action = q.get("action", [""])[0]
         if action == "get_vod_categories":
@@ -12,7 +54,7 @@ class Fixture(BaseHTTPRequestHandler):
         elif action == "get_series_categories":
             data = [{"category_id": "1", "category_name": "Fixture series"}]
         elif action == "get_series":
-            data = [{"series_id": n, "name": "Series fixture %03d" % n} for n in range(1, 41)]
+            data = [{"series_id": n, "name": "Series fixture %03d" % n, "cover":poster_url} for n in range(1, 41)]
         elif action == "get_live_categories":
             data = [{"category_id": "1", "category_name": "Fixture channels"}]
         elif action == "get_live_streams":
@@ -20,7 +62,7 @@ class Fixture(BaseHTTPRequestHandler):
         elif action in ("get_short_epg", "get_simple_data_table"):
             data = {"epg_listings":[]}
         elif action == "get_vod_streams":
-            data = [{"stream_id": n, "name": "Layout fixture %03d" % n, "container_extension": "mp4"} for n in range(1, 41)]
+            data = [{"stream_id": n, "name": "Layout fixture %03d" % n, "container_extension": "mp4", "stream_icon":poster_url} for n in range(1, 41)]
         else:
             data = {"user_info": {"auth": int(q.get("username")==["fixture"] and q.get("password")==["fixture"])}, "server_info": {"timezone": "Europe/London"}}
         body = json.dumps(data).encode()
@@ -59,6 +101,63 @@ def expect(label, timeout=30):
             return node
         time.sleep(1)
     raise AssertionError("Missing UI label: "+label)
+def capture(section):
+    path=f"premium-{section}-{args.resolution}.png"
+    with open(path,"wb") as out:
+        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
+    im=Image.open(path).convert("RGB")
+    assert im.size==expected_size,(section,im.size,expected_size)
+    print("PASS:",section,"actual rendered screenshot",im.size,flush=True)
+    return im
+
+def check_posters(prefix,section):
+    deadline=time.monotonic()+40
+    while time.monotonic()<deadline:
+        root=ui()
+        cards=[n for n in root.iter("node") if n.get("content-desc","").startswith(prefix)]
+        if len(cards)>=4:
+            rects=[bounds(n) for n in cards]
+            rows=sorted(set(r[1] for r in rects))
+            if len(rows)==2:
+                im=capture(section)
+                loaded=0
+                for x,y,X,Y in rects:
+                    width,height=X-x,Y-y
+                    assert width>0 and height>width and 1.15<=height/width<=1.95,(section,rects)
+                    # Check downloaded fixture art in real on-screen pixels, not just title labels.
+                    rgb=im.getpixel(((x+X)//2,(y+Y)//2))
+                    if rgb[0]>145 and rgb[1]<90 and 50<rgb[2]<145: loaded+=1
+                if loaded>=min(4,len(rects)):
+                    print("PASS:",section,"two portrait rows and decoded provider posters",loaded,flush=True)
+                    return
+        time.sleep(1)
+    raise AssertionError("Missing rendered poster art or two-row layout: "+section)
+
+def check_player():
+    adb("logcat","-c")
+    tap(expect("Layout fixture 001"))
+    deadline=time.monotonic()+35
+    while time.monotonic()<deadline:
+        log=adb("logcat","-d","-s","SharkPlayback:I")
+        if re.search(r"640×360",log): break
+        time.sleep(.5)
+    else: raise AssertionError("Fixture video never rendered first frame")
+    # Ensure the overlay is hidden before exercising the remote's show-controls path.
+    time.sleep(7)
+    adb("shell","input","keyevent","23")
+    capture("player")
+    root=ui()
+    for label in ("Sky","Pause","Playback progress","Audio","Subtitles","Aspect","Picture","Info"):
+        assert find(root,label) is not None,("Missing premium player control",label)
+    # Toggle pause with a media key, then verify the new control state.
+    adb("shell","input","keyevent","85")
+    expect("Play",timeout=10)
+    adb("shell","input","keyevent","85")
+    expect("Pause",timeout=10)
+    adb("shell","input","keyevent","4")
+    expect("Layout fixture 001")
+    print("PASS: actual first frame and premium playback overlay/remote toggle",flush=True)
+
 def enter_field(node,value):
     # On busy emulators, a single bulk input command can reorder characters.
     # Enter fixture credentials slowly, verifying the address before Connect.
@@ -116,47 +215,31 @@ try:
     assert abs(cx-(screen[0]+sw/2))<sw*.025,tiles
     assert screen[1]+sh*.46<=cy<=screen[1]+sh*.66,(cy,screen,tiles)
     print("PASS: Settings evenly spaced, aligned, and vertically centered",tiles)
-    with open("premium-settings-preview.png","wb") as out:
-        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
+    capture("settings")
     print("PASS: Settings opens by touch and DPAD OK")
     adb("shell","input","keyevent","4")
     expect("SHARK SKY")
     tap(expect("Movies"))
-    expect("Xtream Codes")
-    fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
-    assert len(fields)>=3, "Missing Xtream login fields"
-    for node,value in zip(fields,["http://127.0.0.1:18765","fixture","fixture"]):
-        enter_field(node,value)
-        if "mInputShown=true" in adb("shell","dumpsys","input_method"):
-            adb("shell","input","keyevent","4")
-            time.sleep(.4)
-    current_fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
-    assert current_fields[0].get("text")=="http://127.0.0.1:18765"
-    assert current_fields[1].get("text")=="fixture"
-    if current_fields[2].get("text") in ("","Password"):
-        enter_field(current_fields[2],"fixture")
-        if "mInputShown=true" in adb("shell","dumpsys","input_method"):
-            adb("shell","input","keyevent","4")
-    tap(expect("Connect"))
+    if not args.saved_login:
+        expect("Xtream Codes")
+        fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
+        assert len(fields)>=3, "Missing Xtream login fields"
+        for node,value in zip(fields,["http://127.0.0.1:18765","fixture","fixture"]):
+            enter_field(node,value)
+            if "mInputShown=true" in adb("shell","dumpsys","input_method"):
+                adb("shell","input","keyevent","4")
+                time.sleep(.4)
+        current_fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
+        assert current_fields[0].get("text")=="http://127.0.0.1:18765"
+        assert current_fields[1].get("text")=="fixture"
+        if current_fields[2].get("text") in ("","Password"):
+            enter_field(current_fields[2],"fixture")
+            if "mInputShown=true" in adb("shell","dumpsys","input_method"):
+                adb("shell","input","keyevent","4")
+        tap(expect("Connect"))
     expect("Fixture movies")
-    deadline=time.monotonic()+35
-    while time.monotonic()<deadline:
-        root=ui()
-        cards=[n for n in root.iter("node") if n.get("content-desc","").startswith("Layout fixture ")]
-        if len(cards)>=4:
-            break
-        time.sleep(1)
-    else:
-        raise AssertionError("No movie poster cards loaded")
-    rects=[bounds(n) for n in cards]
-    rows=sorted(set(r[1] for r in rects))
-    print("Poster card bounds:",rects)
-    assert len(rows)==2, "Expected two complete poster rows; got "+str(rows)
-    for x,y,X,Y in rects:
-        width,height=X-x,Y-y
-        assert width>0 and height>width, "Poster is not portrait"
-        assert 1.15<=height/width<=1.95, "Poster ratio outside acceptable portrait range"
-    print("PASS: home, settings, test Xtream login and two portrait rows")
+    check_posters("Layout fixture ","movies")
+    check_player()
     assert not any(find(ui(),label) is not None for label in ("Home","Search","Retry")), "Movies bottom actions still visible"
     tap(expect("Movies options"))
     for label in ("Home","Search","Retry"):
@@ -165,8 +248,7 @@ try:
     tap(expect("Series"))
     expect("Fixture series")
     expect("Series fixture 001")
-    with open("premium-series-preview.png","wb") as out:
-        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
+    check_posters("Series fixture ","series")
     adb("shell","input","keyevent","4")
     expect("SHARK SKY")
     tap(expect("Settings"))
@@ -180,8 +262,7 @@ try:
     tap(expect("Live TV"))
     expect("Fixture channels")
     expect("Test channel 001")
-    with open("premium-live-preview.png","wb") as out:
-        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
+    capture("live")
     root=ui()
     assert not any(find(root,label) is not None for label in ("Home","Search","TV Guide","Retry")), "Live bottom actions still visible"
     tap(expect("Live TV options"))
@@ -207,9 +288,9 @@ try:
     print("PASS: Live TV bottom row removed; touch and remote options retain all actions")
 except Exception:
     try:
-        with open("failed-ui.xml","w") as out:
+        with open(f"failed-ui-{args.resolution}.xml","w") as out:
             out.write(ET.tostring(ui(),encoding="unicode"))
-        with open("failed-ui.png","wb") as out:
+        with open(f"failed-ui-{args.resolution}.png","wb") as out:
             subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=False)
     except Exception as diagnostic_error:
         print("Could not capture failure diagnostics:",diagnostic_error)
