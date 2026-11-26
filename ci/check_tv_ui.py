@@ -322,7 +322,11 @@ try:
     check_posters("Layout fixture ","movies")
     check_catalogue_nav()
     check_player()
-    assert not any(find(ui(),label) is not None for label in ("Home","Search","Retry")), "Movies bottom actions still visible"
+    # Recheck the footer after returning from full-screen playback. Phones
+    # deliberately expose Home and Back; TVs must not gain these actions.
+    check_catalogue_nav()
+    root=ui()
+    assert not any(find(root,label) is not None for label in ("Search","Retry")), "Movies bottom menu actions still visible"
     tap(expect("Movies options"))
     for label in ("Home","Search","Retry"):
         expect(label)
