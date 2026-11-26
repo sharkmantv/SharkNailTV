@@ -1,6 +1,5 @@
 package com.example.xtreamtv;
 
-import android.app.ActivityManager;
 import android.content.Context;
 import android.graphics.*;
 import android.os.SystemClock;
@@ -13,18 +12,18 @@ import java.util.List;
 final class PremiumMockupHome {
  static final int[][] AREAS={{20,477,438,390},{459,477,385,390},{845,477,389,390},{1235,477,397,390}};
  static final int[][] RIMS={{58,510,439,831},{475,510,829,828},{867,511,1219,828},{1257,511,1601,828}};
- static Bitmap backdrop;static int sample=0;
+ static Bitmap backdrop;
  static final Bitmap[] cards=new Bitmap[4];
  static void prepare(MainActivity a){
-  ActivityManager am=(ActivityManager)a.getSystemService(Context.ACTIVITY_SERVICE);
-  android.util.DisplayMetrics metrics=a.getResources().getDisplayMetrics();
-  int desired=(Math.max(metrics.widthPixels,metrics.heightPixels)>=2560 && am!=null&&!am.isLowRamDevice()&&am.getMemoryClass()>=192)?1:2;
-  if(backdrop!=null&&sample==desired)return;
-  BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;o.inSampleSize=desired;
+  if(backdrop!=null)return;
+  // Always decode the full prepared UHD layers; the device compositor chooses output resolution.
+  BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;o.inSampleSize=1;
   backdrop=BitmapFactory.decodeResource(a.getResources(),R.drawable.design34_backdrop,o);
   int[] ids={R.drawable.design34_card_0,R.drawable.design34_card_1,R.drawable.design34_card_2,R.drawable.design34_card_3};
   for(int i=0;i<4;i++)cards[i]=BitmapFactory.decodeResource(a.getResources(),ids[i],o);
-  sample=desired;
+  if(backdrop==null||backdrop.getWidth()!=3840||backdrop.getHeight()!=2160)throw new IllegalStateException("Full UHD home artwork required");
+  for(int i=0;i<4;i++){int[] a=AREAS[i];int expectedW=Math.round((a[0]+a[2])*3840f/1648)-Math.round(a[0]*3840f/1648);int expectedH=Math.round((a[1]+a[3])*2160f/928)-Math.round(a[1]*2160f/928);if(cards[i]==null||cards[i].getWidth()!=expectedW||cards[i].getHeight()!=expectedH)throw new IllegalStateException("Full resolution card "+i+" required");}
+  android.util.Log.i("SharkUHD","Full resolution 3840x2160 artwork and all four card layers decoded");
  }
  static void show(MainActivity a){
   prepare(a);a.body.removeAllViews();a.body.setPadding(0,0,0,0);

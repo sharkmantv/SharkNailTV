@@ -157,6 +157,18 @@ jobs:
             python3 ci/check_premium_home.py
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_rendered_art.py
+            adb logcat -d -s SharkUHD:I | grep -F 'Full resolution 3840x2160 artwork and all four card layers decoded'
+            adb shell wm size 3840x2160
+            adb shell am force-stop com.example.xtreamtv
+            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            sleep 4
+            python3 ci/check_premium_home.py
+            adb exec-out screencap -p > premium-home-4k.png
+            python3 -c "from PIL import Image; im=Image.open('premium-home-4k.png'); assert im.size==(3840,2160),im.size; print('PASS: actual 3840x2160 emulator screenshot')"
+            adb shell wm size 1920x1080
+            adb shell am force-stop com.example.xtreamtv
+            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            sleep 3
             python3 ci/check_tv_ui.py
             adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/shark-crash.log"
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
@@ -173,6 +185,7 @@ jobs:
           name: SharkSky-5.0.34-home-preview
           path: |
             premium-home-preview.png
+            premium-home-4k.png
             premium-focus-*.png
             premium-settings-preview.png
             premium-live-preview.png
