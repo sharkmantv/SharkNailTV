@@ -166,7 +166,7 @@ public class MainActivity extends Activity {
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
- void screen(String title){if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
+ void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
  void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
  void home(){
   page="Home";screen("SHARK SKY");
@@ -361,7 +361,7 @@ public class MainActivity extends Activity {
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
   TextView hint=text("SDR uses OpenGL tone mapping on compatible devices. Auto preserves the source. HDR prefers native HDR tracks. Changes apply at the next playback.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
-  android.view.Display.Mode m=getWindowManager().getDefaultDisplay().getMode();status=text("Display: "+m.getPhysicalWidth()+" × "+m.getPhysicalHeight()+" · "+String.format(Locale.US,"%.2f Hz",m.getRefreshRate())+"  |  Native fallback uses Android system controls.",14);body.addView(status);
+  displayStatus=text(displaySummary(),14);body.addView(displayStatus);
   LinearLayout back=row();button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
  }
  String rangeFor(boolean live){return prefs.getString(live?"range_live":"range_vod",live?"Prefer SDR":"Auto");}
@@ -371,8 +371,58 @@ public class MainActivity extends Activity {
   new AlertDialog.Builder(this).setTitle(live?"Live TV picture mode":"Movie and series picture mode").setSingleChoiceItems(choices,Arrays.asList(values).indexOf(rangeFor(live)),(d,n)->{prefs.edit().putString(live?"range_live":"range_vod",values[n]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();
  }
  void languageDialog(String key,String title){String[] labels={"Automatic","English","Spanish","French","German","Italian","Arabic"},codes={null,"en","es","fr","de","it","ar"};new AlertDialog.Builder(this).setTitle(title).setItems(labels,(d,i)->{prefs.edit().putString(key,codes[i]).apply();playbackSettings();}).setNegativeButton("Cancel",null).show();}
- void displayDialog(){android.view.Display display=getWindowManager().getDefaultDisplay();android.view.Display.Mode[] modes=display.getSupportedModes();String[] labels=new String[modes.length+2];labels[0]="Automatic (system)";labels[1]="Highest refresh at current resolution";for(int i=0;i<modes.length;i++)labels[i+2]=modes[i].getPhysicalWidth()+" × "+modes[i].getPhysicalHeight()+" · "+String.format(Locale.US,"%.2f Hz",modes[i].getRefreshRate());new AlertDialog.Builder(this).setTitle("Supported display modes").setItems(labels,(d,i)->{prefs.edit().putInt("display_mode",i==0?0:i==1?-1:modes[i-2].getModeId()).apply();applyDisplayMode();playbackSettings();}).setNegativeButton("Cancel",null).show();}
- void applyDisplayMode(){android.view.Display display=getWindowManager().getDefaultDisplay();android.view.Display.Mode current=display.getMode();int request=prefs.getInt("display_mode",0),chosen=0;float rate=0;for(android.view.Display.Mode m:display.getSupportedModes()){if(request>0&&m.getModeId()==request){chosen=request;break;}if(request==-1&&m.getPhysicalWidth()==current.getPhysicalWidth()&&m.getPhysicalHeight()==current.getPhysicalHeight()&&m.getRefreshRate()>rate){rate=m.getRefreshRate();chosen=m.getModeId();}}WindowManager.LayoutParams a=getWindow().getAttributes();a.preferredDisplayModeId=chosen;getWindow().setAttributes(a);}
+ // Window-local display requests only: no secure settings, Shizuku or global overrides.
+ static final int DISPLAY_MAX=-1, DISPLAY_60=-60, DISPLAY_120=-120;
+ android.widget.TextView displayStatus;
+ android.hardware.display.DisplayManager displayManager;
+ final android.hardware.display.DisplayManager.DisplayListener displayListener=new android.hardware.display.DisplayManager.DisplayListener(){
+  @Override public void onDisplayAdded(int id){}
+  @Override public void onDisplayRemoved(int id){}
+  @Override public void onDisplayChanged(int id){if(id==getWindowManager().getDefaultDisplay().getDisplayId())updateDisplayStatus();}
+ };
+ @Override protected void onResume(){super.onResume();displayManager=(android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE);if(displayManager!=null)displayManager.registerDisplayListener(displayListener,ui);updateDisplayStatus();}
+ @Override protected void onPause(){if(displayManager!=null){displayManager.unregisterDisplayListener(displayListener);displayManager=null;}super.onPause();}
+ static int chooseDisplayMode(android.view.Display.Mode current,android.view.Display.Mode[] modes,int request){
+  if(request==0)return 0;
+  int chosen=0;float best=Float.MAX_VALUE;
+  for(android.view.Display.Mode m:modes){
+   if(request>0){if(m.getModeId()==request)return request;continue;}
+   if(m.getPhysicalWidth()!=current.getPhysicalWidth()||m.getPhysicalHeight()!=current.getPhysicalHeight())continue;
+   float score;
+   if(request==DISPLAY_MAX){score=-m.getRefreshRate();}
+   else if(request==DISPLAY_60||request==DISPLAY_120){score=Math.abs(m.getRefreshRate()+request);if(score>1f)continue;}
+   else continue;
+   if(score<best){best=score;chosen=m.getModeId();}
+  }
+  return chosen;
+ }
+ String displaySummary(){
+  android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode m=d.getMode();
+  int req=prefs.getInt("display_mode",0),chosen=chooseDisplayMode(m,d.getSupportedModes(),req);
+  String policy=req==0?"System automatic":req==DISPLAY_MAX?"Highest at current resolution":req==DISPLAY_60?"60 Hz":req==DISPLAY_120?"120 Hz":"Specific display mode";
+  String result=req==0?"System controlled":chosen==0?"Unavailable; system fallback":chosen==m.getModeId()?"Active":"Requested; firmware decides";
+  return String.format(Locale.US,"Current display: %d × %d · %.2f Hz\n%s · %s",m.getPhysicalWidth(),m.getPhysicalHeight(),m.getRefreshRate(),policy,result);
+ }
+ void updateDisplayStatus(){if(displayStatus!=null&&displayStatus.isAttachedToWindow()&&prefs!=null)displayStatus.setText(displaySummary());}
+ void displayDialog(){
+  android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode current=d.getMode();android.view.Display.Mode[] modes=d.getSupportedModes();
+  ArrayList<String> labels=new ArrayList<>();ArrayList<Integer> values=new ArrayList<>();
+  labels.add("Automatic (system)");values.add(0);
+  labels.add("Highest refresh at current resolution");values.add(DISPLAY_MAX);
+  if(chooseDisplayMode(current,modes,DISPLAY_60)!=0){labels.add("60 Hz (current resolution)");values.add(DISPLAY_60);}
+  if(chooseDisplayMode(current,modes,DISPLAY_120)!=0){labels.add("120 Hz (current resolution)");values.add(DISPLAY_120);}
+  for(android.view.Display.Mode m:modes){labels.add(String.format(Locale.US,"%d × %d · %.2f Hz",m.getPhysicalWidth(),m.getPhysicalHeight(),m.getRefreshRate()));values.add(m.getModeId());}
+  new AlertDialog.Builder(this).setTitle(String.format(Locale.US,"Display refresh rate · %.2f Hz active",current.getRefreshRate()))
+   .setSingleChoiceItems(labels.toArray(new String[0]),values.indexOf(prefs.getInt("display_mode",0)),(dialog,i)->{prefs.edit().putInt("display_mode",values.get(i)).apply();dialog.dismiss();applyDisplayMode();playbackSettings();})
+   .setNegativeButton("Cancel",null).show();
+ }
+ void applyDisplayMode(){
+  android.view.Display d=getWindowManager().getDefaultDisplay();
+  int chosen=chooseDisplayMode(d.getMode(),d.getSupportedModes(),prefs.getInt("display_mode",0));
+  WindowManager.LayoutParams attrs=getWindow().getAttributes();
+  if(attrs.preferredDisplayModeId!=chosen){attrs.preferredDisplayModeId=chosen;getWindow().setAttributes(attrs);}
+  android.util.Log.i("SharkDisplay",displaySummary());updateDisplayStatus();
+ }
  String prefix(){return page.equals("Live TV")?"live":page.equals("Movies")?"vod":"series";}
  static String firstArtwork(JSONObject j){for(String field:new String[]{"stream_icon","cover","cover_big","movie_image","poster_path"}){String u=j.optString(field,"").trim();if(u.startsWith("https://")||u.startsWith("http://"))return u;}return "";}
  static List<Item> parse(JSONArray a,String id,String name){List<Item> list=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject j=a.optJSONObject(i);if(j!=null&&!j.optString(id).isEmpty()){Item item=new Item(j.optString(id),j.optString(name),j.optString("container_extension","mp4"));if(!id.equals("category_id")){item.art=firstArtwork(j);item.year=j.optString("year",j.optString("releaseDate",j.optString("release_date","")));item.tmdb=j.optString("tmdb_id",j.optString("tmdb",""));}list.add(item);}}return list;}

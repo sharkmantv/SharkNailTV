@@ -78,7 +78,7 @@ final class PremiumMockupHome {
     boolean animate=animations();
     float phase=FlamePulse.phase();
     FlamePulse.draw(c,glow,rim,35,1,phase);
-    if(animate&&isShown())postInvalidateDelayed(40);
+    if(animate&&isShown()&&isAttachedToWindow())postInvalidateOnAnimation();
    }
    c.restoreToCount(saved);
   }
