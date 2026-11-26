@@ -49,8 +49,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          run=45768595897
-          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json headSha,headBranch | jq -e '.headSha=="6171d3d9309e2d5b728963dcb30cd6323eec2fad" and .headBranch=="artwork/realesrgan-4k"'
+          run=45769076206
+          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json headSha,headBranch | jq -e '.headSha=="d79b2bc6497e5d380f718826e1977f36fb2bc91c" and .headBranch=="artwork/realesrgan-4k"'
           timeout 95m gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
           gh run view "$run" --repo "$GITHUB_REPOSITORY" --json conclusion | jq -e '.conclusion=="success"'
           gh run download "$run" --repo "$GITHUB_REPOSITORY" --name Sky-Shark-AI-enhanced-4K --dir enhanced-artwork
