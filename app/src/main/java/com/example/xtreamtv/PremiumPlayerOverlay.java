@@ -107,7 +107,14 @@ final class PremiumPlayerOverlay extends FrameLayout {
   Ring(boolean round){circle=round;}
   @Override public boolean isStateful(){return true;}
   @Override protected boolean onStateChange(int[] states){boolean next=false;for(int s:states)if(s==android.R.attr.state_focused)next=true;if(next==focused)return false;focused=next;if(!next)unscheduleSelf(tick);invalidateSelf();return true;}
-  @Override public void draw(Canvas c){if(!focused||!isVisible())return;RectF r=new RectF(getBounds());r.inset(d(4),d(4));float phase=(float)(.5+.5*Math.cos(2*Math.PI*(SystemClock.uptimeMillis()%1600)/1600d));pen.setStyle(Paint.Style.STROKE);float radius=circle?r.height()/2:d(12);for(int i=4;i>0;i--){pen.setColor(Color.argb((int)(12+phase*18),255,190,0));pen.setStrokeWidth(d(i*2));c.drawRoundRect(r,radius,radius,pen);}pen.setColor(GOLD);pen.setStrokeWidth(d(2));c.drawRoundRect(r,radius,radius,pen);scheduleSelf(tick,SystemClock.uptimeMillis()+40);}
+  @Override public void draw(Canvas c){
+   if(!focused||!isVisible())return;
+   RectF r=new RectF(getBounds());float side=Math.min(r.width(),r.height());
+   float scale=Math.max(d(3),side*.095f)/25f;
+   r.inset(scale*19,scale*19);
+   FlamePulse.draw(c,pen,r,circle?r.height()/2:d(12),scale,FlamePulse.phase());
+   if(FlamePulse.animates()){unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+40);}
+  }
   @Override public boolean setVisible(boolean v,boolean restart){if(!v)unscheduleSelf(tick);return super.setVisible(v,restart);}
   @Override public void setAlpha(int alpha){}@Override public void setColorFilter(ColorFilter f){}@Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
  }

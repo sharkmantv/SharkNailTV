@@ -76,28 +76,8 @@ final class PremiumMockupHome {
    c.drawBitmap(cards[index],null,new RectF(0,0,b[2],b[3]),art);
    if(isFocused()){
     boolean animate=animations();
-    float phase=animate?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1600*Math.PI*2/1600.0)):1;
-    // One continuous flame-coloured rim. All strokes share the same centreline:
-    // soft red halo -> red/orange transition -> amber/gold -> bright yellow core.
-    glow.setStyle(Paint.Style.STROKE);glow.setStrokeJoin(Paint.Join.ROUND);
-    for(int layer=6;layer>=1;layer--){
-     glow.setStrokeWidth(24+phase*4+layer*3);
-     glow.setColor(Color.argb((int)((7+phase*6)*(7-layer)),255,25+layer*4,8));
-     c.drawRoundRect(rim,35,35,glow);
-    }
-    // Closely spaced, concentric strokes create a smooth colour transition,
-    // without a second inner rim or a gap between yellow and red.
-    for(int step=0;step<=24;step++){
-     float mix=step/24f;
-     float width=(25+phase*5)*(1-mix)+3*mix;
-     int green=Math.round(28+212*mix+phase*10*mix);
-     int blue=Math.round(7+25*mix);
-     glow.setStrokeWidth(width);
-     glow.setColor(Color.rgb(255,Math.min(255,green),blue));
-     c.drawRoundRect(rim,35,35,glow);
-    }
-    glow.setStrokeWidth(2+phase);glow.setColor(0xfffff4a0);
-    c.drawRoundRect(rim,35,35,glow);
+    float phase=FlamePulse.phase();
+    FlamePulse.draw(c,glow,rim,35,1,phase);
     if(animate&&isShown())postInvalidateDelayed(40);
    }
    c.restoreToCount(saved);

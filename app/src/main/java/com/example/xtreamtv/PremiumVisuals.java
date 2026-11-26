@@ -127,18 +127,10 @@ final class PremiumVisuals {
     p.setAlpha((int)(f?22+38*phase:10+18*phase));c.drawRect(panel.left,stripY+band,panel.right,stripY+band*2.2f,p);
     p.setAlpha(255);p.setShader(null);c.restoreToCount(saved);
     if(f){
-     // Anchor every stroke to the same outside edge. All glow and core grow inward.
-     float line=Math.max(4,h*(.030f+.026f*phase));
+     float scale=Math.max(4f,h*.105f)/25f;
+     RectF rim=new RectF(panel);rim.inset(scale*15f,scale*15f);
      int clip=c.save();c.clipRect(panel);
-     p.setStyle(Paint.Style.STROKE);p.setStrokeJoin(Paint.Join.MITER);
-     for(int j=3;j>=1;j--){
-      float width=line+j*Math.max(1.5f,h*.012f);
-      RectF glow=new RectF(panel);glow.inset(width/2,width/2);
-      p.setStrokeWidth(width);p.setColor(Color.argb((int)((18+phase*18)*(4-j)),255,182,10));c.drawRect(glow,p);
-     }
-     RectF ring=new RectF(panel);ring.inset(line/2,line/2);p.setStrokeWidth(line);
-     p.setColor(Color.rgb(255,208+Math.round(42*phase),40+Math.round(65*phase)));c.drawRect(ring,p);
-     p.setStyle(Paint.Style.FILL);p.setAlpha(255);c.restoreToCount(clip);
+     FlamePulse.draw(c,p,rim,0,scale,FlamePulse.phase());c.restoreToCount(clip);
     }
  }
  static final class Drip extends View{
@@ -173,14 +165,14 @@ final class PremiumVisuals {
     p.setTypeface(font(getContext(),false));
     p.setTextAlign(Paint.Align.CENTER);p.setTextSize(Math.min(h*.21f,w*.105f));
     p.setColor(0xfff4f5ff);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.5f,h*.76f-(fm.ascent+fm.descent)*.5f,p);
-    if(animate&&isShown())postInvalidateDelayed(50);
+    if(f&&animate&&isShown())postInvalidateDelayed(40);
     return;
    }
    if(!reflection){
     skyTile(c,p,w,h,f,phase,icon);
     float is=Math.min(h*.59f,w*.18f);icon(c,p,icon,false,w*.07f,(h-is)/2,is);
     p.setTypeface(font(getContext(),false));p.setTextAlign(Paint.Align.LEFT);p.setTextSize(Math.min(h*.27f,w*.09f));while(p.measureText(title)>w*.64f)p.setTextSize(p.getTextSize()*.94f);p.setColor(Color.WHITE);Paint.FontMetrics fm=p.getFontMetrics();c.drawText(title,w*.29f,h*.5f-(fm.ascent+fm.descent)*.5f,p);
-    if(animate&&isShown())postInvalidateDelayed(50);return;
+    if(f&&animate&&isShown())postInvalidateDelayed(40);return;
    }
    glass(c,p,margin,margin,w-margin,body-margin,f,phase,true);
    float iconSize=Math.min(w*.55f,body*.57f);float iy=body*.08f;

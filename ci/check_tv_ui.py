@@ -253,30 +253,42 @@ try:
     assert screen[1]+sh*.46<=cy<=screen[1]+sh*.66,(cy,screen,tiles)
     print("PASS: Settings evenly spaced, aligned, and vertically centered",tiles)
     settings_image=capture("settings")
-    # The focus rim must stay thick and continuous at both screen resolutions.
+    # Check the shared flame band in rendered pixels: continuous warm core
+    # with red/orange shoulders and sufficient width, not just a gold outline.
     selected=next((find(root,label) for label in labels if find(root,label).get("focused")=="true"),None)
     assert selected is not None,"Settings tile focus missing"
     x,y,X,Y=bounds(selected)
     h=Y-y
-    def gold(pixel):
-        r,g,b=pixel[:3]
-        return r>=215 and g>=165 and r>b*1.5 and g>b*1.4
-    def longest(seq):
-        best=run=0
-        for yes in seq:
-            run=run+1 if yes else 0
-            best=max(best,run)
-        return best
-    depth=max(1,round(h*.15))
-    minimum=max(3,round(h*.024))
+    def warm(rgb):
+        r,g,b=rgb[:3]
+        return r>=205 and r>=g*.94 and r>b*1.45 and b<160
+    def gold(rgb):
+        r,g,b=rgb[:3]
+        return r>=220 and g>=175 and r>b*1.35
+    def red(rgb):
+        r,g,b=rgb[:3]
+        return r>=200 and g<155 and r>g*1.4 and b<100
+    def blended(pixels):
+        runs=[];run=[]
+        for rgb in pixels:
+            if warm(rgb): run.append(rgb)
+            elif run: runs.append(run);run=[]
+        if run: runs.append(run)
+        for band in runs:
+            if len(band)<max(5,round(h*.065)): continue
+            core=[i for i,rgb in enumerate(band) if gold(rgb)]
+            if core and any(red(rgb) for rgb in band[:core[0]]) and any(red(rgb) for rgb in band[core[-1]+1:]):
+                return True
+        return False
+    depth=max(1,round(h*.24))
     for frac in (.35,.50,.65):
         cx=round(x+(X-x)*frac)
         cy=round(y+h*frac)
-        spans=[longest(gold(settings_image.getpixel((cx,yy))) for yy in range(Y-depth,Y)),
-               longest(gold(settings_image.getpixel((xx,cy))) for xx in range(x,x+depth)),
-               longest(gold(settings_image.getpixel((xx,cy))) for xx in range(X-depth,X))]
-        assert min(spans)>=minimum,("Settings focus rim too thin",spans,minimum)
-    print("PASS: thick continuous Settings pulse",flush=True)
+        strips=[[settings_image.getpixel((cx,yy)) for yy in range(Y-depth,Y)],
+                [settings_image.getpixel((xx,cy)) for xx in range(x,x+depth)],
+                [settings_image.getpixel((xx,cy)) for xx in range(X-depth,X)]]
+        assert all(blended(strip) for strip in strips),("Settings shared flame rim missing",frac)
+    print("PASS: thick continuous shared Home flame on Settings",flush=True)
     print("PASS: Settings opens by touch and DPAD OK")
     nav=[expect(label) for label in ("Back","Home","Exit")]
     assert all(n.get("clickable")=="true" and n.get("focusable")=="true" for n in nav),"Settings navigation not actionable"

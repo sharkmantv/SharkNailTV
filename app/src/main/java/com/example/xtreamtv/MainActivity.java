@@ -123,7 +123,7 @@ public class MainActivity extends Activity {
  Drawable premiumFrame(boolean focused,boolean selected){return new PremiumVisuals.Glass(focused,selected);}
  StateListDrawable focus(){
   StateListDrawable d=new StateListDrawable();
-  d.addState(new int[]{android.R.attr.state_focused},premiumFrame(true,false));
+  d.addState(new int[]{android.R.attr.state_focused},premiumFrame(false,true));
   d.addState(new int[]{android.R.attr.state_selected},premiumFrame(false,true));
   d.addState(new int[]{},premiumFrame(false,false));
   return d;
@@ -138,22 +138,23 @@ public class MainActivity extends Activity {
   @Override protected boolean onStateChange(int[] state){boolean next=false;for(int s:state)if(s==android.R.attr.state_focused)next=true;if(focused==next)return false;focused=next;if(!focused)unscheduleSelf(tick);invalidateSelf();return true;}
   @Override public void draw(android.graphics.Canvas canvas){
    if(!isVisible()||(!always&&!focused))return;
-   boolean animate=Build.VERSION.SDK_INT<26||android.animation.ValueAnimator.areAnimatorsEnabled();
-   long now=android.os.SystemClock.uptimeMillis();
-   float phase=animate?(float)(.5+.5*Math.cos(2*Math.PI*(now%1800)/1800.0)):1f;
-   paint.setColor(Color.rgb(255,190+Math.round(65*phase),Math.round(34+65*phase)));
-   android.graphics.Rect r=getBounds();float inset=width*.5f;
-   for(int i=5;i>=1;i--){paint.setStrokeWidth(width*(1+i*.55f));paint.setColor(Color.argb((int)((9+14*phase)*(6-i)),255,194,30));canvas.drawRect(r.left+inset,r.top+inset,r.right-inset,r.bottom-inset,paint);}paint.setStrokeWidth(width);paint.setColor(Color.rgb(255,196+Math.round(54*phase),55+Math.round(85*phase)));canvas.drawRect(r.left+inset,r.top+inset,r.right-inset,r.bottom-inset,paint);
-   if(animate){unscheduleSelf(tick);scheduleSelf(tick,now+40);}
+   android.graphics.Rect bounds=getBounds();
+   float shortSide=Math.min(bounds.width(),bounds.height());
+   float scale=Math.max(1f,width*1.35f)/25f;
+   scale=Math.min(scale,shortSide*.14f/30f);
+   float inset=scale*17;
+   android.graphics.RectF rim=new android.graphics.RectF(bounds);rim.inset(inset,inset);
+   FlamePulse.draw(canvas,paint,rim,0,scale,FlamePulse.phase());
+   if(FlamePulse.animates()){unscheduleSelf(tick);scheduleSelf(tick,android.os.SystemClock.uptimeMillis()+40);}
   }
   @Override public boolean setVisible(boolean visible,boolean restart){if(!visible)unscheduleSelf(tick);return super.setVisible(visible,restart);}
   @Override public void setAlpha(int alpha){}
   @Override public void setColorFilter(android.graphics.ColorFilter filter){}
   @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
  }
- void premiumHomeFocus(View tile){tile.setForeground(new PulseFrame(false,dp(3)));}
- Drawable previewPulse(){return new PulseFrame(true,dp(2));}
- StateListDrawable posterFocus(){StateListDrawable d=new StateListDrawable();d.addState(new int[]{android.R.attr.state_focused},bg(0xff223c60,0xff142642,UI_GOLD,3));d.addState(new int[]{},bg(0xff111d34,0xff0b1428,0xff397eb9,2));return d;}
+ void premiumHomeFocus(View tile){tile.setForeground(new PulseFrame(false,dp(5)));}
+ Drawable previewPulse(){return new PulseFrame(true,dp(4));}
+ StateListDrawable posterFocus(){StateListDrawable d=new StateListDrawable();d.addState(new int[]{android.R.attr.state_focused},bg(0xff223c60,0xff142642,0xff397eb9,2));d.addState(new int[]{},bg(0xff111d34,0xff0b1428,0xff397eb9,2));return d;}
  Drawable screenBackground(){return new PremiumVisuals.Backdrop(false);}
  void styleInput(EditText e){e.setTypeface(uiRegular);e.setTextColor(UI_TEXT);e.setHintTextColor(UI_SECONDARY);e.setTextSize(16);}
  TextView text(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextColor(size<=12?UI_SECONDARY:UI_TEXT);t.setTypeface(size>=21?uiMedium:uiRegular);t.setTextSize(size);t.setLetterSpacing(size>=21?0.005f:0.01f);t.setGravity(Gravity.CENTER_VERTICAL);t.setMaxLines(2);return t;}
