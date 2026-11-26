@@ -238,8 +238,9 @@ jobs:
             adb install -r "$RUNNER_TEMP/prior36/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50036'
             adb install -r "$RUNNER_TEMP/prior37/SharkNailTV.apk"
-            adb install -r "$RUNNER_TEMP/prior39/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50037'
+            adb install -r "$RUNNER_TEMP/prior39/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50039'
             adb install -r SharkNailTV.apk
             adb shell am force-stop com.google.android.apps.nexuslauncher
             adb shell am force-stop com.example.xtreamtv
