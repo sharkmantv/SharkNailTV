@@ -22,7 +22,7 @@ if args.enhanced_dir:
         expected=report["outputs"][name]
         assert fp.stat().st_size==expected["bytes"] and hashlib.sha256(fp.read_bytes()).hexdigest()==expected["sha256"],name
         with Image.open(fp) as test: test.verify()
-    with Image.open(root/"sky_shark_conservative_4k.png") as candidate:
+    with Image.open(root/"sky_shark_ai_4k.png") as candidate:
         assert candidate.format=="PNG" and candidate.size==im.size
         enhanced=candidate.convert("RGBA")
     # Guard the approved artwork's layout, colours and text geometry; no generated logo replacements.

@@ -145,10 +145,13 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
+          ram-size: 3072M
+          heap-size: 512M
+          pre-emulator-launch-script: python3 ci/configure_uhd_emulator.py
           script: |
             set -e
             adb shell settings put secure immersive_mode_confirmations confirmed
-            adb shell wm size 1920x1080
+            adb shell wm size 1080x1920
             adb shell wm density 320
             adb shell input keyevent KEYCODE_WAKEUP
             adb shell wm dismiss-keyguard
@@ -170,14 +173,15 @@ jobs:
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_rendered_art.py
             adb logcat -d -s SharkUHD:I | grep -F 'Full resolution 3840x2160 artwork and all four card layers decoded'
-            adb shell wm size 3840x2160
+            adb shell wm size reset
+            adb shell wm size
             adb shell am force-stop com.example.xtreamtv
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 4
             python3 ci/check_premium_home.py
             adb exec-out screencap -p > premium-home-4k.png
             python3 -c "from PIL import Image; im=Image.open('premium-home-4k.png'); assert im.size==(3840,2160),im.size; print('PASS: actual 3840x2160 emulator screenshot')"
-            adb shell wm size 1920x1080
+            adb shell wm size 1080x1920
             adb shell am force-stop com.example.xtreamtv
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 3
@@ -251,7 +255,7 @@ jobs:
             test "$(gh release view "$tag" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
             test "$(gh release view "$tag" --repo "$GH_REPO" --json targetCommitish --jq .targetCommitish)" = "$GITHUB_SHA"
           else
-            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.34" --notes "Verified build and emulator upgrade from 5.0.33; AI-enhanced 3840x2160 artwork (Real-ESRGAN conservative blend). Real TV visual and playback testing outstanding."
+            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.34" --notes "Verified build and emulator upgrade from 5.0.33; AI-enhanced 3840x2160 artwork (Real-ESRGAN full-strength). Real TV visual and playback testing outstanding."
           fi
           for asset in SharkNailTV.apk update.json ffmpeg-source.tar.gz; do gh release upload "$tag" "$asset" --repo "$GH_REPO" --clobber; done
           gh release view "$tag" --repo "$GH_REPO" --json assets | jq -e --arg digest "sha256:$checksum" --argjson size "$bytes" '(.assets | length)==3 and any(.assets[]; .name=="SharkNailTV.apk" and .size==$size and .digest==$digest) and any(.assets[]; .name=="update.json" and .size>0) and any(.assets[]; .name=="ffmpeg-source.tar.gz" and .size>0)'
