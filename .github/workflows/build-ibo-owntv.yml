@@ -1,0 +1,58 @@
+name: Build IBO SKY RETRO — OwnTV full player
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ibo-sky-owntv/**'
+      - '.github/workflows/build-ibo-owntv.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - name: Checkout SKY skin
+        uses: actions/checkout@v4
+      - name: Checkout pinned open-source OwnTV
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/ahXN00/OwnTV.git own-source
+          cd own-source
+          git checkout --detach 4205733704dcf6b06eed5f0cd88da3f26d86b5fd
+          echo "Using pinned OwnTV source:"
+          git log -1 --oneline
+      - name: Add SKY RETRO UI to complete OwnTV source
+        shell: bash
+        run: |
+          mkdir -p own-source/app/src/main/java/tv/own/owntv/features/shell
+          cp ibo-sky-owntv/SkyRetroLanding.kt own-source/app/src/main/java/tv/own/owntv/features/shell/
+          mkdir -p own-source/app/src/main/res/drawable-nodpi
+          cp ibo-sky-owntv/assets/sky_retro_4_0_cards.webp own-source/app/src/main/res/drawable-nodpi/sky_retro_cards.webp
+          python3 ibo-sky-owntv/patch_owntv.py
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build ARM debug APK (Android TV)
+        working-directory: own-source
+        env:
+          VERSION_NAME: "5.2-SKY-RETRO"
+          VERSION_CODE: "50200"
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleStandardDebug --stacktrace --no-daemon
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: IBO-SKY-RETRO-OwnTV-FULL-ARM-APK
+          path: own-source/app/build/outputs/apk/standard/debug/*.apk
+          if-no-files-found: error
