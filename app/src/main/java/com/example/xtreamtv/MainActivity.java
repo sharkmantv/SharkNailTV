@@ -54,7 +54,27 @@ public class MainActivity extends Activity {
  Future<?> catalogueJob;
  ProgressBar programmeProgress;
  String playbackDiagnostics="No video information yet";
- long startupBeginMs, startupFirstMs=-1; int droppedVideoFrames;
+ long startupBeginMs, startupFirstMs=-1, startupLoadMs=-1, startupDecoderMs=-1, startupDecoderCostMs=-1, startupReadyMs=-1; int droppedVideoFrames;
+ FrameRateSample frameRateSample;
+ // Per-player bounded estimator; callback runs on the playback thread.
+ static final class FrameRateSample {
+  private final long[] intervals=new long[48]; private long previous=Long.MIN_VALUE; private int count, next;
+  synchronized void accept(long pts){
+   if(previous==Long.MIN_VALUE){previous=pts;return;}
+   long delta=pts-previous;previous=pts;
+   if(delta==0)return;
+   if(delta<0||delta>250000){count=next=0;return;}
+   if(delta<5000)return;
+   intervals[next]=delta;next=(next+1)%intervals.length;if(count<intervals.length)count++;
+  }
+  synchronized float estimate(){
+   if(count<12)return -1;
+   long[] copy=Arrays.copyOf(intervals,count);Arrays.sort(copy);long median=copy[count/2];
+   int near=0;double sum=0;for(long d:copy)if(Math.abs(d-median)<=median*.12){near++;sum+=d;}
+   return near>=count*.7? (float)(1000000.0*near/sum):-1;
+  }
+ }
+ static String timing(long ms){return ms<0?"Not available":ms+" ms";}
  int activeSdrPath=-1;
  Item playbackItem;
  FrameLayout liveSurfaceHost;
@@ -255,9 +275,12 @@ public class MainActivity extends Activity {
   if(p==null)return playbackDiagnostics;
   Format f=p.getVideoFormat(), a=p.getAudioFormat();
   float hz=getWindowManager().getDefaultDisplay().getMode().getRefreshRate();
-  String fps=f!=null&&f.frameRate>0?String.format(Locale.US,"%.2f fps",f.frameRate):"Not reported";
+  float declared=f!=null?f.frameRate:-1;
+  float estimated=frameRateSample==null?-1:frameRateSample.estimate();
+  float rate=declared>0?declared:estimated;
+  String fps=rate>0?String.format(Locale.US,"%.2f fps (%s)",rate,declared>0?"declared":"estimated from frame timestamps"):"Unknown / collecting frames";
   String match="Unknown";
-  if(f!=null&&f.frameRate>0){float ratio=hz/f.frameRate;match=Math.abs(ratio-Math.round(ratio))<0.01f&&ratio>=0.99f?"Matched multiple":"Not an integer multiple";}
+  if(rate>0){float ratio=hz/rate;match=Math.abs(ratio-Math.round(ratio))<0.01f&&ratio>=0.99f?"Matched multiple":"Not an integer multiple";}
   int bitrate=f==null?-1:f.bitrate;
   return playbackDiagnostics+"\n\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
@@ -265,7 +288,11 @@ public class MainActivity extends Activity {
    +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
    +"\nVideo codec: "+(f==null?"Unknown":String.valueOf(f.sampleMimeType))
    +"\nAudio codec: "+(a==null?"Unknown":String.valueOf(a.sampleMimeType))
-   +"\nStartup to first frame: "+(startupFirstMs<0?"Waiting":startupFirstMs+" ms");
+   +"\nStartup to first frame: "+timing(startupFirstMs)
+   +"\nLoad requested: "+timing(startupLoadMs)
+   +"\nVideo decoder ready: "+timing(startupDecoderMs)+" (init "+timing(startupDecoderCostMs)+")"
+   +"\nPlayer ready: "+timing(startupReadyMs)
+   +"\nStartup times relative to player creation; not server-only timings.";
  }
  void connectionTest(){
   if(server.isEmpty()||user.isEmpty()||pass.isEmpty()){
@@ -787,7 +814,7 @@ public class MainActivity extends Activity {
   attachExo(host,i,fullscreen,attempt,position,cachedFirst,mode.equals("Prefer SDR")?(Build.VERSION.SDK_INT>=29?0:1):-1);
  }
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath){
-  long started=android.os.SystemClock.elapsedRealtime();release();startupBeginMs=started;startupFirstMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
+  long started=android.os.SystemClock.elapsedRealtime();release();startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
   PlayerView v=sdrPath==1?(PlayerView)getLayoutInflater().inflate(R.layout.shark_sdr_player,host,false):new PlayerView(this);v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   if(!fullscreen&&page.equals("Live TV")&&host==preview&&findViewById(android.R.id.content) instanceof FrameLayout){
    FrameLayout root=(FrameLayout)findViewById(android.R.id.content);
@@ -827,6 +854,7 @@ public class MainActivity extends Activity {
   }
   ExoPlayer p=new ExoPlayer.Builder(this,factory).build();
   if(gpu)p.setVideoEffects(Collections.singletonList(new androidx.media3.effect.ScaleAndRotateTransformation.Builder().build()));
+  FrameRateSample sample=new FrameRateSample();frameRateSample=sample;p.setVideoFrameMetadataListener((pts,releaseNs,format,mediaFormat)->sample.accept(pts));
   video=v;player=p;playbackItem=i;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(prefs.getInt("resize_mode",0));
   p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
@@ -837,10 +865,11 @@ public class MainActivity extends Activity {
   final boolean vod=fullscreen&&!page.equals("Live TV");
   final int token=screenToken;
   p.addAnalyticsListener(new AnalyticsListener(){
+   @Override public void onLoadStarted(AnalyticsListener.EventTime time,androidx.media3.exoplayer.source.LoadEventInfo info,androidx.media3.exoplayer.source.MediaLoadData data){if(player==p&&startupLoadMs<0)startupLoadMs=Math.max(0,info.elapsedRealtimeMs-startupBeginMs);}
    @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(player==p)droppedVideoFrames+=count;}
    @Override public void onAudioDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){if(player==p)android.util.Log.i("SharkPlayback","audio decoder="+name);}
    @Override public void onVideoDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){
-    if(player!=p)return;activeDecoder=name;android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
+    if(player!=p)return;if(startupDecoderMs<0){startupDecoderMs=Math.max(0,ts-startupBeginMs);startupDecoderCostMs=duration;}activeDecoder=name;android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
    }
   });
   MediaItem.Builder m=new MediaItem.Builder().setUri(stream(i));
@@ -878,9 +907,10 @@ public class MainActivity extends Activity {
     if(candidate!=null){rangeSelected=true;p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().setOverrideForType(new TrackSelectionOverride(candidate.getMediaTrackGroup(),index)).build());}
    }
 
+   @Override public void onPlaybackStateChanged(int state){if(player==p&&state==Player.STATE_READY&&startupReadyMs<0)startupReadyMs=android.os.SystemClock.elapsedRealtime()-startupBeginMs;}
    @Override public void onRenderedFirstFrame(){
     if(player!=p||recovering)return;
-    firstFrame=true;startupFirstMs=android.os.SystemClock.elapsedRealtime()-startupBeginMs;ui.removeCallbacks(watch);
+    firstFrame=true;if(startupFirstMs<0)startupFirstMs=android.os.SystemClock.elapsedRealtime()-startupBeginMs;ui.removeCallbacks(watch);
     if(vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
     playbackDiagnostics=(activeDecoder.isEmpty()?"Decoder unavailable":activeDecoder)+(f==null?"":" · "+f.width+"×"+f.height+(f.bitrate>0?" · "+String.format(Locale.US,"%.1f Mb/s",f.bitrate/1000000.0):""))

@@ -110,7 +110,7 @@ def mobile_navigation_expected():
 
 def check_catalogue_nav():
     root=ui()
-    for label in ("Back","Home"):
+    for label in ("Surfshark","Home"):
         node=find(root,label)
         if mobile_navigation_expected():
             assert node is not None and node.get("clickable")=="true",("Missing mobile catalogue button",label)
@@ -249,7 +249,7 @@ try:
     adb("shell","input","keyevent","23")
     expect("Playback")
     root=ui()
-    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner","Connection Test","Back","Home","Exit")
+    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner","Connection Test","Surfshark","Home","Exit")
     tiles=[bounds(find(root,label)) for label in labels]
     first,second,third=tiles[:4],tiles[4:8],tiles[8:]
     assert all(abs(r[1]-first[0][1])<=2 and abs(r[3]-first[0][3])<=2 for r in first),tiles
@@ -314,19 +314,22 @@ try:
     expect("Connection Test")
     tap(expect("CLOSE" if args.saved_login else "OK"))
     expect("Playback")
-    nav=[expect(label) for label in ("Back","Home","Exit")]
+    nav=[expect(label) for label in ("Surfshark","Home","Exit")]
     assert all(n.get("clickable")=="true" and n.get("focusable")=="true" for n in nav),"Settings navigation not actionable"
     assert all(bounds(n)[1]>=second[0][3] for n in nav),"Settings navigation overlaps tiles"
     tap(expect("Exit"))
     expect("Exit Sky Shark?")
     tap(expect("CANCEL"))
     expect("Playback")
-    tap(expect("Back"))
+    tap(expect("Surfshark"))
+    expect("Surfshark VPN")
+    tap(expect("CANCEL"))
+    adb("shell","input","keyevent","4")
     expect("SHARK SKY")
     tap(expect("Settings"))
     tap(expect("Home"))
     expect("SHARK SKY")
-    print("PASS: Settings Back/Home navigation and safe Exit confirmation")
+    print("PASS: Settings Surfshark/physical Back/Home navigation and safe Exit confirmation")
     tap(expect("Movies"))
     if not args.saved_login:
         expect("Xtream Codes")
@@ -350,7 +353,7 @@ try:
     check_catalogue_nav()
     check_player()
     # Recheck the footer after returning from full-screen playback. Phones
-    # deliberately expose Home and Back; TVs must not gain these actions.
+    # deliberately expose Home and Surfshark; TVs must not gain these actions.
     check_catalogue_nav()
     root=ui()
     assert not any(find(root,label) is not None for label in ("Search","Retry")), "Movies bottom menu actions still visible"
@@ -402,9 +405,9 @@ try:
     adb("shell","input","keyevent","4")
     expect("Test channel 001")
     if mobile_navigation_expected():
-        tap(expect("Back"))
+        tap(expect("Home"))
         expect("SHARK SKY")
-    print("PASS: TV footer unchanged; mobile Back/Home and catalogue options retained")
+    print("PASS: TV footer unchanged; mobile Surfshark/Home and catalogue options retained")
 except Exception:
     try:
         with open(f"failed-ui-{args.resolution}.xml","w") as out:
