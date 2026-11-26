@@ -231,21 +231,24 @@ try:
     adb("shell","input","keyevent","23")
     expect("Playback")
     root=ui()
-    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner")
+    labels=("Xtream Codes","Playback","Display","Audio","Subtitles","Updates","About","Cleaner","Back","Home","Exit")
     tiles=[bounds(find(root,label)) for label in labels]
-    first,second=tiles[:4],tiles[4:]
+    first,second,third=tiles[:4],tiles[4:8],tiles[8:]
     assert all(abs(r[1]-first[0][1])<=2 and abs(r[3]-first[0][3])<=2 for r in first),tiles
     assert all(abs(r[1]-second[0][1])<=2 and abs(r[3]-second[0][3])<=2 for r in second),tiles
     assert all(abs(a[0]-b[0])<=2 and abs(a[2]-b[2])<=2 for a,b in zip(first,second)),tiles
+    assert all(abs(r[1]-third[0][1])<=2 and abs(r[3]-third[0][3])<=2 for r in third),tiles
     widths=[r[2]-r[0] for r in tiles]
-    assert max(widths)-min(widths)<=2,tiles
-    gaps=[row[i+1][0]-row[i][2] for row in (first,second) for i in range(3)]
+    heights=[r[3]-r[1] for r in tiles]
+    assert max(widths)-min(widths)<=2 and max(heights)-min(heights)<=2,tiles
+    gaps=[row[i+1][0]-row[i][2] for row in (first,second,third) for i in range(len(row)-1)]
     assert min(gaps)>0 and max(gaps)-min(gaps)<=2,tiles
-    assert second[0][1]>first[0][3],tiles
+    assert third[0][1]>second[0][3]>first[0][3] and second[0][1]>first[0][3],tiles
     screen=bounds(root.find("node"))
     sw,sh=screen[2]-screen[0],screen[3]-screen[1]
     cx=(first[0][0]+first[-1][2])/2
-    cy=(first[0][1]+second[0][3])/2
+    cy=(first[0][1]+third[0][3])/2
+    assert abs((third[0][0]+third[-1][2])/2-cx)<=3,tiles
     assert abs(cx-(screen[0]+sw/2))<sw*.025,tiles
     assert screen[1]+sh*.46<=cy<=screen[1]+sh*.66,(cy,screen,tiles)
     print("PASS: Settings evenly spaced, aligned, and vertically centered",tiles)

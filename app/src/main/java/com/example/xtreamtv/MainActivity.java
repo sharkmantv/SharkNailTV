@@ -219,7 +219,9 @@ public class MainActivity extends Activity {
   page="Settings";screen("Settings");
   // Centre the compact grid in the usable area below the header.
   boolean wide=getResources().getConfiguration().screenWidthDp>=650;
-  int tileHeight=wide?86:64, rowGap=wide?20:12, edge=wide?16:6;
+  int rowGap=wide?14:10, edge=wide?8:4;
+  int available=getResources().getConfiguration().screenHeightDp-76-2*rowGap;
+  int tileHeight=Math.max(44,Math.min(wide?106:84,available/3));
   LinearLayout area=col();area.setGravity(Gravity.CENTER_VERTICAL);
   area.setPadding(dp(edge),0,dp(edge),0);
   body.addView(area,new LinearLayout.LayoutParams(-1,0,1));
@@ -227,13 +229,20 @@ public class MainActivity extends Activity {
   settingsTile(r,"Xtream Codes",4,()->login("Settings"));settingsTile(r,"Playback",5,this::playbackSettings);settingsTile(r,"Display",6,this::displayDialog);settingsTile(r,"Audio",7,()->languageDialog("audio_lang","Preferred audio language"));
   LinearLayout r2=row();LinearLayout.LayoutParams secondRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));secondRow.topMargin=dp(rowGap);area.addView(r2,secondRow);
   settingsTile(r2,"Subtitles",8,()->languageDialog("text_lang","Preferred subtitle language"));settingsTile(r2,"Updates",9,this::update);settingsTile(r2,"About",10,()->new AlertDialog.Builder(this).setTitle("Shark Sky Premium").setMessage("Version "+BuildConfig.VERSION_NAME+" · Media3 1.12.0-beta01").setPositiveButton("OK",null).show());settingsTile(r2,"Cleaner",11,this::maintenance);
-  LinearLayout nav=row();nav.setGravity(Gravity.CENTER);
-  LinearLayout.LayoutParams navLp=new LinearLayout.LayoutParams(-1,dp(52));
-  navLp.setMargins(dp(edge),0,dp(edge),dp(4));body.addView(nav,navLp);
-  LinearLayout controls=row();nav.addView(controls,new LinearLayout.LayoutParams(dp(Math.min(wide?450:310,Math.max(180,getResources().getConfiguration().screenWidthDp-2*edge-32))),dp(52)));
-  button(controls,"Back",this::onBackPressed);
-  button(controls,"Home",this::home);
-  button(controls,"Exit",this::confirmExit);
+  // Match the first eight tiles: same artwork, same dimensions and pulse.
+  LinearLayout r3=row();
+  LinearLayout.LayoutParams thirdRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));
+  thirdRow.topMargin=dp(rowGap);area.addView(r3,thirdRow);
+  // Half a column at each side centres three tiles in the four-column grid.
+  View leading=new View(this);leading.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+  LinearLayout.LayoutParams lead=new LinearLayout.LayoutParams(0,-1,.5f);
+  lead.width=dp(5);r3.addView(leading,lead);
+  settingsTile(r3,"Back",12,this::onBackPressed);
+  settingsTile(r3,"Home",13,this::home);
+  settingsTile(r3,"Exit",14,this::confirmExit);
+  View trailing=new View(this);trailing.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+  LinearLayout.LayoutParams tail=new LinearLayout.LayoutParams(dp(5),-1,.5f);
+  r3.addView(trailing,tail);
   r.getChildAt(0).requestFocus();
  }
  void confirmExit(){

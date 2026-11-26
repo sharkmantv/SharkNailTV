@@ -98,6 +98,14 @@ final class PremiumVisuals {
    case 9: case 11:
     q.arcTo(15,15,85,85,-44,286,true);q.arcTo(23,23,77,77,242,-286,false);q.close();metal(c,p,q,focus);q=new Path();q.moveTo(77,11);q.lineTo(90,35);q.lineTo(63,35);q.close();metal(c,p,q,focus);break;
    case 10:metal(c,p,ring(50,50,37,30),focus);q.addCircle(50,33,5,Path.Direction.CW);box(q,46,44,54,71);metal(c,p,q,focus);break;
+   case 12:
+    q.moveTo(13,50);q.lineTo(44,18);q.lineTo(52,26);q.lineTo(34,44);q.lineTo(87,44);q.lineTo(87,56);q.lineTo(34,56);q.lineTo(52,74);q.lineTo(44,82);q.close();metal(c,p,q,focus);break;
+   case 13:
+    q.moveTo(8,46);q.lineTo(50,12);q.lineTo(92,46);q.lineTo(84,55);q.lineTo(50,28);q.lineTo(16,55);q.close();metal(c,p,q,focus);
+    q=new Path();q.setFillType(Path.FillType.EVEN_ODD);box(q,25,48,75,87);box(q,43,62,57,87);metal(c,p,q,focus);break;
+   case 14:
+    q.moveTo(14,15);q.lineTo(62,15);q.lineTo(62,26);q.lineTo(26,26);q.lineTo(26,74);q.lineTo(62,74);q.lineTo(62,85);q.lineTo(14,85);q.close();metal(c,p,q,focus);
+    q=new Path();q.moveTo(89,50);q.lineTo(66,27);q.lineTo(58,35);q.lineTo(67,44);q.lineTo(39,44);q.lineTo(39,56);q.lineTo(67,56);q.lineTo(58,65);q.lineTo(66,73);q.close();metal(c,p,q,focus);break;
   }c.restoreToCount(n);
  }
  static void skyTile(Canvas c,Paint p,float w,float h,boolean f,float phase,int icon){
