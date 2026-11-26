@@ -34,7 +34,7 @@ final class PremiumVisuals {
   a.recycle();
  }
  static Bitmap headerBrand;
- static View brand(MainActivity a){if(headerBrand==null){BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;headerBrand=BitmapFactory.decodeResource(a.getResources(),R.drawable.sky_shark_logo_clean,o);}ImageView v=new ImageView(a);v.setImageBitmap(headerBrand);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
+ static View brand(MainActivity a){if(headerBrand==null){BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;headerBrand=BitmapFactory.decodeResource(a.getResources(),R.drawable.sky_shark_logo_clean,o);}ImageView v=new ImageView(a);v.setImageBitmap(headerBrand);if(v.getDrawable() instanceof android.graphics.drawable.BitmapDrawable)((android.graphics.drawable.BitmapDrawable)v.getDrawable()).setFilterBitmap(true);v.setScaleType(ImageView.ScaleType.FIT_CENTER);v.setContentDescription("SHARK SKY");return v;}
  static final class Backdrop extends Drawable{
   final Paint p=new Paint(3);final boolean withHero;
   Backdrop(boolean h){withHero=h;}
@@ -104,6 +104,8 @@ final class PremiumVisuals {
    case 14:
     q.moveTo(14,15);q.lineTo(62,15);q.lineTo(62,26);q.lineTo(26,26);q.lineTo(26,74);q.lineTo(62,74);q.lineTo(62,85);q.lineTo(14,85);q.close();metal(c,p,q,focus);
     q=new Path();q.moveTo(89,50);q.lineTo(66,27);q.lineTo(58,35);q.lineTo(67,44);q.lineTo(39,44);q.lineTo(39,56);q.lineTo(67,56);q.lineTo(58,65);q.lineTo(66,73);q.close();metal(c,p,q,focus);break;
+   case 16:
+    q=new Path();q.moveTo(50,10);q.lineTo(87,25);q.lineTo(81,63);q.quadTo(73,80,50,92);q.quadTo(27,80,19,63);q.lineTo(13,25);q.close();metal(c,p,q,focus);p.setColor(0xff103c55);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(8);p.setStrokeCap(Paint.Cap.ROUND);q=new Path();q.moveTo(66,35);q.cubicTo(40,22,28,48,51,50);q.cubicTo(73,52,61,76,35,65);c.drawPath(q,p);p.setStyle(Paint.Style.FILL);break;
    case 15:
     for(int wave=0;wave<3;wave++){q=new Path();float rr=16+wave*15;q.arcTo(50-rr,67-rr,50+rr,67+rr,220,100,true);q.arcTo(50-rr+5,67-rr+5,50+rr-5,67+rr-5,320,-100,false);q.close();metal(c,p,q,focus);}
     q=new Path();q.addCircle(50,68,7,Path.Direction.CW);metal(c,p,q,focus);break;

@@ -54,6 +54,7 @@ public class MainActivity extends Activity {
  Future<?> catalogueJob;
  ProgressBar programmeProgress;
  String playbackDiagnostics="No video information yet";
+ long startupBeginMs, startupFirstMs=-1; int droppedVideoFrames;
  int activeSdrPath=-1;
  Item playbackItem;
  FrameLayout liveSurfaceHost;
@@ -236,10 +237,35 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams thirdRow=new LinearLayout.LayoutParams(-1,dp(tileHeight));
   thirdRow.topMargin=dp(rowGap);area.addView(r3,thirdRow);
   settingsTile(r3,"Connection Test",15,this::connectionTest);
-  settingsTile(r3,"Back",12,this::onBackPressed);
+  settingsTile(r3,"Surfshark",16,this::openSurfshark);
   settingsTile(r3,"Home",13,this::home);
   settingsTile(r3,"Exit",14,this::confirmExit);
   r.getChildAt(0).requestFocus();
+ }
+ void openSurfshark(){
+  String pkg="com.surfshark.vpnclient.android";
+  android.content.pm.PackageManager pm=getPackageManager();
+  Intent launch=pm.getLeanbackLaunchIntentForPackage(pkg);
+  if(launch==null)launch=pm.getLaunchIntentForPackage(pkg);
+  if(launch!=null){try{startActivity(launch);return;}catch(ActivityNotFoundException ignored){}}
+  new AlertDialog.Builder(this).setTitle("Surfshark VPN").setMessage("Install the official Surfshark app to sign in and manage VPN connections and Bypasser settings.").setPositiveButton("Open store",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("market://details?id="+pkg)));}catch(ActivityNotFoundException e){msg("Open Google Play and search for Surfshark.");}}).setNegativeButton("Cancel",null).show();
+ }
+ String currentPlaybackDiagnostics(){
+  ExoPlayer p=player;
+  if(p==null)return playbackDiagnostics;
+  Format f=p.getVideoFormat(), a=p.getAudioFormat();
+  float hz=getWindowManager().getDefaultDisplay().getMode().getRefreshRate();
+  String fps=f!=null&&f.frameRate>0?String.format(Locale.US,"%.2f fps",f.frameRate):"Not reported";
+  String match="Unknown";
+  if(f!=null&&f.frameRate>0){float ratio=hz/f.frameRate;match=Math.abs(ratio-Math.round(ratio))<0.01f&&ratio>=0.99f?"Matched multiple":"Not an integer multiple";}
+  int bitrate=f==null?-1:f.bitrate;
+  return playbackDiagnostics+"\n\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match
+   +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
+   +"\nDropped frames (reported): "+droppedVideoFrames
+   +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
+   +"\nVideo codec: "+(f==null?"Unknown":String.valueOf(f.sampleMimeType))
+   +"\nAudio codec: "+(a==null?"Unknown":String.valueOf(a.sampleMimeType))
+   +"\nStartup to first frame: "+(startupFirstMs<0?"Waiting":startupFirstMs+" ms");
  }
  void connectionTest(){
   if(server.isEmpty()||user.isEmpty()||pass.isEmpty()){
@@ -361,6 +387,7 @@ public class MainActivity extends Activity {
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
   TextView hint=text("SDR uses OpenGL tone mapping on compatible devices. Auto preserves the source. HDR prefers native HDR tracks. Changes apply at the next playback.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
+  LinearLayout rate=row();button(rate,"Match FPS (seamless): "+(prefs.getBoolean("match_frame_rate",false)?"On":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",false)).apply();playbackSettings();});body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
   LinearLayout back=row();button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
  }
@@ -540,7 +567,7 @@ public class MainActivity extends Activity {
   LinearLayout nav=row();nav.setGravity(Gravity.CENTER_VERTICAL);
   int width=getResources().getConfiguration().screenWidthDp;
   footer.addView(nav,new LinearLayout.LayoutParams(dp(width<400?160:190),dp(48)));
-  button(nav,"Back",this::onBackPressed);button(nav,"Home",this::home);
+  button(nav,"Surfshark",this::openSurfshark);button(nav,"Home",this::home);
   body.addView(footer,new LinearLayout.LayoutParams(-1,dp(48)));
  }
  void browser(boolean restore){screen(page);{LinearLayout head=(LinearLayout)body.getChildAt(0);TextView menu=text("⋮",24);menu.setGravity(Gravity.CENTER);menu.setContentDescription(page+" options");menu.setFocusable(true);menu.setClickable(true);premiumHomeFocus(menu);head.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(43)));menu.setOnClickListener(v->{if(page.equals("Live TV"))liveOptions();else catalogueOptions();});}LinearLayout heads=row();heads.addView(text("Categories",14),new LinearLayout.LayoutParams(0,dp(25),1));heads.addView(text(page.equals("Live TV")?"Channels":"Titles",14),new LinearLayout.LayoutParams(0,dp(25),1.4f));boolean live=page.equals("Live TV");if(live)heads.addView(new View(this),new LinearLayout.LayoutParams(0,dp(25),1.6f));body.addView(heads);LinearLayout r=row();body.addView(r,new LinearLayout.LayoutParams(-1,0,1));left=list();right=list();final RecyclerView grid=right;grid.addOnLayoutChangeListener((v,l,t,rr,b,ol,ot,orr,ob)->{if(rr-l!=orr-ol||b-t!=ob-ot)grid.post(()->updatePosterGeometry(grid));});r.addView(left,new LinearLayout.LayoutParams(0,-1,1));r.addView(right,new LinearLayout.LayoutParams(0,-1,live?1.4f:2.5f));catAdapter();setItemsAdapter(items,this::pick);if(live){LinearLayout c=col();c.setPadding(dp(4),0,0,0);r.addView(c,new LinearLayout.LayoutParams(0,-1,1.6f));preview=new FrameLayout(this);preview.setBackgroundColor(Color.BLACK);preview.setForeground(previewPulse());c.addView(preview,new LinearLayout.LayoutParams(-1,0,1.7f));TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));epg=text(selected==null?"Programme information":selected.name,13);epg.setMaxLines(7);epg.setGravity(Gravity.TOP);epg.setPadding(dp(9),dp(5),dp(9),dp(3));LinearLayout guidePanel=col();guidePanel.setBackground(bg(0xff193554,0xff0b172e,0xff3b78b5,1));LinearLayout.LayoutParams guideLp=new LinearLayout.LayoutParams(-1,0,1);guideLp.topMargin=dp(4);c.addView(guidePanel,guideLp);guidePanel.addView(epg,new LinearLayout.LayoutParams(-1,0,1));programmeProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);programmeProgress.setMax(100);programmeProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(UI_GOLD));programmeProgress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff335175));programmeProgress.setVisibility(View.INVISIBLE);LinearLayout.LayoutParams barLp=new LinearLayout.LayoutParams(-1,dp(6));barLp.setMargins(dp(9),0,dp(9),dp(6));guidePanel.addView(programmeProgress,barLp);LinearLayout b=row();button(b,"Full screen",()->{if(selected!=null)playFull(selected);});button(b,"Favourite",this::fav);c.addView(b);}catalogueFooter();if(restore){if(page.equals(returnCatalogue)&&returnAnchor>=0)restoreCataloguePosition();else{left.scrollToPosition(catPos);focusAt(right,itemPos);}}}
@@ -760,7 +787,7 @@ public class MainActivity extends Activity {
   attachExo(host,i,fullscreen,attempt,position,cachedFirst,mode.equals("Prefer SDR")?(Build.VERSION.SDK_INT>=29?0:1):-1);
  }
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath){
-  release();host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
+  long started=android.os.SystemClock.elapsedRealtime();release();startupBeginMs=started;startupFirstMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
   PlayerView v=sdrPath==1?(PlayerView)getLayoutInflater().inflate(R.layout.shark_sdr_player,host,false):new PlayerView(this);v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   if(!fullscreen&&page.equals("Live TV")&&host==preview&&findViewById(android.R.id.content) instanceof FrameLayout){
    FrameLayout root=(FrameLayout)findViewById(android.R.id.content);
@@ -805,11 +832,12 @@ public class MainActivity extends Activity {
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
    .setPreferredTextLanguage(prefs.getString("text_lang",null))
    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles_on",true)).build());
-  p.setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
+  p.setVideoChangeFrameRateStrategy(prefs.getBoolean("match_frame_rate",false)&&prefs.getInt("display_mode",0)==0?C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS:C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
   if(!fullscreen)p.setVolume(0);
   final boolean vod=fullscreen&&!page.equals("Live TV");
   final int token=screenToken;
   p.addAnalyticsListener(new AnalyticsListener(){
+   @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(player==p)droppedVideoFrames+=count;}
    @Override public void onAudioDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){if(player==p)android.util.Log.i("SharkPlayback","audio decoder="+name);}
    @Override public void onVideoDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){
     if(player!=p)return;activeDecoder=name;android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
@@ -852,7 +880,7 @@ public class MainActivity extends Activity {
 
    @Override public void onRenderedFirstFrame(){
     if(player!=p||recovering)return;
-    firstFrame=true;ui.removeCallbacks(watch);
+    firstFrame=true;startupFirstMs=android.os.SystemClock.elapsedRealtime()-startupBeginMs;ui.removeCallbacks(watch);
     if(vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
     playbackDiagnostics=(activeDecoder.isEmpty()?"Decoder unavailable":activeDecoder)+(f==null?"":" · "+f.width+"×"+f.height+(f.bitrate>0?" · "+String.format(Locale.US,"%.1f Mb/s",f.bitrate/1000000.0):""))
@@ -1018,7 +1046,7 @@ public class MainActivity extends Activity {
      attachExo(host,item,true,cached?1:0,pos,cached);
     }
    }
-  }).setNeutralButton("Video info",(d,w)->new AlertDialog.Builder(this).setTitle("Video information").setMessage(playbackDiagnostics).setPositiveButton("Close",null).show()).setNegativeButton("Cancel",null).show();
+  }).setNeutralButton("Video info",(d,w)->new AlertDialog.Builder(this).setTitle("Video information").setMessage(currentPlaybackDiagnostics()).setPositiveButton("Close",null).show()).setNegativeButton("Cancel",null).show();
  }
  void rememberCataloguePosition(){
   returnCatalogue=page;returnAnchor=returnCategory=-1;
