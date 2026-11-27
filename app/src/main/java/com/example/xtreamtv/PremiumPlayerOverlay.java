@@ -37,7 +37,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   live=a.page.equals("Live TV");compact=a.getResources().getConfiguration().screenWidthDp<650;
   setFocusable(false);setClickable(false);setClipChildren(false);setClipToPadding(false);
   setBackground(new SkyAtmosphere());
-  LinearLayout top=a.row();topBar=top;top.setGravity(Gravity.CENTER_VERTICAL);
+  LinearLayout top=a.row();topBar=top;top.setGravity(Gravity.CENTER_VERTICAL);top.setBackground(artwork(R.drawable.design4_player_header));
   logoView=PremiumVisuals.brand(a);logoView.setContentDescription("Sky");logoView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
   top.addView(logoView,new LinearLayout.LayoutParams(0,-1,.22f));
   top.addView(new View(a),new LinearLayout.LayoutParams(0,-1,.39f));
@@ -61,13 +61,13 @@ final class PremiumPlayerOverlay extends FrameLayout {
   total=a.text("00:00",compact?12:15);total.setGravity(Gravity.CENTER);total.setTextColor(WHITE);timeline.addView(total,new LinearLayout.LayoutParams(d(compact?60:76),-1));
   progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){scrubbing=true;removeCallbacks(timeout);}public void onStopTrackingTouch(SeekBar s){seek(s.getProgress());scrubbing=false;arm();}public void onProgressChanged(SeekBar s,int v,boolean user){if(user){if(!scrubbing)seek(v);else if(p.getDuration()>0)elapsed.setText(time((long)(p.getDuration()*(v/10000d))));if(!scrubbing)arm();}}});
   dock.addView(timeline,new LinearLayout.LayoutParams(-1,0,.17f));
-  LinearLayout transport=a.row();transportBar=transport;transport.setGravity(Gravity.CENTER);transport.setClipChildren(false);transport.setClipToPadding(false);
+  LinearLayout transport=a.row();transportBar=transport;transport.setGravity(Gravity.CENTER);transport.setClipChildren(false);transport.setClipToPadding(false);transport.setBackground(artwork(R.drawable.design4_player_dock));
   LinearLayout.LayoutParams transportLp=new LinearLayout.LayoutParams(-1,0,.50f);dock.addView(transport,transportLp);
   Control prev=button(transport,0,"Previous",()->adjacent(-1));Control rew=button(transport,1,"Rewind",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();});
   play=button(transport,2,"Play or pause",()->{if(p.getPlayWhenReady())p.pause();else p.play();refresh();});
   Control ff=button(transport,3,"Forward",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();});Control next=button(transport,4,"Next",()->adjacent(1));
   transportKeys=new Control[]{prev,rew,play,ff,next};View[] keys=transportKeys;link(keys);
-  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(skyPanel(3));dock.addView(opts,new LinearLayout.LayoutParams(-1,0,.33f));
+  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(artwork(R.drawable.design4_player_options));dock.addView(opts,new LinearLayout.LayoutParams(-1,0,.33f));
   java.util.ArrayList<View> actionList=new java.util.ArrayList<>();
   infoButton=option(opts,"Info",this::showInfo);actionList.add(infoButton);
   if(live)actionList.add(option(opts,"EPG",()->a.openChannelGuide(item)));
@@ -293,7 +293,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
  }
  // Focus-only broad, translucent halo around a glossy blue key; no hard gold stroke.
  final class SkyKey extends Drawable {
-  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);final int style;boolean focused;final Runnable tick=()->invalidateSelf();
+  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);final int style;final Drawable plate=artwork(R.drawable.design4_player_key);boolean focused;final Runnable tick=()->invalidateSelf();
   SkyKey(int style){this.style=style;}
   @Override public boolean isStateful(){return true;}
   @Override protected boolean onStateChange(int[] states){boolean next=false;for(int s:states)if(s==android.R.attr.state_focused)next=true;if(next==focused)return false;focused=next;if(!next)unscheduleSelf(tick);invalidateSelf();return true;}
@@ -306,9 +306,9 @@ final class PremiumPlayerOverlay extends FrameLayout {
     float phase=FlamePulse.phase();ink.setShader(null);ink.setStyle(Paint.Style.STROKE);
     for(int i=14;i>=1;i--){float q=i/14f;ink.setStrokeWidth(h*(.20f+.04f*phase)*q);ink.setColor(Color.argb(Math.round((4+8*(1-q))*(.8f+.2f*phase)),255,224,90));c.drawRoundRect(r,rad,rad,ink);}
    }
-   ink.setStyle(Paint.Style.FILL);ink.setShader(new LinearGradient(0,r.top,0,r.bottom,focused?new int[]{0xff167de8,0xff0645ac,0xff071e6a}:new int[]{0xff2c5087,0xff143365,0xff0b2250},new float[]{0,.32f,1},Shader.TileMode.CLAMP));c.drawRoundRect(r,rad,rad,ink);
+   ink.setStyle(Paint.Style.FILL);ink.setShader(null);plate.setBounds(Math.round(r.left),Math.round(r.top),Math.round(r.right),Math.round(r.bottom));plate.draw(c);
    ink.setShader(new LinearGradient(r.left,r.top,r.right,r.bottom,new int[]{0x50c3efff,0x00b3d8ff,0x103a8bfa},null,Shader.TileMode.CLAMP));c.drawRoundRect(r,rad,rad,ink);ink.setShader(null);
-   if(!focused){ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1,h*.012f));ink.setColor(0x8868b6fa);c.drawRoundRect(r,rad,rad,ink);}
+   if(focused){float scale=Math.max(d(3),h*.07f)/25f;RectF focusRect=new RectF(r);focusRect.inset(scale*19,scale*19);FlamePulse.draw(c,ink,focusRect,0,scale,FlamePulse.phase());}else{ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1,h*.012f));ink.setColor(0x8868b6fa);c.drawRoundRect(r,rad,rad,ink);}
    ink.setStyle(Paint.Style.FILL);ink.setAlpha(255);
    if(focused&&FlamePulse.animates()){unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+40);}
   }
