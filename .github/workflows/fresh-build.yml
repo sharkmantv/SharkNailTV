@@ -421,6 +421,30 @@ jobs:
           verify_version "$1"
           SH
           sh -n "$RUNNER_TEMP/verify-version.sh"
+          cat > "$RUNNER_TEMP/verify-startup.sh" <<'SH'
+          set -eu
+          label=$1
+          pkg=com.example.xtreamtv
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            pid=$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r') || pid=''
+            if [ -n "$pid" ]; then
+              sleep 3
+              again=$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r') || again=''
+              if [ "$pid" = "$again" ]; then
+                echo "PASS: $label process stable: $pid"
+                exit 0
+              fi
+            fi
+            echo "Waiting for $label process (attempt $attempt/15)"
+            sleep 2
+          done
+          echo "ERROR: $label process not stable after startup" >&2
+          adb logcat -d -b crash -t 200 || true
+          adb shell dumpsys activity activities || true
+          adb shell dumpsys package "$pkg" || true
+          exit 1
+          SH
+          sh -n "$RUNNER_TEMP/verify-startup.sh"
       - name: Emulator smoke test
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -442,8 +466,9 @@ jobs:
             adb shell input keyevent KEYCODE_WAKEUP
             adb shell wm dismiss-keyguard
             adb install "$RUNNER_TEMP/previous.apk"
+            adb logcat -c
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
-            adb shell pidof com.example.xtreamtv
+            sh "$RUNNER_TEMP/verify-startup.sh" previous
             adb install -r "$RUNNER_TEMP/prior33/SharkNailTV.apk"
             sh "$RUNNER_TEMP/verify-version.sh" 50033
             adb install -r "$RUNNER_TEMP/prior34/SharkNailTV.apk"
@@ -474,7 +499,7 @@ jobs:
             adb logcat -c
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
-            adb shell pidof com.example.xtreamtv
+            sh "$RUNNER_TEMP/verify-startup.sh" candidate
             sh "$RUNNER_TEMP/verify-version.sh" 50054
             sha256sum SharkNailTV.apk > manual-install-verified.sha256
             adb exec-out screencap -p > premium-home-preview.png
