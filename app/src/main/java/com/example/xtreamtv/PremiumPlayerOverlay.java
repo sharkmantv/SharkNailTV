@@ -17,6 +17,7 @@ import java.util.Locale;
 final class PremiumPlayerOverlay extends FrameLayout {
  MainActivity a; FrameLayout host; PlayerView surface; MainActivity.Item item; ExoPlayer p;
  final View wakeTarget;
+ Bitmap keyArtwork;
  LaserEdge laserEdge;
  boolean live,compact,disposed,scrubbing,consumeUp;
  static final int GOLD=0xffffca22,WHITE=0xfff7fbff;
@@ -36,6 +37,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
  final Player.Listener listener=new Player.Listener(){@Override public void onEvents(Player player,Player.Events events){if(isShown())refresh();}@Override public void onPlayWhenReadyChanged(boolean ready,int reason){android.util.Log.i("SharkPlayerUI","playWhenReady="+ready);if(isShown())arm();}};
  PremiumPlayerOverlay(MainActivity activity,FrameLayout parent,PlayerView video,MainActivity.Item current){
   super(activity);a=activity;host=parent;surface=video;item=current;p=a.player;
+  BitmapFactory.Options keyOptions=new BitmapFactory.Options();keyOptions.inScaled=false;keyArtwork=BitmapFactory.decodeResource(a.getResources(),R.drawable.design4_player_key,keyOptions);if(keyArtwork==null||keyArtwork.getWidth()!=240||keyArtwork.getHeight()!=144)throw new IllegalStateException("Missing AI-enhanced player key artwork");
   live=a.page.equals("Live TV");compact=a.getResources().getConfiguration().screenWidthDp<650;
   setFocusable(false);setClickable(false);setClipChildren(false);setClipToPadding(false);
   setBackground(new SkyAtmosphere());
@@ -69,7 +71,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   play=button(transport,2,"Play or pause",()->{if(p.getPlayWhenReady())p.pause();else p.play();refresh();});
   Control ff=button(transport,3,"Forward",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();});Control next=button(transport,4,"Next",()->adjacent(1));
   transportKeys=new Control[]{prev,rew,play,ff,next};View[] keys=transportKeys;link(keys);
-  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(skyPanel(3));laserEdge=new LaserEdge();opts.setForeground(laserEdge);dock.addView(opts,new LinearLayout.LayoutParams(-1,0,.36f));
+  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(artwork(R.drawable.design4_player_dock));laserEdge=new LaserEdge();opts.setForeground(laserEdge);dock.addView(opts,new LinearLayout.LayoutParams(-1,0,.36f));
   java.util.ArrayList<View> actionList=new java.util.ArrayList<>();
   infoButton=option(opts,"Info",this::showInfo);actionList.add(infoButton);
   if(live)actionList.add(option(opts,"EPG",()->a.openChannelGuide(item)));
@@ -211,7 +213,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   infoReturnFocus=infoButton;
   LinearLayout panel=a.col();infoPanel=panel;
   panel.setPadding(d(18),d(10),d(18),d(10));
-  panel.setBackground(skyPanel(0));
+  panel.setBackground(artwork(R.drawable.design4_info_panel));
   panel.setClickable(true);
   panel.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
   TextView title=a.text("Playback Information",20);title.setTextColor(WHITE);title.setTypeface(a.uiMedium);
@@ -328,7 +330,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   android.util.Log.i("SharkPlayerUI","overlay hidden; wake focus="+focused);
  }
  boolean handleKey(KeyEvent e){if(disposed)return false;int k=e.getKeyCode();boolean nav=k==19||k==20||k==21||k==22||k==23||k==66||k==82||k==KeyEvent.KEYCODE_BUTTON_A||k==KeyEvent.KEYCODE_NUMPAD_ENTER;if(e.getAction()==KeyEvent.ACTION_UP&&consumeUp){consumeUp=false;return true;}if(e.getAction()!=KeyEvent.ACTION_DOWN)return false;if(infoPanel!=null){if(k==KeyEvent.KEYCODE_BACK||k==KeyEvent.KEYCODE_ESCAPE){dismissInfo(true);consumeUp=true;return true;}return false;}if(k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY||k==KeyEvent.KEYCODE_MEDIA_PAUSE){if(k==KeyEvent.KEYCODE_MEDIA_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE&&p.getPlayWhenReady())p.pause();else p.play();show();consumeUp=true;return true;}if(k==KeyEvent.KEYCODE_MEDIA_REWIND||k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD){if(k==KeyEvent.KEYCODE_MEDIA_REWIND&&p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();if(k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD&&p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();show();consumeUp=true;return true;}if(nav&&getVisibility()!=VISIBLE){show();consumeUp=true;return true;}if(nav)arm();if(k==KeyEvent.KEYCODE_DPAD_UP&&!progress.isFocusable()&&getFocusedChild()==bottomBar){View focus=findFocus();if(focus!=null&&focus.getParent()==transportBar){consumeUp=true;return true;}}if(k==82){a.choosePlayerRange(item);consumeUp=true;return true;}return false;}
- void dispose(){if(disposed)return;dismissInfo(false);disposed=true;syncLaser();removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);wakeTarget.setOnKeyListener(null);wakeTarget.setOnClickListener(null);host.removeView(wakeTarget);host.removeView(this);}
+ void dispose(){if(disposed)return;dismissInfo(false);disposed=true;syncLaser();removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);wakeTarget.setOnKeyListener(null);wakeTarget.setOnClickListener(null);host.removeView(wakeTarget);host.removeView(this);keyArtwork=null;}
  final class Control extends View {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);final int type;
   Control(int t){super(PremiumPlayerOverlay.this.a);type=t;}
@@ -342,31 +344,26 @@ final class PremiumPlayerOverlay extends FrameLayout {
  }
  // Focus-only broad, translucent halo around a glossy blue key; no hard gold stroke.
  final class SkyKey extends Drawable {
-  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
+  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
   final RectF r=new RectF(),inner=new RectF();
   final int style;
   boolean focused;
   float rad;
-  Shader edge,face,focusFace,shine;
+  boolean boundsReady;
   final Runnable tick=()->invalidateSelf();
   SkyKey(int style){this.style=style;}
   @Override public boolean isStateful(){return true;}
   @Override protected boolean onStateChange(int[] states){boolean next=false;for(int state:states)if(state==android.R.attr.state_focused)next=true;if(next==focused)return false;focused=next;if(!next)unscheduleSelf(tick);invalidateSelf();return true;}
   @Override protected void onBoundsChange(Rect b){
-   float w=b.width(),h=b.height();if(w<=0||h<=0){edge=null;return;}
+   float w=b.width(),h=b.height();if(w<=0||h<=0){boundsReady=false;return;}
    float mx=style==2?w*.038f:w*.10f,my=style==2?h*.12f:style==1?h*.22f:h*.29f;
-   r.set(b.left+mx,b.top+my,b.right-mx,b.bottom-my);rad=h*.045f;
+   r.set(b.left+mx,b.top+my,b.right-mx,b.bottom-my);rad=r.height()*.20f;
    inner.set(r);inner.inset(Math.max(1,h*.022f),Math.max(1,h*.022f));
-   edge=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xffb2d7ef,0xff507b9f,0xff1b3959,0xff7dacce},new float[]{0,.20f,.72f,1},Shader.TileMode.CLAMP);
-   face=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xff335579,0xff1a3357,0xff091b36},new float[]{0,.34f,1},Shader.TileMode.CLAMP);
-   focusFace=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xff3b82bd,0xff1a4e88,0xff10264d},new float[]{0,.32f,1},Shader.TileMode.CLAMP);
-   shine=new LinearGradient(0,r.top,0,r.bottom,new int[]{0x44d8efff,0x00b3d8ff,0x103a8bfa},new float[]{0,.55f,1},Shader.TileMode.CLAMP);
+   boundsReady=true;
   }
   @Override public void draw(Canvas c){
-   if(edge==null||!isVisible()||(style==2&&!focused))return;
-   ink.setStyle(Paint.Style.FILL);ink.setShader(edge);c.drawRoundRect(r,rad,rad,ink);
-   ink.setShader(focused?focusFace:face);c.drawRoundRect(inner,rad*.70f,rad*.70f,ink);
-   ink.setShader(shine);c.drawRoundRect(inner,rad*.70f,rad*.70f,ink);
+   if(!boundsReady||keyArtwork==null||!isVisible()||(style==2&&!focused))return;
+   ink.setStyle(Paint.Style.FILL);ink.setShader(null);ink.setAlpha(255);ink.setFilterBitmap(true);c.drawBitmap(keyArtwork,null,r,ink);
    ink.setShader(null);
    if(focused){
     float phase=FlamePulse.phase(),scale=Math.max(.08f,Math.min(r.height()*.009f,Math.min(r.left-getBounds().left,r.top-getBounds().top)/30f));
