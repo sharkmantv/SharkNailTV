@@ -255,15 +255,15 @@ def check_player():
     # The video and overlay must both cover the full window, including while controls are visible.
     assert f"video surface {sw}x{sh} overlay {sw}x{sh}" in player_events(),("Video resized into preview",player_events()[-2500:])
     x,y,X,Y=bounds(play_control)
-    assert sh*.80<=y<=sh*.84 and sh*.93<=Y<=sh*.96,("Transport not in lower dock",y,Y,sh)
-    assert sw*.16<X-x<sw*.21,("Transport key allocation incorrect",x,X,sw)
+    assert sh*.88<=y<=sh*.90 and sh*.95<=Y<=sh*.97,("Transport not in lower dock",y,Y,sh)
+    assert sw*.13<X-x<sw*.17,("Transport key allocation incorrect",x,X,sw)
     assert find(root,"Search titles") is None and find(root,"Search channels") is None,"Unexpected catalogue inside full player"
     # Approved compact player: timeline, narrow option strip, then lower transport dock.
     transport=[bounds(find(root,label)) for label in ("Previous","Rewind","Play","Forward","Next")]
     options=[bounds(find(root,label)) for label in ("Info","Subtitles","Audio","Aspect","Picture")]
     line=bounds(find(root,"Playback progress"))
     assert line[3]<=options[0][1]+2 and options[0][3]<=transport[0][1]+2,("Incorrect row order",line,transport,options)
-    assert transport[0][0]<sw*.07 and transport[-1][2]>sw*.93,("Transport not spread across dock",transport)
+    assert sw*.10<transport[0][0]<sw*.14 and sw*.86<transport[-1][2]<sw*.90,("Transport not spread across dock",transport)
     assert all(abs(r[1]-transport[0][1])<=2 for r in transport),transport
     assert all(abs(r[1]-options[0][1])<=2 for r in options),options
     assert abs((transport[0][0]+transport[-1][2])/2-sw/2)<sw*.02,transport
@@ -272,8 +272,8 @@ def check_player():
     assert title is not None,"Actual movie title not rendered"
     tx,ty,tX,tY=bounds(title)
     assert sw*.025<=tx<=sw*.06 and ty<sh*.025 and tY<=sh*.13,("Header title misplaced",bounds(title))
-    assert sh*.69<=line[1]<=sh*.73,("Timeline misplaced",line)
-    assert sh*.73<=options[0][1]<=sh*.76 and sh*.80<=options[0][3]<=sh*.83,("Option strip misplaced",options)
+    assert sh*.77<=line[1]<=sh*.79,("Timeline misplaced",line)
+    assert sh*.81<=options[0][1]<=sh*.83 and sh*.86<=options[0][3]<=sh*.88,("Option strip misplaced",options)
     logo=bounds(find(root,"Sky"))
     assert logo[0]>sw*.72 and logo[2]<sw*.99 and logo[3]<sh*.14,("Logo placement differs",logo)
     resolution=find(root,"360p")

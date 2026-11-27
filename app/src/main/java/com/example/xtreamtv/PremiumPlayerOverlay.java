@@ -38,7 +38,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   setFocusable(false);setClickable(false);setClipChildren(false);setClipToPadding(false);
   setBackgroundColor(Color.TRANSPARENT);
   LinearLayout top=a.row();topBar=top;top.setGravity(Gravity.CENTER_VERTICAL);top.setBackground(artwork(R.drawable.design4_player_header));
-  logoView=PremiumVisuals.brand(a);logoView.setContentDescription("Sky");logoView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+  logoView=new PlayerWordmark();logoView.setContentDescription("Sky");logoView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
   movieTitle=a.text(item.name,21);movieTitle.setTextColor(WHITE);movieTitle.setTypeface(a.uiMedium);movieTitle.setIncludeFontPadding(false);movieTitle.setSingleLine(true);movieTitle.setGravity(Gravity.CENTER_VERTICAL);movieTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
   top.addView(movieTitle,new LinearLayout.LayoutParams(0,-1,.48f));
   liveStatus=status(live?"LIVE":"",true);resolutionStatus=status("",false);audioStatus=status("",false);
@@ -67,7 +67,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   play=button(transport,2,"Play or pause",()->{if(p.getPlayWhenReady())p.pause();else p.play();refresh();});
   Control ff=button(transport,3,"Forward",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();});Control next=button(transport,4,"Next",()->adjacent(1));
   transportKeys=new Control[]{prev,rew,play,ff,next};View[] keys=transportKeys;link(keys);
-  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(artwork(R.drawable.design4_player_options));dock.addView(opts,1,new LinearLayout.LayoutParams(-1,0,.33f));
+  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(artwork(R.drawable.design4_player_options));opts.setForeground(new BlueSurround());dock.addView(opts,1,new LinearLayout.LayoutParams(-1,0,.33f));
   java.util.ArrayList<View> actionList=new java.util.ArrayList<>();
   actionList.add(option(opts,"Audio",()->new AlertDialog.Builder(a).setTitle("Audio").setItems(new String[]{"Audio tracks","Volume"},(dialog,i)->{if(i==0)a.chooseTrack(C.TRACK_TYPE_AUDIO);else volume();}).setNegativeButton("Cancel",null).show()));
   actionList.add(option(opts,"Subtitles",()->a.chooseTrack(C.TRACK_TYPE_TEXT)));
@@ -146,12 +146,13 @@ final class PremiumPlayerOverlay extends FrameLayout {
    topBar.setPadding(Math.round(w*.025f),0,Math.round(w*.012f),0);
    for(TextView v:new TextView[]{liveStatus,resolutionStatus,audioStatus}){LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)v.getLayoutParams();lp.height=Math.round(h*.036f);lp.setMargins(Math.round(w*.002f),0,Math.round(w*.002f),0);px(v,h*.018f);}
    px(playerClock,h*.022f);px(movieTitle,h*.040f);
-   FrameLayout.LayoutParams bottom=(FrameLayout.LayoutParams)bottomBar.getLayoutParams();bottom.width=Math.round(w*.965f);bottom.height=Math.round(h*.247f);bottom.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;bottom.bottomMargin=Math.round(h*.049f);
+   FrameLayout.LayoutParams bottom=(FrameLayout.LayoutParams)bottomBar.getLayoutParams();bottom.width=Math.round(w*.80f);bottom.height=Math.round(h*.187f);bottom.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;bottom.bottomMargin=Math.round(h*.035f);
    dockBar.setPadding(0,0,0,0);
    LinearLayout.LayoutParams line=(LinearLayout.LayoutParams)timelineBar.getLayoutParams();line.height=Math.round(h*.038f);line.weight=0;
-   LinearLayout.LayoutParams options=(LinearLayout.LayoutParams)optionBar.getLayoutParams();options.height=Math.round(h*.067f);options.weight=0;options.gravity=Gravity.CENTER_HORIZONTAL;options.width=Math.round(w*.825f);options.bottomMargin=Math.round(h*.009f);
+   LinearLayout.LayoutParams options=(LinearLayout.LayoutParams)optionBar.getLayoutParams();options.height=Math.round(h*.060f);options.weight=0;options.gravity=Gravity.CENTER_HORIZONTAL;options.width=Math.round(w*.76f);options.bottomMargin=Math.round(h*.009f);
    LinearLayout.LayoutParams transport=(LinearLayout.LayoutParams)transportBar.getLayoutParams();transport.height=0;transport.weight=1;
-   transportBar.setPadding(Math.round(w*.025f),0,Math.round(w*.025f),0);
+   transportBar.setPadding(Math.round(w*.016f),Math.round(h*.003f),Math.round(w*.016f),Math.round(h*.003f));
+   optionBar.setPadding(Math.round(w*.004f),Math.round(h*.003f),Math.round(w*.004f),Math.round(h*.003f));
    for(Control key:transportKeys){LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)key.getLayoutParams();lp.weight=key.type==2?1.05f:1f;lp.setMargins(Math.round(w*.005f),0,Math.round(w*.005f),0);}
    for(int i=0;i<optionBar.getChildCount();i++){View v=optionBar.getChildAt(i);LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)v.getLayoutParams();lp.setMargins(0,0,0,0);}
    for(TextView v:new TextView[]{elapsed,total}){px(v,h*.028f);LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)v.getLayoutParams();lp.width=Math.round(w*.083f);}
@@ -282,6 +283,35 @@ final class PremiumPlayerOverlay extends FrameLayout {
  }
  boolean handleKey(KeyEvent e){if(disposed)return false;int k=e.getKeyCode();boolean nav=k==19||k==20||k==21||k==22||k==23||k==66||k==82||k==KeyEvent.KEYCODE_BUTTON_A||k==KeyEvent.KEYCODE_NUMPAD_ENTER;if(e.getAction()==KeyEvent.ACTION_UP&&consumeUp){consumeUp=false;return true;}if(e.getAction()!=KeyEvent.ACTION_DOWN)return false;if(infoPanel!=null){if(k==KeyEvent.KEYCODE_BACK||k==KeyEvent.KEYCODE_ESCAPE){dismissInfo(true);consumeUp=true;return true;}return false;}if(k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY||k==KeyEvent.KEYCODE_MEDIA_PAUSE){if(k==KeyEvent.KEYCODE_MEDIA_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE&&p.getPlayWhenReady())p.pause();else p.play();show();consumeUp=true;return true;}if(k==KeyEvent.KEYCODE_MEDIA_REWIND||k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD){if(k==KeyEvent.KEYCODE_MEDIA_REWIND&&p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();if(k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD&&p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();show();consumeUp=true;return true;}if(nav&&getVisibility()!=VISIBLE){show();consumeUp=true;return true;}if(nav)arm();if(k==82){a.choosePlayerRange(item);consumeUp=true;return true;}return false;}
  void dispose(){if(disposed)return;dismissInfo(false);disposed=true;removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);wakeTarget.setOnKeyListener(null);wakeTarget.setOnClickListener(null);host.removeView(wakeTarget);host.removeView(this);}
+ // Player-only vector wordmark. Native Canvas text remains crisp at UHD.
+ final class PlayerWordmark extends View {
+  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.SUBPIXEL_TEXT_FLAG);
+  final Typeface silver=Typeface.create("sans-serif-medium",Typeface.ITALIC);
+  final Typeface gold=Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC);
+  PlayerWordmark(){super(PremiumPlayerOverlay.this.a);setFocusable(false);}
+  @Override protected void onDraw(Canvas c){
+   super.onDraw(c);float w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
+   float size=h*.48f;ink.setTextSize(size);ink.setTypeface(silver);
+   float sw=ink.measureText("sky");ink.setTypeface(gold);float gw=ink.measureText("SHARK");
+   size*=Math.min(1f,w*.82f/(sw+gw+size*.15f));ink.setTextSize(size);
+   ink.setTypeface(silver);sw=ink.measureText("sky");ink.setTypeface(gold);gw=ink.measureText("SHARK");
+   float gap=size*.15f,x=w*.90f-sw-gw-gap;
+   Paint.FontMetrics fm=ink.getFontMetrics();float y=h*.5f-(fm.ascent+fm.descent)/2;
+   ink.setTypeface(silver);ink.setShader(new LinearGradient(0,y-size*.78f,0,y+size*.10f,new int[]{0xffffffff,0xffe3efff,0xffa1b9d5},null,Shader.TileMode.CLAMP));c.drawText("sky",x,y,ink);
+   ink.setTypeface(gold);ink.setShader(new LinearGradient(0,y-size*.78f,0,y+size*.10f,new int[]{0xfffff1bd,0xffffd16b,0xffd59125},null,Shader.TileMode.CLAMP));c.drawText("SHARK",x+sw+gap,y,ink);ink.setShader(null);
+  }
+ }
+ final class BlueSurround extends Drawable {
+  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
+  @Override public void draw(Canvas c){
+   Rect b=getBounds();if(b.isEmpty())return;float h=b.height(),pad=h*.045f,rad=h*.13f;
+   RectF r=new RectF(b.left+pad,b.top+pad,b.right-pad,b.bottom-pad);
+   ink.setStyle(Paint.Style.STROKE);ink.setShader(null);
+   for(int i=5;i>=1;i--){ink.setStrokeWidth(Math.max(1,h*.022f*i));ink.setColor(Color.argb(12,0,121,255));c.drawRoundRect(r,rad,rad,ink);}
+   ink.setStrokeWidth(Math.max(1,h*.028f));ink.setShader(new LinearGradient(0,r.top,0,r.bottom,new int[]{0xff91eaff,0xff247eea,0xff47bfff},null,Shader.TileMode.CLAMP));c.drawRoundRect(r,rad,rad,ink);ink.setShader(null);
+  }
+  @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+ }
  final class Control extends View {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);final int type;
   Control(int t){super(PremiumPlayerOverlay.this.a);type=t;}
