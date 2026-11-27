@@ -12,7 +12,7 @@ if not config.is_file():
     assert path,ini
     config=Path(path)/"config.ini"
 assert config.is_file(),config
-settings={"hw.lcd.width":"2160","hw.lcd.height":"3840","hw.lcd.density":"320","skin.name":"2160x3840","skin.path":"_no_skin","showDeviceFrame":"no","hw.initialOrientation":"portrait"}
+settings={"hw.lcd.width":"2160","hw.lcd.height":"3840","hw.lcd.density":"320","skin.name":"2160x3840","skin.path":"_no_skin","showDeviceFrame":"no","hw.initialOrientation":"portrait","hw.keyboard":"yes"}
 lines=[line for line in config.read_text().splitlines() if line.split("=",1)[0].strip() not in settings]
 config.write_text("\n".join(lines+[f"{k}={v}" for k,v in settings.items()])+"\n")
 print("Physical UHD emulator configuration:",config,settings)

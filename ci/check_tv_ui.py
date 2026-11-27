@@ -359,15 +359,16 @@ def check_player():
     print("PASS: actual first frame and premium playback overlay/remote toggle",flush=True)
 
 def login_fields():
-    fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText" and n.get("package")=="com.example.xtreamtv"]
-    assert len(fields)==3,"Expected exactly three Xtream login fields"
-    return fields
-
-def dismiss_login_keyboard():
-    # Back must dismiss the IME, not the Xtream form.
-    if re.search(r"mInputShown=true|mIsInputViewShown=true",adb("shell","dumpsys","input_method")):
-        adb("shell","input","keyevent","4")
-        time.sleep(.7)
+    # The CI AVD has a hardware keyboard and suppresses the soft keyboard.
+    # Capture fresh nodes after each input action; never navigate Back here.
+    deadline=time.monotonic()+25
+    while time.monotonic()<deadline:
+        root=ui()
+        fields=[n for n in root.iter("node") if n.get("class")=="android.widget.EditText" and n.get("package")=="com.example.xtreamtv"]
+        if len(fields)==3: return fields
+        time.sleep(.5)
+    visible=[(n.get("class"),n.get("resource-id"),n.get("package")) for n in root.iter("node")]
+    raise AssertionError("Expected three Xtream login fields; visible node types: "+str(visible))
 
 def field_matches(node,value,secret):
     actual=node.get("text","")
@@ -376,16 +377,11 @@ def field_matches(node,value,secret):
 def enter_field(index,value):
     secret=index==2
     for attempt in range(3):
-        # Re-read bounds after every IME transition, instead of reusing the
-        # coordinates obtained before the keyboard resized the window.
-        dismiss_login_keyboard()
         node=login_fields()[index]
         if field_matches(node,value,secret): return
         tap(node)
         time.sleep(.7)
-        focused=login_fields()
-        if focused[index].get("focused")!="true":
-            continue
+        if login_fields()[index].get("focused")!="true": continue
         adb("shell","input","keycombination","113","29")
         adb("shell","input","keyevent","67")
         time.sleep(.25)
@@ -395,9 +391,7 @@ def enter_field(index,value):
         time.sleep(.5)
         current=login_fields()[index]
         if current.get("focused")=="true" and field_matches(current,value,secret):
-            dismiss_login_keyboard()
-            if field_matches(login_fields()[index],value,secret):
-                return
+            return
     raise AssertionError("Could not reliably enter fixture field "+str(index))
 
 server=ThreadingHTTPServer(("127.0.0.1",18765),Fixture)
