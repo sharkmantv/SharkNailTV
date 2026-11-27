@@ -1,0 +1,52 @@
+name: Sky Shark standalone intro enhancement
+on:
+  push:
+    branches: ['media/sky-shark-intro']
+    paths: ['media/intro-source.mp4']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  enhance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install open-source video tools
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Validate source (continuous eight-second clip required)
+        run: |
+          test -s media/intro-source.mp4 || { echo 'Upload the original non-looping eight-second MP4 to media/intro-source.mp4 on this branch.'; exit 1; }
+          python3 - <<'PY'
+          import subprocess
+          d=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1','media/intro-source.mp4']))
+          assert 7.8 <= d <= 8.5, f'Expected an eight-second continuous source; got {d:.2f}s. Do not loop or stretch.'
+          PY
+      - name: Interpolate motion at source resolution
+        run: |
+          mkdir -p output
+          ffmpeg -hide_banner -y -i media/intro-source.mp4 -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1" -map 0:v:0 -map '0:a?' -c:v libx264 -preset fast -crf 15 -c:a aac -b:a 192k output/motion.mp4
+      - name: Render 5K master and 4K TV copy
+        run: |
+          for spec in 5120:2880:5k 3840:2160:4k; do
+            IFS=: read -r w h label <<< "$spec"
+            ffmpeg -hide_banner -y -i output/motion.mp4 -vf "scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,unsharp=5:5:0.35:5:5:0" -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart "output/sky-shark-${label}.mp4"
+          done
+      - name: Validate output dimensions and frame rate
+        run: |
+          python3 - <<'PY'
+          import json,subprocess
+          for label,w,h in [('5k',5120,2880),('4k',3840,2160)]:
+              f='output/sky-shark-'+label+'.mp4'
+              r=json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','v:0','-show_streams','-show_format','-of','json',f]))
+              s=r['streams'][0]
+              assert (s['width'],s['height'])==(w,h)
+              assert s['avg_frame_rate']=='60/1'
+              assert 7.5<=float(r['format']['duration'])<=8.5
+              print(label,w,h,s['avg_frame_rate'],r['format']['duration'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sky-shark-intro-5k-4k
+          path: output/sky-shark-*.mp4
+          if-no-files-found: error
