@@ -409,7 +409,7 @@ jobs:
           verify_version() {
             expected=$1
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              actual=$(adb shell dumpsys package com.example.xtreamtv 2>&1) || actual=''
+              actual=$(timeout --kill-after=3s 12s adb shell dumpsys package com.example.xtreamtv 2>&1) || actual=''
               if printf '%s\n' "$actual" | grep -E "versionCode=$expected([[:space:]]|$)"; then return 0; fi
               echo "Waiting for installed version $expected (attempt $attempt/10)"
               sleep 2
@@ -426,10 +426,10 @@ jobs:
           label=$1
           pkg=com.example.xtreamtv
           for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-            pid=$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r') || pid=''
+            pid=$(timeout --kill-after=3s 10s adb shell pidof "$pkg" 2>/dev/null | tr -d '\r') || pid=''
             if [ -n "$pid" ]; then
               sleep 3
-              again=$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r') || again=''
+              again=$(timeout --kill-after=3s 10s adb shell pidof "$pkg" 2>/dev/null | tr -d '\r') || again=''
               if [ "$pid" = "$again" ]; then
                 echo "PASS: $label process stable: $pid"
                 exit 0
@@ -446,12 +446,14 @@ jobs:
           SH
           sh -n "$RUNNER_TEMP/verify-startup.sh"
       - name: Emulator smoke test
+        timeout-minutes: 40
         uses: reactivecircus/android-emulator-runner@v2
         env:
           ANDROID_I_WANT_MY_TCG: "yes"
+          PYTHONUNBUFFERED: "1"
         with:
           api-level: 35
-          emulator-boot-timeout: 1200
+          emulator-boot-timeout: 360
           arch: x86_64
           target: google_apis
           disable-animations: true
@@ -460,79 +462,79 @@ jobs:
           pre-emulator-launch-script: python3 ci/configure_uhd_emulator.py
           script: |
             set -e
-            adb shell settings put secure immersive_mode_confirmations confirmed
-            adb shell wm size 1080x1920
-            adb shell wm density 320
-            adb shell input keyevent KEYCODE_WAKEUP
-            adb shell wm dismiss-keyguard
-            adb install "$RUNNER_TEMP/previous.apk"
-            adb logcat -c
-            adb shell am start -W -n com.example.xtreamtv/.MainActivity
-            sh "$RUNNER_TEMP/verify-startup.sh" previous
-            adb install -r "$RUNNER_TEMP/prior33/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50033
-            adb install -r "$RUNNER_TEMP/prior34/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50034
-            adb install -r "$RUNNER_TEMP/prior35/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50035
-            adb install -r "$RUNNER_TEMP/prior36/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50036
-            adb install -r "$RUNNER_TEMP/prior37/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50037
-            adb install -r "$RUNNER_TEMP/prior39/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50039
-            adb install -r "$RUNNER_TEMP/prior44/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50044
-            adb install -r "$RUNNER_TEMP/prior45/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50045
-            adb install -r "$RUNNER_TEMP/prior46/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50046
-            adb install -r "$RUNNER_TEMP/prior47/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50047
-            adb install -r "$RUNNER_TEMP/prior48/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50048
-            adb install -r "$RUNNER_TEMP/prior51/SharkNailTV.apk"
-            sh "$RUNNER_TEMP/verify-version.sh" 50051
-            adb install -r SharkNailTV.apk
-            adb shell settings put global animator_duration_scale 1.0
-            adb shell settings get global animator_duration_scale | grep -E '^1([.]0+)?$'
-            adb shell am force-stop com.google.android.apps.nexuslauncher
-            adb shell am force-stop com.example.xtreamtv
-            adb logcat -c
-            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            timeout --kill-after=5s 60s adb shell settings put secure immersive_mode_confirmations confirmed
+            timeout --kill-after=5s 60s adb shell wm size 1080x1920
+            timeout --kill-after=5s 60s adb shell wm density 320
+            timeout --kill-after=5s 60s adb shell input keyevent KEYCODE_WAKEUP
+            timeout --kill-after=5s 60s adb shell wm dismiss-keyguard
+            timeout --kill-after=10s 120s adb install "$RUNNER_TEMP/previous.apk"
+            timeout --kill-after=5s 60s adb logcat -c
+            timeout --kill-after=5s 60s adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-startup.sh" previous
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior33/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50033
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior34/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50034
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior35/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50035
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior36/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50036
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior37/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50037
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior39/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50039
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior44/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50044
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior45/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50045
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior46/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50046
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior47/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50047
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior48/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50048
+            timeout --kill-after=10s 120s adb install -r "$RUNNER_TEMP/prior51/SharkNailTV.apk"
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50051
+            timeout --kill-after=10s 120s adb install -r SharkNailTV.apk
+            timeout --kill-after=5s 60s adb shell settings put global animator_duration_scale 1.0
+            timeout --kill-after=5s 60s adb shell settings get global animator_duration_scale | grep -E '^1([.]0+)?$'
+            timeout --kill-after=5s 60s adb shell am force-stop com.google.android.apps.nexuslauncher
+            timeout --kill-after=5s 60s adb shell am force-stop com.example.xtreamtv
+            timeout --kill-after=5s 60s adb logcat -c
+            timeout --kill-after=5s 60s adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
-            sh "$RUNNER_TEMP/verify-startup.sh" candidate
-            sh "$RUNNER_TEMP/verify-version.sh" 50054
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-startup.sh" candidate
+            timeout --kill-after=5s 100s sh "$RUNNER_TEMP/verify-version.sh" 50054
             sha256sum SharkNailTV.apk > manual-install-verified.sha256
-            adb exec-out screencap -p > premium-home-preview.png
-            python3 ci/check_premium_home.py
-            adb exec-out screencap -p > premium-home-preview.png
-            python3 ci/check_rendered_art.py
-            adb logcat -d -s SharkUHD:I | grep -F 'Full resolution 3840x2160 artwork and all four card layers decoded'
-            adb shell wm size reset
-            adb shell wm size
-            adb shell am force-stop com.example.xtreamtv
-            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            timeout --kill-after=5s 60s adb exec-out screencap -p > premium-home-preview.png
+            timeout --kill-after=5s 3m python3 -u ci/check_premium_home.py
+            timeout --kill-after=5s 60s adb exec-out screencap -p > premium-home-preview.png
+            timeout --kill-after=5s 3m python3 -u ci/check_rendered_art.py
+            timeout --kill-after=5s 60s adb logcat -d -s SharkUHD:I | grep -F 'Full resolution 3840x2160 artwork and all four card layers decoded'
+            timeout --kill-after=5s 60s adb shell wm size reset
+            timeout --kill-after=5s 60s adb shell wm size
+            timeout --kill-after=5s 60s adb shell am force-stop com.example.xtreamtv
+            timeout --kill-after=5s 60s adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 4
-            python3 ci/check_premium_home.py
-            adb exec-out screencap -p > premium-home-4k.png
+            timeout --kill-after=5s 3m python3 -u ci/check_premium_home.py
+            timeout --kill-after=5s 60s adb exec-out screencap -p > premium-home-4k.png
             python3 -c "from PIL import Image; im=Image.open('premium-home-4k.png'); assert im.size==(3840,2160),im.size; print('PASS: actual 3840x2160 emulator screenshot')"
-            adb shell wm size 1080x1920
-            adb shell am force-stop com.example.xtreamtv
-            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            timeout --kill-after=5s 60s adb shell wm size 1080x1920
+            timeout --kill-after=5s 60s adb shell am force-stop com.example.xtreamtv
+            timeout --kill-after=5s 60s adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 3
-            python3 ci/check_tv_ui.py --resolution 1080p --fixture-video fixture.mp4
-            adb shell wm size reset
-            adb shell wm density 640
-            adb shell am force-stop com.example.xtreamtv
-            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            timeout --kill-after=10s 14m python3 -u ci/check_tv_ui.py --resolution 1080p --fixture-video fixture.mp4
+            timeout --kill-after=5s 60s adb shell wm size reset
+            timeout --kill-after=5s 60s adb shell wm density 640
+            timeout --kill-after=5s 60s adb shell am force-stop com.example.xtreamtv
+            timeout --kill-after=5s 60s adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 4
-            python3 ci/check_premium_home.py
-            adb exec-out screencap -p > premium-home-scaled-4k.png
+            timeout --kill-after=5s 3m python3 -u ci/check_premium_home.py
+            timeout --kill-after=5s 60s adb exec-out screencap -p > premium-home-scaled-4k.png
             python3 -c "from PIL import Image; assert Image.open('premium-home-scaled-4k.png').size==(3840,2160)"
-            python3 ci/check_tv_ui.py --resolution 4k --fixture-video fixture.mp4 --saved-login
+            timeout --kill-after=10s 14m python3 -u ci/check_tv_ui.py --resolution 4k --fixture-video fixture.mp4 --saved-login
             python3 -c "from PIL import Image; from pathlib import Path; assert all(Path(f'premium-{s}-{r}.png').is_file() and Image.open(f'premium-{s}-{r}.png').size==size for s in ('settings','movies','series','live','player') for r,size in (('1080p',(1920,1080)),('4k',(3840,2160)))); print('PASS: all main screens verified at 1080p and UHD')"
-            adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/shark-crash.log"
+            timeout --kill-after=5s 60s adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/shark-crash.log"
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
       - name: Upload installation-verified manual test APK
         if: ${{ always() && hashFiles('manual-install-verified.sha256') != '' }}
