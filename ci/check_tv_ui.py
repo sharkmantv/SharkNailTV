@@ -255,37 +255,35 @@ def check_player():
     # The video and overlay must both cover the full window, including while controls are visible.
     assert f"video surface {sw}x{sh} overlay {sw}x{sh}" in player_events(),("Video resized into preview",player_events()[-2500:])
     x,y,X,Y=bounds(play_control)
-    assert sh*.64<=y<=sh*.73 and sh*.77<=Y<=sh*.84,("Transport control position differs from Design 3",y,Y,sh)
-    assert sw*.09<X-x<sw*.135,("Central key size differs from Design 3",x,X,sw)
+    assert sh*.80<=y<=sh*.84 and sh*.93<=Y<=sh*.96,("Transport not in lower dock",y,Y,sh)
+    assert sw*.16<X-x<sw*.21,("Transport key allocation incorrect",x,X,sw)
     assert find(root,"Search titles") is None and find(root,"Search channels") is None,"Unexpected catalogue inside full player"
-    # Design 3: timeline above a centered five-key transport row, then options.
+    # Approved compact player: timeline, narrow option strip, then lower transport dock.
     transport=[bounds(find(root,label)) for label in ("Previous","Rewind","Play","Forward","Next")]
     options=[bounds(find(root,label)) for label in ("Info","Subtitles","Audio","Aspect","Picture")]
     line=bounds(find(root,"Playback progress"))
-    assert line[3]<=transport[0][1]+2 and transport[0][3]<=options[0][1]+2,("Incorrect row order",line,transport,options)
+    assert line[3]<=options[0][1]+2 and options[0][3]<=transport[0][1]+2,("Incorrect row order",line,transport,options)
+    assert transport[0][0]<sw*.07 and transport[-1][2]>sw*.93,("Transport not spread across dock",transport)
     assert all(abs(r[1]-transport[0][1])<=2 for r in transport),transport
     assert all(abs(r[1]-options[0][1])<=2 for r in options),options
     assert abs((transport[0][0]+transport[-1][2])/2-sw/2)<sw*.02,transport
-    # Design 3 uses a left title block and a floating top-right status cluster.
+    # Title and brand must be inside the thin header, not over the video.
     title=find(root,"Layout fixture 001")
     assert title is not None,"Actual movie title not rendered"
     tx,ty,tX,tY=bounds(title)
-    assert sw*.025<=tx<=sw*.05 and sh*.21<=ty<=sh*.29 and tX<=sw*.57,("Title block misplaced",bounds(title))
-    assert sh*.60<=line[1]<=sh*.66,("Timeline misplaced",line)
-    assert sh*.81<=options[0][1]<=sh*.85 and sh*.89<=options[0][3]<=sh*.94,("Option strip misplaced",options)
+    assert sw*.025<=tx<=sw*.06 and ty<sh*.025 and tY<=sh*.13,("Header title misplaced",bounds(title))
+    assert sh*.69<=line[1]<=sh*.73,("Timeline misplaced",line)
+    assert sh*.73<=options[0][1]<=sh*.76 and sh*.80<=options[0][3]<=sh*.83,("Option strip misplaced",options)
     logo=bounds(find(root,"Sky"))
-    assert logo[0]<sw*.05 and logo[2]<sw*.27 and logo[3]<sh*.15,("Logo placement differs",logo)
+    assert logo[0]>sw*.72 and logo[2]<sw*.99 and logo[3]<sh*.14,("Logo placement differs",logo)
     resolution=find(root,"360p")
-    assert resolution is not None and bounds(resolution)[0]>sw*.68,("Resolution must be in right status cluster",resolution)
-    # A real sweep near the upper-left reference curve (not just a plain solid bar).
-    upper=im.crop((round(sw*.03),round(sh*.10),round(sw*.40),round(sh*.18)))
-    assert sum(b>180 and g>100 and r<120 for r,g,b in upper.getdata())>upper.width*.4,"Blue light sweep missing"
-    # Move from the center transport key to Audio, then left to Info on VOD.
-    adb("shell","input","dpad","keyevent","20")
+    assert resolution is not None and bounds(resolution)[0]>sw*.40,("Actual resolution missing from header",resolution)
+    # Move upwards from central transport to the options, then right to Info.
+    adb("shell","input","dpad","keyevent","19")
     time.sleep(.15)
-    assert expect("Audio").get("focused")=="true","Option row focus missing"
+    assert expect("Aspect").get("focused")=="true","Option row focus missing"
     for i in range(2):
-        adb("shell","input","dpad","keyevent","21")
+        adb("shell","input","dpad","keyevent","22")
         time.sleep(.15)
     info_control=expect("Info")
     assert info_control.get("focused")=="true",("Info remote focus missing",ET.tostring(ui(),encoding="unicode")[-6000:])
