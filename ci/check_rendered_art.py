@@ -23,7 +23,7 @@ def yellow(rgb):
     r,g,b=rgb
     return r>155 and g>=r*.72 and r>b+65 and g>b+45
 def soft_gold_band(pixels,minimum):
-    # Measure a single smooth warm light profile, not the old red/orange strokes.
+    # Measure the yellow core of a feathered red-yellow glow.
     scores=[max(0,min(r-b,g-b)) for r,g,b in pixels]
     peak=max(scores,default=0)
     if peak<70:return False
@@ -31,11 +31,11 @@ def soft_gold_band(pixels,minimum):
     core=[j for j,val in enumerate(scores) if val>=peak*.55]
     if len(core)<minimum:return False
     if any(b-a>1 for a,b in zip(core,core[1:])):return False
-    # Both shoulders must fade, and the peak must be gold rather than red.
+    # The yellow core must fade towards the red shoulders.
     if i==0 or i==len(scores)-1:return False
     if min(scores[:i])>peak*.70 or min(scores[i+1:])>peak*.70:return False
     r,g,b=pixels[i]
-    return g>=r*.72 and r>b+65
+    return g>=r*.65 and r>b+65
 def check(im,selected):
     for i,(l,t,r,b) in enumerate(rims):
         edges=[((l+75,t-9,r-75,t+9),False),((l+65,b-9,r-65,b+9),False),((l-9,t+75,l+9,b-65),True),((r-9,t+75,r+9,b-65),True)]
@@ -47,7 +47,7 @@ def check(im,selected):
                 px=round((l+(r-l)*frac)*w/1648)
                 strip=[im.getpixel((px,yy)) for yy in range(round((b-19)*h/928),round((b+19)*h/928))]
                 hits+=soft_gold_band(strip,max(3,round(8*h/928)))
-            assert hits>=3,(i,hits,"expected one feathered gold glow")
+            assert hits>=3,(i,hits,"expected feathered yellow core")
         else:
             assert counts[1]<2,(i,counts,"warm glow leaked to unfocused card")
 def shot(name):

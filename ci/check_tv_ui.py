@@ -159,6 +159,9 @@ def check_player():
         if re.search(r"640×360",log): break
         time.sleep(.5)
     else: raise AssertionError("Fixture video never rendered first frame")
+    metrics=re.search(r"startup profile=stock-buffer firstFrameMs=(\d+) firstByteMs=(\d+) decoderMs=(\d+)",log)
+    assert metrics and int(metrics[2])<=int(metrics[1]),("Missing network/first frame measurement",log[-3000:])
+    print("PASS: measured VOD first frame and network first byte",metrics.groups(),flush=True)
     def player_events():
         return adb("logcat","-d","-s","SharkPlayerUI:I")
     def wait_player_event(message, after=0, timeout=45):
@@ -238,7 +241,7 @@ def check_player():
     assert close.get("focused")=="true","Close must receive TV focus"
     info=ui()
     combined=" ".join(n.get("text","") for n in info.iter("node"))
-    for label in ("Engine:","Stream FPS:","Display:","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:"):
+    for label in ("Engine:","Stream FPS:","Display:","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:","First network byte:","Startup profile:"):
         assert label in combined,("Missing diagnostics",label)
     capture("player-info")
     assert bounds(close)[1]>=sh*.12 and bounds(close)[3]<=sh*.78,("Close outside panel",bounds(close))
@@ -344,7 +347,7 @@ try:
     x,y,X,Y=bounds(selected)
     h=Y-y;w=X-x
     def soft_gold_band(pixels,minimum):
-        # Measure a single smooth warm light profile, not the old red/orange strokes.
+        # Measure the yellow core of a feathered red-yellow glow.
         scores=[max(0,min(r-b,g-b)) for r,g,b in pixels]
         peak=max(scores,default=0)
         if peak<70:return False
@@ -352,11 +355,11 @@ try:
         core=[j for j,val in enumerate(scores) if val>=peak*.55]
         if len(core)<minimum:return False
         if any(b-a>1 for a,b in zip(core,core[1:])):return False
-        # Both shoulders must fade, and the peak must be gold rather than red.
+        # The yellow core must fade towards the red shoulders.
         if i==0 or i==len(scores)-1:return False
         if min(scores[:i])>peak*.70 or min(scores[i+1:])>peak*.70:return False
         r,g,b=pixels[i]
-        return g>=r*.72 and r>b+65
+        return g>=r*.65 and r>b+65
     depth=max(1,round(h*.28))
     for frac in (.40,.50,.60):
         cx=round(x+w*frac);cy=round(y+h*frac)

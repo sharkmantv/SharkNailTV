@@ -143,10 +143,12 @@ for y in range(Y(488),Y(928)):
         zone=max(side,bottom,top)
         if zone<=0: continue
         r,g,b,a=px[x,y]
-        strength=zone*min(1,max(0,(r-min(g,b)-4)/35))
+        strength=zone*min(1,max(0,(max(r,g,b)-min(r,g,b)-4)/35))
         if strength<=0: continue
-        cool=(min(r,round(g*.82+b*.18)),min(255,round(max(g,b*.91))),min(255,round(max(b,g*1.10))),a)
-        px[x,y]=tuple(round(v*(1-strength)+c*strength) for v,c in zip((r,g,b,a),cool))
+        # Neutral metallic silver, not a replacement blue focus tint. Keep shading.
+        level=round(.2126*r+.7152*g+.0722*b)
+        neutral=(level,level,level,a)
+        px[x,y]=tuple(round(v*(1-strength)+c*strength) for v,c in zip((r,g,b,a),neutral))
 print("PASS: fixed source focus tint neutralised in the outer rim/reflection")
 # Extract multicolour Sky wordmark from the approved first Home tile.
 wordmark=im.crop((X(112),Y(531),X(391),Y(699))).convert("RGBA")
