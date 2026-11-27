@@ -1,7 +1,7 @@
 """Validate the real native premium home at landscape size before catalogue smoke tests."""
 import subprocess, time, re, xml.etree.ElementTree as ET
 def adb(*args):
-    return subprocess.check_output(["adb",*map(str,args)],text=True)
+    return subprocess.check_output(["adb",*map(str,args)],text=True,timeout=35)
 def dump():
     adb("shell","uiautomator","dump","/sdcard/premium-home.xml")
     return ET.fromstring(adb("shell","cat","/sdcard/premium-home.xml"))

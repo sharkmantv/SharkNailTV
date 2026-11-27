@@ -400,6 +400,8 @@ jobs:
           test -s fixture.mp4 && test -s fixture.ts
       - name: Prepare emulator acceleration
         run: |
+          gradle --stop
+          free -h
           if [ -e /dev/kvm ]; then
             sudo chmod a+rw /dev/kvm
           fi
@@ -457,6 +459,7 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim
           ram-size: 3072M
           heap-size: 512M
           pre-emulator-launch-script: python3 ci/configure_uhd_emulator.py
@@ -511,6 +514,7 @@ jobs:
             timeout --kill-after=5s 60s adb exec-out screencap -p > premium-home-preview.png
             timeout --kill-after=5s 3m python3 -u ci/check_rendered_art.py
             timeout --kill-after=5s 60s adb logcat -d -s SharkUHD:I | grep -F 'Full resolution 3840x2160 artwork and all four card layers decoded'
+            timeout --kill-after=10s 14m python3 -u ci/check_tv_ui.py --resolution 1080p --fixture-video fixture.mp4
             timeout --kill-after=5s 60s adb shell wm size reset
             timeout --kill-after=5s 60s adb shell wm size
             timeout --kill-after=5s 60s adb shell am force-stop com.example.xtreamtv
@@ -519,11 +523,6 @@ jobs:
             timeout --kill-after=5s 3m python3 -u ci/check_premium_home.py
             timeout --kill-after=5s 60s adb exec-out screencap -p > premium-home-4k.png
             python3 -c "from PIL import Image; im=Image.open('premium-home-4k.png'); assert im.size==(3840,2160),im.size; print('PASS: actual 3840x2160 emulator screenshot')"
-            timeout --kill-after=5s 60s adb shell wm size 1080x1920
-            timeout --kill-after=5s 60s adb shell am force-stop com.example.xtreamtv
-            timeout --kill-after=5s 60s adb shell am start -W -n com.example.xtreamtv/.MainActivity
-            sleep 3
-            timeout --kill-after=10s 14m python3 -u ci/check_tv_ui.py --resolution 1080p --fixture-video fixture.mp4
             timeout --kill-after=5s 60s adb shell wm size reset
             timeout --kill-after=5s 60s adb shell wm density 640
             timeout --kill-after=5s 60s adb shell am force-stop com.example.xtreamtv
@@ -536,6 +535,15 @@ jobs:
             python3 -c "from PIL import Image; from pathlib import Path; assert all(Path(f'premium-{s}-{r}.png').is_file() and Image.open(f'premium-{s}-{r}.png').size==size for s in ('settings','movies','series','live','player') for r,size in (('1080p',(1920,1080)),('4k',(3840,2160)))); print('PASS: all main screens verified at 1080p and UHD')"
             timeout --kill-after=5s 60s adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/shark-crash.log"
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
+      - name: Capture emulator host diagnostics on failure
+        if: failure()
+        run: |
+          free -h
+          df -h
+          ps -eo pid,comm,rss --sort=-rss | head -25
+          timeout 15s adb devices -l || true
+          sudo dmesg -T | tail -100 || true
+          if [ -f /sys/fs/cgroup/memory.events ]; then cat /sys/fs/cgroup/memory.events; fi
       - name: Upload installation-verified manual test APK
         if: ${{ always() && hashFiles('manual-install-verified.sha256') != '' }}
         uses: actions/upload-artifact@v4
