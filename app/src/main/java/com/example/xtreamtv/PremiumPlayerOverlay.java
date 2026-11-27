@@ -22,7 +22,8 @@ final class PremiumPlayerOverlay extends FrameLayout {
  SeekBar progress; TextView elapsed,total,metadata; Control play;
  LinearLayout topBar, bottomBar, dockBar, timelineBar, transportBar, optionBar;
  LinearLayout infoPanel,titlePanel;
- TextView movieTitle,programmeDetails,liveStatus,resolutionStatus,audioStatus; TextClock playerClock;
+ TextView movieTitle,programmeDetails,liveStatus,resolutionStatus,audioStatus,infoDetails; TextClock playerClock;
+ long lastInfoRefresh;
  View logoView;
  Control[] transportKeys;
  View infoButton, infoReturnFocus;
@@ -98,18 +99,18 @@ final class PremiumPlayerOverlay extends FrameLayout {
   Shader topShade,leftShade,bottomShade;
   @Override protected void onBoundsChange(Rect b){
    float w=b.width(),h=b.height();if(w<=0||h<=0)return;
-   topShade=new LinearGradient(0,0,0,h*.28f,new int[]{0xec031137,0x9b061a46,0x00071c45},new float[]{0,.45f,1},Shader.TileMode.CLAMP);
-   leftShade=new LinearGradient(0,0,w*.60f,0,new int[]{0xe906143a,0xb208204c,0x00071e4d},new float[]{0,.44f,1},Shader.TileMode.CLAMP);
-   bottomShade=new LinearGradient(0,h*.49f,0,h,new int[]{0x00051843,0xa0071945,0xf9061640,0xff06205e},new float[]{0,.31f,.76f,1},Shader.TileMode.CLAMP);
+   topShade=new LinearGradient(0,0,0,h*.28f,new int[]{0xda07142f,0x730b2041,0x00071c45},new float[]{0,.45f,1},Shader.TileMode.CLAMP);
+   leftShade=new LinearGradient(0,0,w*.60f,0,new int[]{0xc9061535,0x740b2448,0x00071e4d},new float[]{0,.44f,1},Shader.TileMode.CLAMP);
+   bottomShade=new LinearGradient(0,h*.49f,0,h,new int[]{0x00051843,0x79071431,0xe5071838,0xf0071a42},new float[]{0,.31f,.76f,1},Shader.TileMode.CLAMP);
    upper.reset();upper.moveTo(-w*.02f,h*.195f);upper.cubicTo(w*.13f,h*.11f,w*.24f,h*.17f,w*.53f,-h*.02f);
    lower.reset();lower.moveTo(-w*.03f,h*.866f);lower.cubicTo(w*.13f,h*1.025f,w*.25f,h*.99f,w*.39f,h*1.07f);
    right.reset();right.moveTo(w*.36f,h*1.02f);right.cubicTo(w*.62f,h*.91f,w*.81f,h*.99f,w*1.04f,h*.77f);
   }
   void sweep(Canvas c,Path path,float h){
    ink.setShader(null);ink.setStyle(Paint.Style.STROKE);ink.setStrokeCap(Paint.Cap.ROUND);
-   for(int i=18;i>=1;i--){float q=i/18f;ink.setStrokeWidth(h*.029f*q);ink.setColor(Color.argb(Math.round(3+8*(1-q)),0,105,255));c.drawPath(path,ink);}
-   ink.setStrokeWidth(h*.0025f);ink.setColor(0xcc03b5ff);c.drawPath(path,ink);
-   ink.setStrokeWidth(h*.001f);ink.setColor(0xbb9deaff);c.drawPath(path,ink);
+   for(int i=8;i>=1;i--){float q=i/8f;ink.setStrokeWidth(h*.016f*q);ink.setColor(Color.argb(Math.round(3+8*(1-q)),27,115,234));c.drawPath(path,ink);}
+   ink.setStrokeWidth(h*.0017f);ink.setColor(0xb7399fea);c.drawPath(path,ink);
+   ink.setStrokeWidth(h*.0007f);ink.setColor(0x996ed3ff);c.drawPath(path,ink);
    ink.setStyle(Paint.Style.FILL);
   }
   @Override public void draw(Canvas c){
@@ -123,14 +124,14 @@ final class PremiumPlayerOverlay extends FrameLayout {
   @Override public void setAlpha(int n){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
  }
  Drawable skyPanel(int style){
-  int[] colors=style==0?new int[]{0xf2071b48,0xfa06142e}:style==3?new int[]{0xe9175095,0xf709245b,0xf806173f}:new int[]{0xff173c73,0xff081b3b};
+  int[] colors=style==0?new int[]{0xfa142b50,0xfd08162e,0xfd071226}:style==3?new int[]{0xf02a4970,0xf2102548,0xfc08182f}:new int[]{0xff294d77,0xff0b203f};
   GradientDrawable panel=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,colors);
-  panel.setCornerRadius(d(7));panel.setStroke(Math.max(1,d(1)),0x995aabe9);return panel;
+  panel.setCornerRadius(d(4));panel.setStroke(Math.max(1,d(1)),0xb37faace);return panel;
  }
  TextView status(String label,boolean accent){
   TextView v=a.text(label,15);v.setGravity(Gravity.CENTER);v.setTextColor(WHITE);v.setTypeface(a.uiMedium);v.setIncludeFontPadding(false);v.setSingleLine(true);
-  GradientDrawable shape=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,accent?new int[]{0xf01070d5,0xfa063474}:new int[]{0xda133c70,0xea0b214c});
-  shape.setCornerRadius(d(5));shape.setStroke(Math.max(1,d(1)),accent?0xff76d6ff:0xaad2eaff);v.setBackground(shape);return v;
+  GradientDrawable shape=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,accent?new int[]{0xf02d699e,0xfa143d68}:new int[]{0xe32b4769,0xf00c213e});
+  shape.setCornerRadius(d(3));shape.setStroke(Math.max(1,d(1)),accent?0xff7fcaf4:0x999cc3e2);v.setBackground(shape);return v;
  }
  void px(TextView v,float size){v.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,size);}
  Drawable artwork(int id){BitmapDrawable b=(BitmapDrawable)a.getDrawable(id).mutate();b.setGravity(Gravity.FILL);b.setFilterBitmap(true);return new Drawable(){
@@ -166,17 +167,18 @@ final class PremiumPlayerOverlay extends FrameLayout {
   panel.setBackground(skyPanel(0));
   panel.setClickable(true);
   panel.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-  TextView title=a.text("Playback Information",20);title.setTextColor(WHITE);
+  TextView title=a.text("Playback Information",20);title.setTextColor(WHITE);title.setTypeface(a.uiMedium);
   panel.addView(title,new LinearLayout.LayoutParams(-1,d(38)));
   ScrollView scroll=new ScrollView(a);
   scroll.setId(View.generateViewId());scroll.setFillViewport(false);
   scroll.setFocusable(true);scroll.setFocusableInTouchMode(true);
   scroll.setContentDescription("Full playback diagnostics");
   scroll.setForeground(new Ring(false));
-  TextView details=new TextView(a);
+  View rule=new View(a);rule.setBackgroundColor(0x887bafd6);panel.addView(rule,new LinearLayout.LayoutParams(-1,d(1)));
+  TextView details=new TextView(a);infoDetails=details;lastInfoRefresh=SystemClock.uptimeMillis();
   details.setTextColor(WHITE);details.setTypeface(a.uiRegular);details.setTextSize(compact?13:15);
   details.setSingleLine(false);details.setMaxLines(Integer.MAX_VALUE);details.setEllipsize(null);
-  details.setText(item.name+"\n"+a.currentPlaybackDiagnostics());details.setLineSpacing(d(3),1f);
+  details.setText(item.name+"\n"+a.currentPlaybackDiagnostics());details.setLineSpacing(d(3),1f);details.setPadding(0,d(7),0,d(5));
   scroll.addView(details,new ScrollView.LayoutParams(-1,-2));
   panel.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
   TextView close=a.text("Close",16);
@@ -200,7 +202,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
  }
  void dismissInfo(boolean restoreFocus){
   if(infoPanel==null)return;
-  removeView(infoPanel);infoPanel=null;
+  removeView(infoPanel);infoPanel=null;infoDetails=null;
   bottomBar.setDescendantFocusability(dockFocusMode);bottomBar.setImportantForAccessibility(dockAccessibility);
   View restore=infoReturnFocus;infoReturnFocus=null;
   if(restoreFocus&&restore!=null){restore.requestFocus();arm();}
@@ -256,7 +258,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
  void adjacent(int delta){int index=-1;for(int i=0;i<a.items.size();i++)if(a.items.get(i).id.equals(item.id)){index=i;break;}int n=index+delta;if(index>=0&&n>=0&&n<a.items.size()){a.itemPos=n;MainActivity.Item target=a.items.get(n);if(live)a.selected=target;a.playFull(target);}}
  void volume(){AudioManager audio=(AudioManager)a.getSystemService(Context.AUDIO_SERVICE);if(audio==null)return;LinearLayout panel=a.col();panel.setPadding(d(24),d(16),d(24),d(16));SeekBar bar=new SeekBar(a);bar.setMax(audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));bar.setProgress(audio.getStreamVolume(AudioManager.STREAM_MUSIC));tint(bar);bar.setContentDescription("Volume");bar.setEnabled(!audio.isVolumeFixed());panel.addView(bar,new LinearLayout.LayoutParams(-1,d(44)));bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int n,boolean user){if(user&&!audio.isVolumeFixed())try{audio.setStreamVolume(AudioManager.STREAM_MUSIC,n,0);}catch(SecurityException ignored){}}});new AlertDialog.Builder(a).setTitle(audio.isVolumeFixed()?"Use TV volume control":"Volume").setView(panel).setPositiveButton("Done",null).show();}
  String time(long millis){long s=Math.max(0,millis/1000);return s>=3600?String.format(Locale.US,"%d:%02d:%02d",s/3600,s/60%60,s%60):String.format(Locale.US,"%02d:%02d",s/60,s%60);}
- void refresh(){if(disposed||a.player!=p)return;Format f=p.getVideoFormat(),audio=p.getAudioFormat();StringBuilder s=new StringBuilder();if(f!=null&&f.height>0){if(s.length()>0)s.append(" · ");s.append(f.height>=2160?"4K UHD":f.height>=1080?"1080p":f.height+"p");if(MainActivity.isHdr(f))s.append(" · HDR");}if(audio!=null&&audio.channelCount>0){if(s.length()>0)s.append(" · ");s.append(audio.channelCount==6?"5.1 audio":audio.channelCount==2?"Stereo":audio.channelCount+" ch audio");}resolutionStatus.setText(f!=null&&f.height>0?(f.height>=2160?"4K UHD":f.height>=1080?"1080p":f.height+"p"):"");audioStatus.setText(audio!=null&&audio.channelCount>0?(audio.channelCount==6?"5.1 audio":audio.channelCount==2?"Stereo":audio.channelCount+" ch audio"):"");liveStatus.setVisibility(live?View.VISIBLE:View.INVISIBLE);resolutionStatus.setVisibility(resolutionStatus.length()>0?View.VISIBLE:View.INVISIBLE);audioStatus.setVisibility(audioStatus.length()>0?View.VISIBLE:View.INVISIBLE);MainActivity.Programme programme=live?MainActivity.currentProgramme(a.guideCache.get(a.guideKey(item,false)),System.currentTimeMillis()):null;metadata.setText(programme!=null?programme.title:(item.year==null?"":item.year));programmeDetails.setText(programme!=null&&programme.description!=null?programme.description:"");long duration=p.getDuration();boolean canSeek=p.isCurrentMediaItemSeekable()&&duration>0;progress.setEnabled(canSeek);progress.setFocusable(canSeek);if(!scrubbing){elapsed.setText(live&&!canSeek?"LIVE":time(p.getCurrentPosition()));total.setText(duration>0?time(duration):"—");progress.setProgress(canSeek?(int)Math.min(10000,Math.max(0,10000d*p.getCurrentPosition()/duration)):0);progress.setSecondaryProgress(canSeek?(int)Math.min(10000,10000d*p.getBufferedPosition()/duration):0);}play.setContentDescription(p.getPlayWhenReady()?"Pause":"Play");play.invalidate();}
+ void refresh(){if(disposed||a.player!=p)return;Format f=p.getVideoFormat(),audio=p.getAudioFormat();resolutionStatus.setText(f!=null&&f.height>0?(f.height>=2160?"4K UHD":f.height>=1080?"1080p":f.height+"p"):"");audioStatus.setText(audio!=null&&audio.channelCount>0?(audio.channelCount==6?"5.1 audio":audio.channelCount==2?"Stereo":audio.channelCount+" ch audio"):"");liveStatus.setVisibility(live?View.VISIBLE:View.INVISIBLE);resolutionStatus.setVisibility(resolutionStatus.length()>0?View.VISIBLE:View.INVISIBLE);audioStatus.setVisibility(audioStatus.length()>0?View.VISIBLE:View.INVISIBLE);MainActivity.Programme programme=live?MainActivity.currentProgramme(a.guideCache.get(a.guideKey(item,false)),System.currentTimeMillis()):null;metadata.setText(programme!=null?programme.title:(item.year==null?"":item.year));programmeDetails.setText(programme!=null&&programme.description!=null?programme.description:"");long duration=p.getDuration();boolean canSeek=p.isCurrentMediaItemSeekable()&&duration>0;progress.setEnabled(canSeek);progress.setFocusable(canSeek);if(!scrubbing){elapsed.setText(live&&!canSeek?"LIVE":time(p.getCurrentPosition()));total.setText(duration>0?time(duration):"—");progress.setProgress(canSeek?(int)Math.min(10000,Math.max(0,10000d*p.getCurrentPosition()/duration)):0);progress.setSecondaryProgress(canSeek?(int)Math.min(10000,10000d*p.getBufferedPosition()/duration):0);}String description=p.getPlayWhenReady()?"Pause":"Play";if(!description.contentEquals(play.getContentDescription())){play.setContentDescription(description);play.invalidate();}if(infoDetails!=null&&SystemClock.uptimeMillis()-lastInfoRefresh>=1000){lastInfoRefresh=SystemClock.uptimeMillis();String details=item.name+"\n"+a.currentPlaybackDiagnostics();if(!details.contentEquals(infoDetails.getText()))infoDetails.setText(details);}}
  void arm(){removeCallbacks(timeout);if(infoPanel==null&&isShown()&&!scrubbing&&!disposed&&p.getPlayWhenReady())postDelayed(timeout,6000);}
  void show(){
   if(disposed||a.player!=p)return;
@@ -293,24 +295,39 @@ final class PremiumPlayerOverlay extends FrameLayout {
  }
  // Focus-only broad, translucent halo around a glossy blue key; no hard gold stroke.
  final class SkyKey extends Drawable {
-  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);final int style;boolean focused;final Runnable tick=()->invalidateSelf();
+  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
+  final RectF r=new RectF(),inner=new RectF();
+  final int style;
+  boolean focused;
+  float rad;
+  Shader edge,face,focusFace,shine;
+  final Runnable tick=()->invalidateSelf();
   SkyKey(int style){this.style=style;}
   @Override public boolean isStateful(){return true;}
-  @Override protected boolean onStateChange(int[] states){boolean next=false;for(int s:states)if(s==android.R.attr.state_focused)next=true;if(next==focused)return false;focused=next;if(!next)unscheduleSelf(tick);invalidateSelf();return true;}
-  @Override public void draw(Canvas c){
-   Rect b=getBounds();float w=b.width(),h=b.height();if(w<=0||h<=0)return;
+  @Override protected boolean onStateChange(int[] states){boolean next=false;for(int state:states)if(state==android.R.attr.state_focused)next=true;if(next==focused)return false;focused=next;if(!next)unscheduleSelf(tick);invalidateSelf();return true;}
+  @Override protected void onBoundsChange(Rect b){
+   float w=b.width(),h=b.height();if(w<=0||h<=0){edge=null;return;}
    float mx=style==2?w*.024f:w*.05f,my=style==2?h*.10f:style==1?h*.075f:h*.21f;
-   RectF r=new RectF(b.left+mx,b.top+my,b.right-mx,b.bottom-my);float rad=h*.09f;
-   if(style==2&&!focused)return;
+   r.set(b.left+mx,b.top+my,b.right-mx,b.bottom-my);rad=h*.055f;
+   inner.set(r);inner.inset(Math.max(1,h*.022f),Math.max(1,h*.022f));
+   edge=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xffb2d7ef,0xff507b9f,0xff1b3959,0xff7dacce},new float[]{0,.20f,.72f,1},Shader.TileMode.CLAMP);
+   face=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xff335579,0xff1a3357,0xff091b36},new float[]{0,.34f,1},Shader.TileMode.CLAMP);
+   focusFace=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xff3b82bd,0xff1a4e88,0xff10264d},new float[]{0,.32f,1},Shader.TileMode.CLAMP);
+   shine=new LinearGradient(0,r.top,0,r.bottom,new int[]{0x44d8efff,0x00b3d8ff,0x103a8bfa},new float[]{0,.55f,1},Shader.TileMode.CLAMP);
+  }
+  @Override public void draw(Canvas c){
+   if(edge==null||!isVisible()||(style==2&&!focused))return;
+   ink.setStyle(Paint.Style.FILL);ink.setShader(edge);c.drawRoundRect(r,rad,rad,ink);
+   ink.setShader(focused?focusFace:face);c.drawRoundRect(inner,rad*.70f,rad*.70f,ink);
+   ink.setShader(shine);c.drawRoundRect(inner,rad*.70f,rad*.70f,ink);
+   ink.setShader(null);
    if(focused){
-    float phase=FlamePulse.phase();ink.setShader(null);ink.setStyle(Paint.Style.STROKE);
-    for(int i=14;i>=1;i--){float q=i/14f;ink.setStrokeWidth(h*(.20f+.04f*phase)*q);ink.setColor(Color.argb(Math.round((4+8*(1-q))*(.8f+.2f*phase)),255,224,90));c.drawRoundRect(r,rad,rad,ink);}
+    float phase=FlamePulse.phase(),scale=Math.max(1,r.height()*.052f)/12f;
+    // Same warm focus treatment as Home; all gradient and geometry objects cached.
+    FlamePulse.draw(c,ink,r,rad,scale,phase);
+    if(FlamePulse.animates()){unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+40);}
    }
-   ink.setStyle(Paint.Style.FILL);ink.setShader(new LinearGradient(0,r.top,0,r.bottom,focused?new int[]{0xff167de8,0xff0645ac,0xff071e6a}:new int[]{0xff2c5087,0xff143365,0xff0b2250},new float[]{0,.32f,1},Shader.TileMode.CLAMP));c.drawRoundRect(r,rad,rad,ink);
-   ink.setShader(new LinearGradient(r.left,r.top,r.right,r.bottom,new int[]{0x50c3efff,0x00b3d8ff,0x103a8bfa},null,Shader.TileMode.CLAMP));c.drawRoundRect(r,rad,rad,ink);ink.setShader(null);
-   if(!focused){ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1,h*.012f));ink.setColor(0x8868b6fa);c.drawRoundRect(r,rad,rad,ink);}
    ink.setStyle(Paint.Style.FILL);ink.setAlpha(255);
-   if(focused&&FlamePulse.animates()){unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+40);}
   }
   @Override public boolean setVisible(boolean v,boolean restart){if(!v)unscheduleSelf(tick);return super.setVisible(v,restart);}
   @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
