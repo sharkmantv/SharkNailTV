@@ -88,8 +88,14 @@ class Fixture(BaseHTTPRequestHandler):
 def adb(*args):
     return subprocess.check_output(["adb", *map(str,args)], text=True, timeout=35)
 def ui():
-    adb("shell", "uiautomator", "dump", "/sdcard/shark-test.xml")
-    return ET.fromstring(adb("shell", "cat", "/sdcard/shark-test.xml"))
+    # Never read an earlier hierarchy if UiAutomator fails to capture a fresh one.
+    for attempt in range(3):
+        try:
+            xml=adb("shell","rm -f /sdcard/shark-test.xml; uiautomator dump /sdcard/shark-test.xml >/dev/null && cat /sdcard/shark-test.xml")
+            return ET.fromstring(xml)
+        except (ET.ParseError, subprocess.CalledProcessError):
+            if attempt==2: raise
+            time.sleep(.5)
 def bounds(node):
     return tuple(map(int, re.findall(r"\d+", node.get("bounds",""))))
 def tap(node):
@@ -352,15 +358,34 @@ def check_player():
     expect("Layout fixture 001")
     print("PASS: actual first frame and premium playback overlay/remote toggle",flush=True)
 
-def enter_field(node,value):
-    # On busy emulators, a single bulk input command can reorder characters.
-    # Enter fixture credentials slowly, verifying the address before Connect.
-    target=bounds(node)
-    secret=node.get("password")=="true"
-    original_hint=node.get("text","")
+def login_fields():
+    fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText" and n.get("package")=="com.example.xtreamtv"]
+    assert len(fields)==3,"Expected exactly three Xtream login fields"
+    return fields
+
+def dismiss_login_keyboard():
+    # Back must dismiss the IME, not the Xtream form.
+    if re.search(r"mInputShown=true|mIsInputViewShown=true",adb("shell","dumpsys","input_method")):
+        adb("shell","input","keyevent","4")
+        time.sleep(.7)
+
+def field_matches(node,value,secret):
+    actual=node.get("text","")
+    return (len(actual)==len(value) and actual!="Password") if secret else actual==value
+
+def enter_field(index,value):
+    secret=index==2
     for attempt in range(3):
+        # Re-read bounds after every IME transition, instead of reusing the
+        # coordinates obtained before the keyboard resized the window.
+        dismiss_login_keyboard()
+        node=login_fields()[index]
+        if field_matches(node,value,secret): return
         tap(node)
         time.sleep(.7)
+        focused=login_fields()
+        if focused[index].get("focused")!="true":
+            continue
         adb("shell","input","keycombination","113","29")
         adb("shell","input","keyevent","67")
         time.sleep(.25)
@@ -368,12 +393,12 @@ def enter_field(node,value):
             adb("shell","input","text",ch)
             time.sleep(.12)
         time.sleep(.5)
-        current=next((n for n in ui().iter("node") if n.get("class")=="android.widget.EditText" and n.get("focused")=="true"),None)
-        if current is not None:
-            actual=current.get("text","")
-            if (not secret and actual==value) or (secret and actual!=original_hint and len(actual)==len(value)):
+        current=login_fields()[index]
+        if current.get("focused")=="true" and field_matches(current,value,secret):
+            dismiss_login_keyboard()
+            if field_matches(login_fields()[index],value,secret):
                 return
-    raise AssertionError("Could not reliably enter fixture "+("password" if secret else "login field"))
+    raise AssertionError("Could not reliably enter fixture field "+str(index))
 
 server=ThreadingHTTPServer(("127.0.0.1",18765),Fixture)
 threading.Thread(target=server.serve_forever,daemon=True).start()
@@ -473,20 +498,18 @@ try:
     tap(expect("Movies"))
     if not args.saved_login:
         expect("Xtream Codes")
-        fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
-        assert len(fields)>=3, "Missing Xtream login fields"
-        for node,value in zip(fields,["http://127.0.0.1:18765","fixture","fixture"]):
-            enter_field(node,value)
-            if "mInputShown=true" in adb("shell","dumpsys","input_method"):
-                adb("shell","input","keyevent","4")
-                time.sleep(.4)
-        current_fields=[n for n in ui().iter("node") if n.get("class")=="android.widget.EditText"]
-        assert current_fields[0].get("text")=="http://127.0.0.1:18765"
-        assert current_fields[1].get("text")=="fixture"
-        if current_fields[2].get("text") in ("","Password"):
-            enter_field(current_fields[2],"fixture")
-            if "mInputShown=true" in adb("shell","dumpsys","input_method"):
-                adb("shell","input","keyevent","4")
+        values=["http://127.0.0.1:18765","fixture","fixture"]
+        for attempt in range(2):
+            for index,value in enumerate(values):
+                enter_field(index,value)
+            current_fields=login_fields()
+            if all(field_matches(node,value,index==2) for index,(node,value) in enumerate(zip(current_fields,values))):
+                break
+        else:
+            raise AssertionError("Fixture credentials did not survive keyboard transitions: "+str([field_matches(node,value,index==2) for index,(node,value) in enumerate(zip(current_fields,values))]))
+        # The fixture server still checks both actual credentials; the password
+        # is masked by Android accessibility and never printed.
+        print("PASS: exact fixture URL and username retained after keyboard transitions",flush=True)
         tap(expect("Connect"))
     expect("Fixture movies")
     check_posters("Layout fixture ","movies")
