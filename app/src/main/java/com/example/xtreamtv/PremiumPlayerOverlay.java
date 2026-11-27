@@ -40,11 +40,11 @@ final class PremiumPlayerOverlay extends FrameLayout {
   LinearLayout top=a.row();topBar=top;top.setGravity(Gravity.CENTER_VERTICAL);
   logoView=PremiumVisuals.brand(a);logoView.setContentDescription("Sky");logoView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
   top.addView(logoView,new LinearLayout.LayoutParams(0,-1,.22f));
-  top.addView(new View(a),new LinearLayout.LayoutParams(0,-1,.37f));
+  top.addView(new View(a),new LinearLayout.LayoutParams(0,-1,.39f));
   liveStatus=status(live?"LIVE":"",true);resolutionStatus=status("",false);audioStatus=status("",false);
   top.addView(liveStatus,new LinearLayout.LayoutParams(0,-1,.10f));
   top.addView(resolutionStatus,new LinearLayout.LayoutParams(0,-1,.08f));
-  top.addView(audioStatus,new LinearLayout.LayoutParams(0,-1,.13f));
+  top.addView(audioStatus,new LinearLayout.LayoutParams(0,-1,.11f));
   playerClock=new TextClock(a);playerClock.setFormat24Hour("HH:mm");playerClock.setFormat12Hour("h:mm a");playerClock.setTypeface(a.uiMedium);playerClock.setTextColor(WHITE);playerClock.setIncludeFontPadding(false);playerClock.setGravity(Gravity.CENTER);top.addView(playerClock,new LinearLayout.LayoutParams(0,-1,.10f));
   addView(top,new FrameLayout.LayoutParams(-1,1,Gravity.TOP));
   titlePanel=a.col();titlePanel.setGravity(Gravity.TOP);
