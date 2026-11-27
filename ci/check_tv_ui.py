@@ -196,16 +196,16 @@ def performance_audit(warm_results):
     samples=[perf_sample("warm")]
     adb("shell","dumpsys","gfxinfo","com.example.xtreamtv","reset")
     runs=[]
-    for cycle in range(2):
+    for cycle in range(5):
         runs.append(benchmark_live("fast-live",False))
         time.sleep(2)
         samples.append(perf_sample("switch-round-"+str(cycle+1)))
     # One sustained local stream, then inspect memory and frame statistics.
-    time.sleep(45)
+    time.sleep(120)
     samples.append(perf_sample("soak"))
     Path("performance-gfxinfo.txt").write_text(adb("shell","dumpsys","gfxinfo","com.example.xtreamtv","framestats"))
     Path("performance-cpuinfo.txt").write_text(adb("shell","dumpsys","cpuinfo"))
-    report={"fixture":"local synthetic TS, 1080p emulator","channel_switches":len(warm_results)+sum(map(len,runs)),"soak_seconds":45,"pss":samples,"switch_rounds":runs}
+    report={"fixture":"local synthetic TS, 1080p emulator","channel_switches":len(warm_results)+sum(map(len,runs)),"soak_seconds":120,"pss":samples,"switch_rounds":runs}
     Path("performance-audit.json").write_text(json.dumps(report,indent=2))
     # Detect gross retention, not claim that finite emulator samples prove no leaks.
     assert not (samples[-2]["pss_kb"]>samples[0]["pss_kb"]+131072 and samples[-1]["pss_kb"]>samples[0]["pss_kb"]+131072),("Sustained PSS growth >128 MiB",samples)

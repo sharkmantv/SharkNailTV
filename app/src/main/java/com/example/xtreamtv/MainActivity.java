@@ -37,9 +37,9 @@ import java.util.concurrent.*;
 
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 public class MainActivity extends Activity {
- final ExecutorService io=Executors.newFixedThreadPool(2);
+ final ThreadPoolExecutor io=(ThreadPoolExecutor)Executors.newFixedThreadPool(2);
  final Handler ui=new Handler(Looper.getMainLooper());
- final ExecutorService epgIo=Executors.newFixedThreadPool(2);
+ final ThreadPoolExecutor epgIo=(ThreadPoolExecutor)Executors.newFixedThreadPool(2);
  final ThreadPoolExecutor rowGuideIo=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(24),new ThreadPoolExecutor.AbortPolicy());
  final Runnable tickRows=new Runnable(){public void run(){if(stopped||!page.equals("Live TV"))return;if(!full&&right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);ui.postDelayed(this,60000);}};
  final android.util.LruCache<String,GuideData> guideCache=new android.util.LruCache<>(80);
@@ -65,6 +65,7 @@ public class MainActivity extends Activity {
  LinearLayout playerHeader,playerDetails;
  PremiumPlayerOverlay premiumPlayer;
  Future<?> catalogueJob;
+ Runnable decoderWatch, decoderRetry;
  ProgressBar programmeProgress;
  String playbackDiagnostics="No video information yet";
  long startupBeginMs, startupFirstMs=-1, startupLoadMs=-1, startupDecoderMs=-1, startupDecoderCostMs=-1, startupReadyMs=-1; int droppedVideoFrames;
@@ -144,7 +145,7 @@ public class MainActivity extends Activity {
  };
  void clearCatalogue(){synchronized(catalogueLock){catalogueGeneration++;catalogue.evictAll();}}
  void catalogueTask(String key,long ttl,boolean force,int req,Work<List<Item>> fetch,Done<List<Item>> done){
-  if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}
+  if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;io.purge();}
   final int token=screenToken;
   final long generation;
   final CatalogueEntry cached;
@@ -167,13 +168,14 @@ public class MainActivity extends Activity {
  }
  @Override public void onTrimMemory(int level){
   super.onTrimMemory(level);
+  if(level==android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN){posterCache.trimToSize(8*1024*1024);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
   if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW&&level<android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN){clearCatalogue();posterCache.trimToSize(8*1024*1024);}
   if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND){clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  }
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  static class Item { String id,name,ext,art="",year="",tmdb=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
@@ -220,12 +222,13 @@ public class MainActivity extends Activity {
  LinearLayout row(){return new LinearLayout(this);} LinearLayout col(){LinearLayout l=row();l.setOrientation(1);return l;}
  void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());premiumHomeFocus(t);t.setPadding(dp(6),0,dp(6),0);t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
- void release(){detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
+ void cancelDecoderTasks(){if(decoderWatch!=null){ui.removeCallbacks(decoderWatch);decoderWatch=null;}if(decoderRetry!=null){ui.removeCallbacks(decoderRetry);decoderRetry=null;}}
+ void release(){cancelDecoderTasks();detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
- void detachCatalogueViews(){if(left!=null){left.setAdapter(null);left=null;}if(right!=null){right.setAdapter(null);right=null;}posterIo.purge();rowGuideIo.purge();}
- void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;applyDisplayMode();full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
+ void detachCatalogueViews(){if(left!=null){left.setAdapter(null);left=null;}if(right!=null){right.setAdapter(null);right=null;}posterIo.purge();rowGuideIo.purge();io.purge();epgIo.purge();}
+ void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;io.purge();}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;applyDisplayMode();full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
  void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
  void home(){
   page="Home";screen("SHARK SKY");
@@ -631,7 +634,7 @@ public class MainActivity extends Activity {
   if(url==null||!(url.startsWith("https://")||url.startsWith("http://")))return null;
   android.graphics.Bitmap cached=posterCache.get(url);if(cached!=null)return cached;
   HttpURLConnection conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(3500);conn.setReadTimeout(5000);
-  try{if(conn.getResponseCode()!=200)return null;try(InputStream in=conn.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted()||out.size()+n>8*1024*1024)return null;out.write(buf,0,n);}byte[] data=out.toByteArray();android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,bounds);if(bounds.outWidth<=0||bounds.outHeight<=0)return null;android.graphics.BitmapFactory.Options opt=new android.graphics.BitmapFactory.Options();opt.inSampleSize=1;while(bounds.outWidth/opt.inSampleSize>1000||bounds.outHeight/opt.inSampleSize>1500)opt.inSampleSize*=2;android.graphics.Bitmap b=android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,opt);if(b!=null)posterCache.put(url,b);return b;}}finally{conn.disconnect();}
+  try{if(conn.getResponseCode()!=200)return null;try(InputStream in=conn.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted()||out.size()+n>8*1024*1024)return null;out.write(buf,0,n);}byte[] data=out.toByteArray();android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,bounds);if(bounds.outWidth<=0||bounds.outHeight<=0)return null;android.graphics.BitmapFactory.Options opt=new android.graphics.BitmapFactory.Options();opt.inSampleSize=1;while(bounds.outWidth/opt.inSampleSize>1000||bounds.outHeight/opt.inSampleSize>1500)opt.inSampleSize*=2;android.graphics.Bitmap b=android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,opt);if(Thread.currentThread().isInterrupted())return null;if(b!=null)posterCache.put(url,b);return b;}}finally{conn.disconnect();}
  }
  boolean showPosters(){return page.equals("Movies")||(page.equals("Series")&&seriesId.isEmpty());}
  void setItemsAdapter(List<Item> data,Pick pick){
@@ -1031,7 +1034,7 @@ public class MainActivity extends Activity {
     }else audioStartedAt=-1;
     ui.postDelayed(this,750);
    }};
-   void startWatch(){if(vod&&!stock)ui.postDelayed(watch,750);}
+   void startWatch(){if(vod&&!stock){decoderWatch=watch;ui.postDelayed(watch,750);}}
    @Override public void onTracksChanged(Tracks tracks){
     if(player!=p||playbackProbe!=probe||recovering||rangeSelected||!range.equals("Prefer HDR"))return;
     boolean selectedDesired=false;Tracks.Group candidate=null;int index=-1;long score=-1;
@@ -1084,7 +1087,8 @@ public class MainActivity extends Activity {
     android.util.Log.i("SharkPlayback","Silent decoder recovery; attempt="+attempt+" SDR path="+sdrPath+" reason="+reason);
     if(live&&wasFull&&liveSurfaceHost!=null)exitLiveFullscreen();
     release();
-    ui.postDelayed(()->{
+    decoderRetry=()->{
+     decoderRetry=null;
      if(token!=screenToken||stopped||isFinishing()||player!=null||nativeVideo!=null)return;
      if(live&&selected!=i)return;
      if(!live&&!full)return;
@@ -1093,7 +1097,7 @@ public class MainActivity extends Activity {
      else if(attempt==1&&cachedFirst)attachExo(host,i,true,0,resume,true,sdrPath);
      else if(sdrPath>=0){msg("SDR playback unavailable. Select Auto to retry without conversion.");}
      else attachNative(host,i,resume);
-    },500);
+    };ui.postDelayed(decoderRetry,500);
    }
   }
   RecoveryListener listener=new RecoveryListener();streamListener=listener;p.addListener(listener);
@@ -1290,7 +1294,7 @@ public class MainActivity extends Activity {
  }
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
- @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
+ @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;cancelDecoderTasks();clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
  @Override protected void onDestroy(){screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);if(previewGuideJob!=null)previewGuideJob.cancel(true);if(fullGuideJob!=null)fullGuideJob.cancel(true);io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
  boolean updateBusy=false;
