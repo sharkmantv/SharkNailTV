@@ -454,14 +454,14 @@ jobs:
           ANDROID_I_WANT_MY_TCG: "yes"
           PYTHONUNBUFFERED: "1"
         with:
-          api-level: 35
+          api-level: 34
           emulator-boot-timeout: 360
           arch: x86_64
           target: google_apis
           disable-animations: true
           # Pin the stable pre-37 emulator after host RenderThread segfaults on 37.3.10.
           emulator-build: 15261927
-          emulator-options: -no-window -gpu swiftshader_indirect -feature -Vulkan -no-snapshot -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu swangle -no-snapshot -noaudio -no-boot-anim
           ram-size: 3072M
           heap-size: 512M
           pre-emulator-launch-script: python3 ci/configure_uhd_emulator.py
