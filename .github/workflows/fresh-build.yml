@@ -418,6 +418,18 @@ jobs:
           pre-emulator-launch-script: python3 ci/configure_uhd_emulator.py
           script: |
             set -e
+            verify_version() {
+              expected=$1
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                actual=$(adb shell dumpsys package com.example.xtreamtv 2>&1) || actual=''
+                if printf '%s\n' "$actual" | grep -E "versionCode=$expected([[:space:]]|$)"; then return 0; fi
+                echo "Waiting for installed version $expected (attempt $attempt/10)"
+                sleep 2
+              done
+              echo "ERROR: installed version did not match $expected" >&2
+              adb shell dumpsys package com.example.xtreamtv || true
+              return 1
+            }
             adb shell settings put secure immersive_mode_confirmations confirmed
             adb shell wm size 1080x1920
             adb shell wm density 320
@@ -427,29 +439,29 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             adb shell pidof com.example.xtreamtv
             adb install -r "$RUNNER_TEMP/prior33/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50033'
+            verify_version 50033
             adb install -r "$RUNNER_TEMP/prior34/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50034'
+            verify_version 50034
             adb install -r "$RUNNER_TEMP/prior35/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50035'
+            verify_version 50035
             adb install -r "$RUNNER_TEMP/prior36/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50036'
+            verify_version 50036
             adb install -r "$RUNNER_TEMP/prior37/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50037'
+            verify_version 50037
             adb install -r "$RUNNER_TEMP/prior39/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50039'
+            verify_version 50039
             adb install -r "$RUNNER_TEMP/prior44/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50044'
+            verify_version 50044
             adb install -r "$RUNNER_TEMP/prior45/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50045'
+            verify_version 50045
             adb install -r "$RUNNER_TEMP/prior46/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50046'
+            verify_version 50046
             adb install -r "$RUNNER_TEMP/prior47/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50047'
+            verify_version 50047
             adb install -r "$RUNNER_TEMP/prior48/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50048'
+            verify_version 50048
             adb install -r "$RUNNER_TEMP/prior51/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50051'
+            verify_version 50051
             adb install -r SharkNailTV.apk
             adb shell am force-stop com.google.android.apps.nexuslauncher
             adb shell am force-stop com.example.xtreamtv
@@ -457,7 +469,7 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
             adb shell pidof com.example.xtreamtv
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50054'
+            verify_version 50054
             sha256sum SharkNailTV.apk > manual-install-verified.sha256
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_premium_home.py
