@@ -173,7 +173,8 @@ public class MainActivity extends Activity {
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  static class Item { String id,name,ext,art="",year="",tmdb=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
+ StartupIntro startupIntro;
+ @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();if(b==null){startupIntro=new StartupIntro(this);startupIntro.start();}}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
@@ -487,7 +488,7 @@ public class MainActivity extends Activity {
   @Override public void onDisplayChanged(int id){if(id==getWindowManager().getDefaultDisplay().getDisplayId()){updateDisplayStatus();if(requestedFps>0)android.util.Log.i("SharkDisplay","Android display changed: "+getWindowManager().getDefaultDisplay().getMode().getRefreshRate()+" Hz");}}
  };
  @Override protected void onResume(){super.onResume();displayManager=(android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE);if(displayManager!=null)displayManager.registerDisplayListener(displayListener,ui);updateDisplayStatus();}
- @Override protected void onPause(){if(displayManager!=null){displayManager.unregisterDisplayListener(displayListener);displayManager=null;}super.onPause();}
+ @Override protected void onPause(){if(startupIntro!=null)startupIntro.stop("paused");if(displayManager!=null){displayManager.unregisterDisplayListener(displayListener);displayManager=null;}super.onPause();}
  static int chooseDisplayMode(android.view.Display.Mode current,android.view.Display.Mode[] modes,int request){
   if(request==0)return 0;
   int chosen=0;float best=Float.MAX_VALUE;
@@ -1186,6 +1187,7 @@ public class MainActivity extends Activity {
   premiumPlayer.show();
  }
  @Override public boolean dispatchKeyEvent(KeyEvent event){
+  if(startupIntro!=null&&startupIntro.handleKey(event))return true;
   if(full&&premiumPlayer!=null){if(event.getAction()==KeyEvent.ACTION_DOWN)android.util.Log.i("SharkPlayerUI","remote key="+event.getKeyCode()+" source="+event.getSource());if(premiumPlayer.handleKey(event))return true;}
   if(!full&&(page.equals("Live TV")||page.equals("Movies")||page.equals("Series"))&&event.getKeyCode()==KeyEvent.KEYCODE_MENU){
    // Open on release: otherwise the newly focused dialog receives the trailing Menu key-up.
@@ -1291,7 +1293,7 @@ public class MainActivity extends Activity {
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
  @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
- @Override protected void onDestroy(){screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);if(previewGuideJob!=null)previewGuideJob.cancel(true);if(fullGuideJob!=null)fullGuideJob.cancel(true);io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
+ @Override protected void onDestroy(){if(startupIntro!=null){startupIntro.stop("destroyed");startupIntro=null;}screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);if(previewGuideJob!=null)previewGuideJob.cancel(true);if(fullGuideJob!=null)fullGuideJob.cancel(true);io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
  boolean updateBusy=false;
  volatile int updateProgress=0;
