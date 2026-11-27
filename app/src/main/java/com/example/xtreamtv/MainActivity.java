@@ -488,7 +488,7 @@ public class MainActivity extends Activity {
  final android.hardware.display.DisplayManager.DisplayListener displayListener=new android.hardware.display.DisplayManager.DisplayListener(){
   @Override public void onDisplayAdded(int id){}
   @Override public void onDisplayRemoved(int id){}
-  @Override public void onDisplayChanged(int id){if(id==getWindowManager().getDefaultDisplay().getDisplayId()){updateDisplayStatus();if(requestedFps>0)android.util.Log.i("SharkDisplay","Android display changed: "+getWindowManager().getDefaultDisplay().getMode().getRefreshRate()+" Hz");}}
+  @Override public void onDisplayChanged(int id){if(id==getWindowManager().getDefaultDisplay().getDisplayId()){updateDisplayStatus();if(premiumPlayer!=null)premiumPlayer.refreshInfo(true);if(requestedFps>0)android.util.Log.i("SharkDisplay","Android display changed: "+getWindowManager().getDefaultDisplay().getMode().getRefreshRate()+" Hz");}}
  };
  @Override protected void onResume(){super.onResume();displayManager=(android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE);if(displayManager!=null)displayManager.registerDisplayListener(displayListener,ui);updateDisplayStatus();}
  @Override protected void onPause(){if(displayManager!=null){displayManager.unregisterDisplayListener(displayListener);displayManager=null;}super.onPause();}

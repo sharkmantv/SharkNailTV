@@ -623,11 +623,14 @@ try:
         assert find(root,label) is not None,("Missing native control",label)
     capture("native-player")
     tap(expect("Info"))
-    expect("Close")
+    close=expect("Close")
+    assert close.get("focused")=="true","Native Info close must retain remote focus"
     details=" ".join(n.get("text","") for n in ui().iter("node"))
     assert "Android native fallback" in details,details
     assert "Movies / Series 60 Hz preference" in details,details
-    tap(expect("Close"))
+    capture("native-player-info")
+    tap(close)
+    wait_native_event("Info dismissed")
     before=native_events().count("native playWhenReady=true")
     tap(expect("Play"))
     wait_native_event("native playWhenReady=true",before)
