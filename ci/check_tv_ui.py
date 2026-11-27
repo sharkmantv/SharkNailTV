@@ -300,6 +300,7 @@ def check_player():
     assert close.get("focused")=="true","Close must receive TV focus"
     info=ui()
     combined=" ".join(n.get("text","") for n in info.iter("node"))
+    assert "Movies / Series: 60 Hz" in combined,("Missing movie display preference",combined)
     assert "Waiting for first video frame" not in combined,("Stale playback diagnostics",combined)
     for label in ("Engine:","Stream FPS:","Display:","Auto FPS:","Requested refresh:","Request result:","Supported modes (same resolution):","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:","First network byte:","Startup profile:"):
         assert label in combined,("Missing diagnostics",label)
@@ -539,10 +540,7 @@ try:
         tap(expect("Playback"))
         tap(expect("Playback engine: Default ExoPlayer"))
         expect("Playback engine: Custom")
-        expect("Match FPS (custom): Off")
-        # Explicit opt-in for the existing frame-match regression, not the production default.
-        tap(expect("Match FPS (custom): Off"))
-        expect("Match FPS (custom): Auto")
+        expect("Live FPS (custom): Auto")
         # Compare native output on both engines, without GPU tone mapping.
         tap(expect("Live TV: SDR"))
         tap(expect("Auto"))

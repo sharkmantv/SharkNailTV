@@ -176,7 +176,7 @@ public class MainActivity extends Activity {
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  static class Item { String id,name,ext,art="",year="",tmdb=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_safe_default_50059",false)){prefs.edit().putBoolean("match_frame_rate",false).putBoolean("refresh_safe_default_50059",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_policy_50060",false)){prefs.edit().putBoolean("match_frame_rate",true).putBoolean("refresh_policy_50060",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
@@ -229,7 +229,7 @@ public class MainActivity extends Activity {
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeWatch!=null){ui.removeCallbacks(nativeWatch);nativeWatch=null;}nativeMedia=null;if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.setOnPreparedListener(null);n.setOnInfoListener(null);n.setOnErrorListener(null);n.setOnCompletionListener(null);n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
  void detachCatalogueViews(){if(left!=null){left.setAdapter(null);left=null;}if(right!=null){right.setAdapter(null);right=null;}posterIo.purge();rowGuideIo.purge();io.purge();epgIo.purge();}
- void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;io.purge();}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;applyDisplayMode();full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
+ void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;io.purge();}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;full=false;applyDisplayMode();status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
  void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
  void home(){
   page="Home";screen("SHARK SKY");
@@ -325,7 +325,7 @@ public class MainActivity extends Activity {
  }
  String currentPlaybackDiagnostics(){
   ExoPlayer p=player;
-  if(p==null){android.media.MediaPlayer mp=nativeMedia;return playbackDiagnostics+"\nEngine: Android native fallback\nSource picture mode: "+rangeLabel()+(mp!=null?"\nVideo resolution: "+mp.getVideoWidth()+"x"+mp.getVideoHeight():"");}
+  if(p==null){android.media.MediaPlayer mp=nativeMedia;return playbackDiagnostics+"\nEngine: Android native fallback\nSource picture mode: "+rangeLabel()+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",getWindowManager().getDefaultDisplay().getMode().getRefreshRate())+(movieDisplayPolicy()?"\nDisplay policy: Movies / Series 60 Hz preference":"")+(mp!=null?"\nVideo resolution: "+mp.getVideoWidth()+"x"+mp.getVideoHeight():"");}
   Format f=p.getVideoFormat(), a=p.getAudioFormat();
   float hz=getWindowManager().getDefaultDisplay().getMode().getRefreshRate();
   float declared=f!=null?f.frameRate:-1;
@@ -468,7 +468,7 @@ public class MainActivity extends Activity {
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
   TextView hint=text("SDR uses OpenGL tone mapping on compatible devices. Auto preserves the source. HDR prefers native HDR tracks. Changes apply at the next playback.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
-  LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Match FPS (custom): "+(prefs.getBoolean("match_frame_rate",false)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",false)).apply();playbackSettings();});body.addView(rate);
+  LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Live FPS (custom): "+(prefs.getBoolean("match_frame_rate",true)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",true)).apply();playbackSettings();});body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
   LinearLayout back=row();button(back,"Reset playback defaults",this::resetVisualSettings);button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
  }
@@ -508,7 +508,7 @@ public class MainActivity extends Activity {
  }
  String displaySummary(){
   android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode m=d.getMode();
-  int req=defaultLiveEngine()?0:prefs.getInt("display_mode",0),chosen=chooseDisplayMode(m,d.getSupportedModes(),req);
+  int req=displayRequest(),chosen=chooseDisplayMode(m,d.getSupportedModes(),req);
   String policy=req==0?"System automatic":req==DISPLAY_MAX?"Highest at current resolution":req==DISPLAY_60?"60 Hz":req==DISPLAY_120?"120 Hz":"Specific display mode";
   String result=req==0?"System controlled":chosen==0?"Unavailable; system fallback":chosen==m.getModeId()?"Active":"Requested; firmware decides";
   return String.format(Locale.US,"Current display: %d × %d · %.2f Hz\n%s · %s",m.getPhysicalWidth(),m.getPhysicalHeight(),m.getRefreshRate(),policy,result);
@@ -528,7 +528,9 @@ public class MainActivity extends Activity {
  }
  // An opted-in movie match can request a same-resolution integer-multiple mode.
  // No unsupported 120 Hz modes and no global settings changes.
- boolean autoRefresh(){return !defaultLiveEngine()&&prefs.getBoolean("match_frame_rate",false)&&prefs.getInt("display_mode",0)==0;}
+ boolean autoRefresh(){return page.equals("Live TV")&&!defaultLiveEngine()&&prefs.getBoolean("match_frame_rate",true)&&prefs.getInt("display_mode",0)==0;}
+ boolean movieDisplayPolicy(){return full&&(page.equals("Movies")||page.equals("Series"));}
+ int displayRequest(){return movieDisplayPolicy()?DISPLAY_60:defaultLiveEngine()?0:prefs.getInt("display_mode",0); }
  void clearSurfaceHint(){
   android.view.Surface surface=matchSurface;matchSurface=null;
   if(Build.VERSION.SDK_INT>=30&&surface!=null&&surface.isValid())try{surface.setFrameRate(0f,android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);}catch(RuntimeException ignored){}
@@ -590,14 +592,16 @@ public class MainActivity extends Activity {
   android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode current=d.getMode();
   TreeSet<Float> rates=new TreeSet<>();for(android.view.Display.Mode m:d.getSupportedModes())if(m.getPhysicalWidth()==current.getPhysicalWidth()&&m.getPhysicalHeight()==current.getPhysicalHeight())rates.add(m.getRefreshRate());
   StringBuilder list=new StringBuilder();for(float r:rates){if(list.length()>0)list.append(", ");list.append(String.format(Locale.US,"%.2f",r));}
-  String request=defaultLiveEngine()?"Stock engine":prefs.getInt("display_mode",0)!=0?"Manual display mode":!autoRefresh()?"Off":!full?"Preview (automatic switch deferred)":refreshRequest;
+  boolean movie=movieDisplayPolicy();int movieMode=movie?chooseDisplayMode(current,d.getSupportedModes(),DISPLAY_60):0;
+  String request=movie?(movieMode!=0?"Movies / Series: 60 Hz preference":"Movies / Series: 60 Hz unavailable; system fallback"):defaultLiveEngine()?"Stock engine":prefs.getInt("display_mode",0)!=0?"Manual display mode":!autoRefresh()?"Off":!full?"Preview (automatic switch deferred)":refreshRequest;
   String outcome=RefreshMatch.exact(hz,fps)?"Exact integer multiple":RefreshMatch.compatible(hz,fps)?"Nominal integer multiple":requestedFps>0&&refreshRequestedAt>=0&&SystemClock.elapsedRealtime()-refreshRequestedAt<5000?"Request pending; Android has not matched":requestedFps>0?"Not confirmed by Android":"Not matched";
-  return "\nAuto FPS: "+request+"\nRequested refresh: "+(requestedHz>0?String.format(Locale.US,"%.2f Hz",requestedHz):requestedFps>0?String.format(Locale.US,"%.2f fps content hint",requestedFps):"None")+"\nRequest result: "+outcome+"\nSupported modes (same resolution): "+(list.length()==0?"Not reported":list+" Hz");
+  if(movie)outcome=movieMode==0?"60 Hz unavailable; system controlled":current.getModeId()==movieMode?"Movie display preference active":"60 Hz preference requested; Android decides";
+  return "\nAuto FPS: "+request+"\nRequested refresh: "+(movie?(movieMode!=0?"60 Hz (same resolution)":"None"):requestedHz>0?String.format(Locale.US,"%.2f Hz",requestedHz):requestedFps>0?String.format(Locale.US,"%.2f fps content hint",requestedFps):"None")+"\nRequest result: "+outcome+"\nSupported modes (same resolution): "+(list.length()==0?"Not reported":list+" Hz");
  }
  static boolean rateMatches(float hz,float fps){return RefreshMatch.compatible(hz,fps);}
  void applyDisplayMode(){
   android.view.Display d=getWindowManager().getDefaultDisplay();
-  int chosen=defaultLiveEngine()?0:chooseDisplayMode(d.getMode(),d.getSupportedModes(),prefs.getInt("display_mode",0));
+  int chosen=chooseDisplayMode(d.getMode(),d.getSupportedModes(),displayRequest());
   WindowManager.LayoutParams attrs=getWindow().getAttributes();
   if(attrs.preferredDisplayModeId!=chosen||attrs.preferredRefreshRate!=0f){attrs.preferredDisplayModeId=chosen;attrs.preferredRefreshRate=0f;getWindow().setAttributes(attrs);}
   android.util.Log.i("SharkDisplay",displaySummary());updateDisplayStatus();
@@ -940,8 +944,7 @@ public class MainActivity extends Activity {
   // Recreate the player for each new channel. 5.0.49/50 reuse did not pass the first-frame regression test.
   release();
   final boolean stock=defaultLiveEngine();
-  if(stock){WindowManager.LayoutParams attrs=getWindow().getAttributes();if(attrs.preferredDisplayModeId!=0||attrs.preferredRefreshRate!=0f){attrs.preferredDisplayModeId=0;attrs.preferredRefreshRate=0f;getWindow().setAttributes(attrs);}}
-  else applyDisplayMode();
+  applyDisplayMode();
   startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
   PlayerView v=sdrPath==1?(PlayerView)getLayoutInflater().inflate(R.layout.shark_sdr_player,host,false):new PlayerView(this);v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   if(!fullscreen&&page.equals("Live TV")&&host==preview&&findViewById(android.R.id.content) instanceof FrameLayout){
@@ -1105,7 +1108,7 @@ public class MainActivity extends Activity {
   p.setMediaItem(m.build());if(vod&&position>0)p.seekTo(position);if(!stock)p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();if(fullscreen)addRangeButton(host,i,v);
  }
  void attachNative(FrameLayout host,Item i,long position){
-  release();host.removeAllViews();
+  release();applyDisplayMode();host.removeAllViews();
   VideoView n=new VideoView(this){@Override protected void onMeasure(int ws,int hs){int mode=prefs.getInt("resize_mode",0),w=View.MeasureSpec.getSize(ws),h=View.MeasureSpec.getSize(hs);android.media.MediaPlayer media=nativeMedia;if(mode==3&&w>0&&h>0){setMeasuredDimension(w,h);return;}if(mode==4&&media!=null&&w>0&&h>0&&media.getVideoWidth()>0&&media.getVideoHeight()>0){float scale=Math.max(w/(float)media.getVideoWidth(),h/(float)media.getVideoHeight());setMeasuredDimension(Math.round(media.getVideoWidth()*scale),Math.round(media.getVideoHeight()*scale));return;}super.onMeasure(ws,hs);}};nativeVideo=n;playbackItem=i;playbackDiagnostics="Android native player fallback · source picture output";
   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);host.addView(n,lp);
   // The native engine uses the same premium overlay; never attach a stock MediaController.
