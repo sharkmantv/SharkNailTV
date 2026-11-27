@@ -2,7 +2,7 @@ name: Shark Sky manual APK candidate
 on:
   push:
     branches: ['design/intro-5.0.55']
-    paths: ['generated-video.mp4']
+    paths: ['Sky_Shark_Intro_4K_Upload.mp4', '.github/workflows/fresh-build.yml', 'ci/prepare_startup_intro.sh', 'app/**', 'ci/check_startup_intro.py']
   workflow_dispatch:
 permissions:
   contents: read
@@ -176,32 +176,17 @@ jobs:
           python ci/prepare_player_art.py
           echo '8b93640d45757966232af87dafbbc0d4dcfe11e9a05bd9f3143a7c609b6e50ba  app/src/main/res/drawable-nodpi/four_sharks_atlas.png' | sha256sum -c -
           python -c "from PIL import Image; im=Image.open('app/src/main/res/drawable-nodpi/four_sharks_atlas.png'); assert im.mode=='RGBA' and im.size==(1672,941) and im.getchannel('A').getextrema()==(0,255)"
-      - name: Render and validate cinematic intro
+      - name: Validate and package the exact approved 4K intro
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends ffmpeg
           fi
-          python -m venv "$RUNNER_TEMP/intro-ai"
-          source "$RUNNER_TEMP/intro-ai/bin/activate"
-          python -m pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install 'numpy==1.26.4' 'opencv-python==4.10.0.84' 'Pillow==10.4.0' 'basicsr==1.4.2' 'realesrgan==0.3.0'
-          python - <<'PY'
-          import importlib.util
-          from pathlib import Path
-          spec=importlib.util.find_spec("basicsr")
-          f=Path(spec.origin).parent/"data"/"degradations.py"
-          s=f.read_text()
-          old="from torchvision.transforms.functional_tensor import rgb_to_grayscale"
-          assert old in s
-          f.write_text(s.replace(old,"from torchvision.transforms.functional import rgb_to_grayscale"))
-          PY
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/RealESRGAN_x2plus.pth" https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth
-          bash ci/prepare_startup_intro.sh "$RUNNER_TEMP/RealESRGAN_x2plus.pth"
-      - name: Upload independently playable AI-enhanced intro
+          bash ci/prepare_startup_intro.sh
+      - name: Upload independently playable approved intro
         uses: actions/upload-artifact@v4
         with:
-          name: Sky-Shark-5.0.55-AI-enhanced-intro
+          name: Sky-Shark-5.0.55-approved-intro
           path: app/src/main/res/raw/shark_intro_*.mp4
           if-no-files-found: error
       - name: Compile
