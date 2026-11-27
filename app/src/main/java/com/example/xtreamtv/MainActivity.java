@@ -72,8 +72,6 @@ public class MainActivity extends Activity {
  PlaybackProbe playbackProbe;
  Player.Listener streamListener;
  AnalyticsListener streamAnalytics;
- String activeLiveRange="";
- int activeLiveAttempt;
  long epgQuietUntil;
  static final OkHttpClient API_HTTP=new OkHttpClient.Builder().connectionPool(new ConnectionPool(5,3,TimeUnit.MINUTES)).connectTimeout(10,TimeUnit.SECONDS).readTimeout(25,TimeUnit.SECONDS).followSslRedirects(false).build();
  static final OkHttpClient GUIDE_HTTP=API_HTTP.newBuilder().connectTimeout(5,TimeUnit.SECONDS).readTimeout(8,TimeUnit.SECONDS).build();
@@ -222,7 +220,7 @@ public class MainActivity extends Activity {
  LinearLayout row(){return new LinearLayout(this);} LinearLayout col(){LinearLayout l=row();l.setOrientation(1);return l;}
  void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());premiumHomeFocus(t);t.setPadding(dp(6),0,dp(6),0);t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
- void release(){detachStreamListeners();activeLiveRange="";epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
+ void release(){detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
@@ -931,7 +929,7 @@ public class MainActivity extends Activity {
  }
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath){
   long started=android.os.SystemClock.elapsedRealtime();
-  if(attempt==0&&position==0&&tryReuseLive(host,i,fullscreen,sdrPath,started))return;
+  // Recreate the player for each new channel. 5.0.49/50 reuse did not pass the first-frame regression test.
   release();
   final boolean stock=defaultLiveEngine();
   if(stock){WindowManager.LayoutParams attrs=getWindow().getAttributes();if(attrs.preferredDisplayModeId!=0||attrs.preferredRefreshRate!=0f){attrs.preferredDisplayModeId=0;attrs.preferredRefreshRate=0f;getWindow().setAttributes(attrs);}}
@@ -976,7 +974,11 @@ public class MainActivity extends Activity {
   }
   // Keep the stock engine a genuine comparison/fallback. Only the custom live path starts sooner.
   final boolean fast=!stock&&page.equals("Live TV");
+  final PlaybackProbe probe=new PlaybackProbe(started,fast);playbackProbe=probe;
+  DefaultDataSource.Factory source=stock?new DefaultDataSource.Factory(this):new DefaultDataSource.Factory(this,new OkHttpDataSource.Factory(STREAM_HTTP));
+  source.setTransferListener(probe);
   ExoPlayer.Builder builder=stock?new ExoPlayer.Builder(this):new ExoPlayer.Builder(this,factory);
+  builder.setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(source));
   if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,750,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
   ExoPlayer p=builder.build();
   if(!stock&&gpu)p.setVideoEffects(Collections.singletonList(new androidx.media3.effect.ScaleAndRotateTransformation.Builder().build()));
@@ -987,28 +989,16 @@ public class MainActivity extends Activity {
    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles_on",true)).build());
   if(!stock)p.setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
   if(!fullscreen)p.setVolume(0);
-  activeLiveRange=range;activeLiveAttempt=attempt;
-  startStream(p,v,host,i,fullscreen,attempt,position,cachedFirst,sdrPath,started,false);
+  startStream(p,v,host,i,fullscreen,attempt,position,cachedFirst,sdrPath,started,probe);
  }
  void detachStreamListeners(){if(player!=null){if(streamListener!=null)player.removeListener(streamListener);if(streamAnalytics!=null)player.removeAnalyticsListener(streamAnalytics);}streamListener=null;streamAnalytics=null;}
- boolean tryReuseLive(FrameLayout host,Item i,boolean fullscreen,int sdrPath,long started){
-  if(defaultLiveEngine()||!page.equals("Live TV")||player==null||video==null||player.getPlayerError()!=null||player.getPlaybackState()!=Player.STATE_READY||activeLiveAttempt!=0||activeSdrPath!=sdrPath||!activeLiveRange.equals(rangeFor(true))||activeStreamId.equals(i.id))return false;
-  if(fullscreen){if(!full||host!=liveSurfaceHost||liveSurfaceHost==null)return false;}else if(full||host!=preview||liveSurfaceHost==null)return false;
-  ExoPlayer p=player;PlayerView v=video;detachStreamListeners();removeRangeButton();
-  // No second player, no parallel stream. Reset per-channel metadata and track overrides.
-  startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;playbackDiagnostics="Waiting for first video frame";playbackItem=i;activeStreamId=i.id;
-  p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().clearOverrides().build());
-  android.util.Log.i("SharkPlayback","Live player reused");startStream(p,v,host,i,fullscreen,0,0,false,sdrPath,started,true);return true;
- }
- void startStream(ExoPlayer p,PlayerView v,FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath,long started,boolean reused){
+ void startStream(ExoPlayer p,PlayerView v,FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath,long started,PlaybackProbe probe){
   final boolean stock=defaultLiveEngine(),fast=!stock&&page.equals("Live TV"),gpu=sdrPath==0;
   final String range=rangeFor(page.equals("Live TV"));
   final boolean vod=fullscreen&&!page.equals("Live TV");final int token=screenToken;
-  clearRefreshMatch(false);final PlaybackProbe probe=new PlaybackProbe(started,fast);playbackProbe=probe;
+  clearRefreshMatch(false);
   if(fast)epgQuietUntil=started+1500;
   FrameRateSample sample=new FrameRateSample();frameRateSample=sample;p.setVideoFrameMetadataListener((pts,releaseNs,format,mediaFormat)->sample.accept(pts));
-  DefaultDataSource.Factory source=stock?new DefaultDataSource.Factory(this):new DefaultDataSource.Factory(this,new OkHttpDataSource.Factory(STREAM_HTTP));
-  source.setTransferListener(probe);
   final String mediaId="stream-"+started+"-"+i.id;
   streamAnalytics=new AnalyticsListener(){
    boolean current(AnalyticsListener.EventTime time){return player==p&&playbackProbe==probe&&time.windowIndex>=0&&time.windowIndex<time.timeline.getWindowCount()&&mediaId.equals(time.timeline.getWindow(time.windowIndex,new Timeline.Window()).mediaItem.mediaId);}
@@ -1058,7 +1048,7 @@ public class MainActivity extends Activity {
    @Override public void onPlaybackStateChanged(int state){if(player!=p||playbackProbe!=probe)return;if(state==Player.STATE_READY&&startupReadyMs<0)startupReadyMs=SystemClock.elapsedRealtime()-startupBeginMs;if(state==Player.STATE_BUFFERING&&firstFrame&&p.getPlayWhenReady()&&!vod&&probe.stallStart<0){probe.rebuffers++;probe.stallStart=SystemClock.elapsedRealtime();}else if(state!=Player.STATE_BUFFERING)probe.closeStall();}
    @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready)probe.closeStall();}
    @Override public void onRenderedFirstFrame(){
-    if(player!=p||playbackProbe!=probe||recovering||(reused&&(probe.firstByte.get()<0||p.getPlaybackState()!=Player.STATE_READY)))return;
+    if(player!=p||playbackProbe!=probe||recovering)return;
     firstFrame=true;if(startupFirstMs<0){startupFirstMs=SystemClock.elapsedRealtime()-startupBeginMs;android.util.Log.i("SharkPlayback","startup profile="+(fast?"fast-live":"stock-buffer")+" firstFrameMs="+startupFirstMs+" firstByteMs="+probe.firstByte.get()+" decoderMs="+startupDecoderMs);if(!stock&&full&&autoRefresh())scheduleRefreshMatch(p,sample,0);}ui.removeCallbacks(watch);
     if(!stock&&vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
@@ -1103,7 +1093,7 @@ public class MainActivity extends Activity {
    }
   }
   RecoveryListener listener=new RecoveryListener();streamListener=listener;p.addListener(listener);
-  p.setMediaSource(new DefaultMediaSourceFactory(this).setDataSourceFactory(source).createMediaSource(m.build()));if(vod&&position>0)p.seekTo(position);if(!stock)p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();if(fullscreen)addRangeButton(host,i,v);
+  p.setMediaItem(m.build());if(vod&&position>0)p.seekTo(position);if(!stock)p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();if(fullscreen)addRangeButton(host,i,v);
  }
  void attachNative(FrameLayout host,Item i,long position){
   release();host.removeAllViews();
@@ -1261,7 +1251,6 @@ public class MainActivity extends Activity {
  void playFull(Item i){
   if(!full&&(page.equals("Movies")||page.equals("Series")))rememberCataloguePosition();
   if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
-  if(full&&page.equals("Live TV")&&liveSurfaceHost!=null&&tryReuseLive(liveSurfaceHost,i,true,activeSdrPath,SystemClock.elapsedRealtime()))return;
   release();screenToken++;loadToken++;epgToken++;full=true;status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null&&premiumPlayer==null)video.requestFocus();
  }
  void positionLiveSurface(){

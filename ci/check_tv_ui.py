@@ -171,13 +171,13 @@ def benchmark_live(profile):
         deadline=time.monotonic()+35
         while time.monotonic()<deadline:
             log=adb("logcat","-d","-s","SharkPlayback:I")
-            match=re.search(r"startup profile="+profile+r" firstFrameMs=(\d+) firstByteMs=(\d+) decoderMs=(-?\d+)",log)
+            match=re.search(r"startup profile="+profile+r" firstFrameMs=(\d+) firstByteMs=(\d+) decoderMs=(\d+)",log)
             if match: break
             time.sleep(.5)
         else: raise AssertionError("Live first frame missing: "+profile+" / "+str(n)+"\n"+log[-3000:])
         frame,first_byte,decoder=map(int,match.groups())
-        assert 0<=first_byte<=frame and -1<=decoder<=frame,(profile,n,match.groups())
-        if profile=="fast-live" and n>1: assert "Live player reused" in log,("Player was recreated",n,log[-2000:])
+        assert 0<=first_byte<=frame and 0<=decoder<=frame,(profile,n,match.groups())
+        assert "Live player reused" not in log,("Failed cross-channel reuse unexpectedly enabled",n)
         results.append({"channel":n,"first_frame_ms":frame,"first_network_byte_ms":first_byte,"decoder_ready_ms":decoder})
     capture("live-playing-"+profile)
     print("PASS: five actual live TS first frames",profile,results,"median_ms",statistics.median([x["first_frame_ms"] for x in results]),flush=True)
@@ -522,6 +522,18 @@ try:
         expect("Test channel 001")
         custom_results=benchmark_live("fast-live")
         Path("live-startup-benchmark.json").write_text(json.dumps({"stock":stock_results,"fast":custom_results},indent=2))
+        adb("logcat","-c")
+        tap(expect("Full screen"))
+        deadline=time.monotonic()+25
+        while time.monotonic()<deadline:
+            refresh_log=adb("logcat","-d","-s","SharkDisplay:I","SharkPlayback:I")
+            if "Auto FPS request:" in refresh_log: break
+            time.sleep(.5)
+        else: raise AssertionError("Fullscreen custom live did not request FPS matching\n"+refresh_log[-3000:])
+        assert "Live fullscreen: same player and surface resized" in refresh_log,refresh_log[-3000:]
+        print("PASS: actual custom live fullscreen automatic FPS request",flush=True)
+        adb("shell","input","keyevent","4")
+        expect("Test channel 005")
         adb("shell","input","keyevent","4")
         expect("SHARK SKY")
         tap(expect("Settings"))
