@@ -592,24 +592,38 @@ try:
         if "Native first frame" in logs and "overlay hidden" in logs: break
         time.sleep(.5)
     else: raise AssertionError("Native fallback did not render/hide overlay: "+logs[-3000:])
+    def native_events():
+        return adb("logcat","-d","-s","SharkPlayerUI:I","SharkPlayback:I","SharkDisplay:I")
+    def wait_native_event(message, before=0, timeout=15):
+        deadline=time.monotonic()+timeout
+        while time.monotonic()<deadline:
+            if native_events().count(message)>before: return
+            time.sleep(.15)
+        raise AssertionError("Missing native event: "+message+"\n"+native_events()[-12000:])
     expect("Show playback controls")
+    before=native_events().count("overlay shown")
     adb("shell","input","dpad","keyevent","23")
-    expect("Pause")
+    wait_native_event("overlay shown",before)
+    # Avoid a slow UIAutomator hierarchy dump during the six-second auto-hide interval.
+    # Verify the actual native pause event, not just the changing accessibility label.
+    before=native_events().count("native playWhenReady=false")
     adb("shell","input","dpad","keyevent","23")
-    expect("Play")
+    wait_native_event("native playWhenReady=false",before)
+    play_control=expect("Play")
+    assert play_control.get("focused")=="true","Native Play must retain remote focus"
+    root=ui()
     for label in ("Sky","Play","Audio","Subtitles","Aspect","Picture","Info","Playback progress"):
-        expect(label)
+        assert find(root,label) is not None,("Missing native control",label)
     capture("native-player")
     tap(expect("Info"))
     expect("Close")
-    assert "Android native fallback" in " ".join(n.get("text","") for n in ui().iter("node"))
+    details=" ".join(n.get("text","") for n in ui().iter("node"))
+    assert "Android native fallback" in details,details
+    assert "Movies / Series 60 Hz preference" in details,details
     tap(expect("Close"))
+    before=native_events().count("native playWhenReady=true")
     tap(expect("Play"))
-    deadline=time.monotonic()+15
-    while time.monotonic()<deadline:
-        if "native playWhenReady=true" in adb("logcat","-d","-s","SharkPlayerUI:I"): break
-        time.sleep(.25)
-    else: raise AssertionError("Native premium resume failed")
+    wait_native_event("native playWhenReady=true",before)
     print("PASS: native fallback first frame, identical premium overlay, remote pause, Info and resume",flush=True)
 except Exception:
     try:

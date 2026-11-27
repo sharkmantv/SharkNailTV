@@ -998,7 +998,7 @@ public class MainActivity extends Activity {
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
    .setPreferredTextLanguage(prefs.getString("text_lang",null))
    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles_on",true)).build());
-  if(!stock)p.setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
+  if(!stock||movieDisplayPolicy())p.setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
   if(!fullscreen)p.setVolume(0);
   startStream(p,v,host,i,fullscreen,attempt,position,cachedFirst,sdrPath,started,probe);
  }
@@ -1109,7 +1109,7 @@ public class MainActivity extends Activity {
  }
  void attachNative(FrameLayout host,Item i,long position){
   release();applyDisplayMode();host.removeAllViews();
-  VideoView n=new VideoView(this){@Override protected void onMeasure(int ws,int hs){int mode=prefs.getInt("resize_mode",0),w=View.MeasureSpec.getSize(ws),h=View.MeasureSpec.getSize(hs);android.media.MediaPlayer media=nativeMedia;if(mode==3&&w>0&&h>0){setMeasuredDimension(w,h);return;}if(mode==4&&media!=null&&w>0&&h>0&&media.getVideoWidth()>0&&media.getVideoHeight()>0){float scale=Math.max(w/(float)media.getVideoWidth(),h/(float)media.getVideoHeight());setMeasuredDimension(Math.round(media.getVideoWidth()*scale),Math.round(media.getVideoHeight()*scale));return;}super.onMeasure(ws,hs);}};nativeVideo=n;playbackItem=i;playbackDiagnostics="Android native player fallback · source picture output";
+  VideoView n=new VideoView(this){@Override protected void onMeasure(int ws,int hs){int mode=prefs.getInt("resize_mode",0),w=View.MeasureSpec.getSize(ws),h=View.MeasureSpec.getSize(hs);android.media.MediaPlayer media=nativeMedia;if(mode==3&&w>0&&h>0){setMeasuredDimension(w,h);return;}if(mode==4&&media!=null&&w>0&&h>0&&media.getVideoWidth()>0&&media.getVideoHeight()>0){float scale=Math.max(w/(float)media.getVideoWidth(),h/(float)media.getVideoHeight());setMeasuredDimension(Math.round(media.getVideoWidth()*scale),Math.round(media.getVideoHeight()*scale));return;}super.onMeasure(ws,hs);}};nativeVideo=n;n.setFocusable(false);n.setFocusableInTouchMode(false);n.setClickable(false);n.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);playbackItem=i;playbackDiagnostics="Android native player fallback · source picture output";
   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER);host.addView(n,lp);
   // The native engine uses the same premium overlay; never attach a stock MediaController.
   host.setClipChildren(true);
@@ -1120,7 +1120,7 @@ public class MainActivity extends Activity {
     if(n.isPlaying()&&n.getCurrentPosition()>position+2000){if(++checks>=7){playbackDiagnostics="Native player: audio playing, video not confirmed";msg("Video unavailable on this decoder. Try a compatible 4K version.");return;}}
     else checks=0;ui.postDelayed(this,1000);}};ui.postDelayed(nativeWatch,1000);
   });
-  n.setOnCompletionListener(mp->{if(nativeVideo==n&&premiumPlayer!=null)premiumPlayer.nativeEnded();});
+  n.setOnCompletionListener(mp->{if(nativeVideo==n&&premiumPlayer!=null){android.util.Log.i("SharkPlayerUI","native playback completed");premiumPlayer.nativeEnded();if(!stopped)premiumPlayer.show();}});
   n.setOnErrorListener((mp,what,extra)->{if(nativeVideo==n){nativeMedia=null;if(premiumPlayer!=null)premiumPlayer.nativeEnded();android.util.Log.w("SharkPlayback","Android native error="+what+"/"+extra);msg("Playback failed on both players ("+what+"/"+extra+")");}return true;});
   n.setVideoURI(Uri.parse(stream(i)));n.start();addRangeButton(host,i,null);
  }
