@@ -93,6 +93,26 @@ assert im.crop((0,Yr(520),im.width,im.height)).tobytes()==original_floor
 for x,y in ((90,35),(310,40),(800,110),(1200,65)):
     r,g,b,_=im.getpixel((Xr(x),Yr(y)))
     assert 8<=r<=14 and 8<=g<=14 and 57<=b<=90,(x,y,r,g,b)
+# The feathered silhouette mask can leave original cyan pixels at the extreme
+# top-right canvas boundary. This rectangle is entirely above/right of the
+# fourth shark silhouette. Restore only the background there, with a soft
+# transition at its inner and lower boundaries, not at the display edge.
+corner=(Xr(1590),0,w,Yr(175))
+before_corner=im.copy()
+corner_mask=Image.new("L",(corner[2]-corner[0],corner[3]))
+cm=corner_mask.load()
+for cy in range(corner_mask.height):
+    for cx in range(corner_mask.width):
+        wx=min(1,cx/max(1,Xr(8)))
+        wy=min(1,(corner_mask.height-1-cy)/max(1,Yr(15)))
+        cm[cx,cy]=round(255*wx*wy)
+im.paste(gradient.crop(corner),corner[:2],corner_mask)
+assert im.crop((0,0,corner[0],h)).tobytes()==before_corner.crop((0,0,corner[0],h)).tobytes()
+assert im.crop((0,corner[3],w,h)).tobytes()==before_corner.crop((0,corner[3],w,h)).tobytes()
+# Check the actual outer display pixels, not just interior sky sample points.
+assert im.crop((w-Xr(12),0,w,Yr(155))).tobytes()==gradient.crop((w-Xr(12),0,w,Yr(155))).tobytes()
+print("PASS: top-right display-edge cyan sliver removed; all pixels outside corner preserved")
+del before_corner,corner_mask
 del mask,gradient,original_floor
 print("PASS: Sky navy-indigo background replaces old top bars and blue streaks")
 lg=Image.open(logo)
