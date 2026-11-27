@@ -62,13 +62,13 @@ final class PremiumPlayerOverlay extends FrameLayout {
   total=a.text("00:00",compact?12:15);total.setGravity(Gravity.CENTER);total.setTextColor(WHITE);timeline.addView(total,new LinearLayout.LayoutParams(d(compact?60:76),-1));
   progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){scrubbing=true;removeCallbacks(timeout);}public void onStopTrackingTouch(SeekBar s){seek(s.getProgress());scrubbing=false;arm();}public void onProgressChanged(SeekBar s,int v,boolean user){if(user){if(!scrubbing)seek(v);else if(duration()>0)elapsed.setText(time((long)(duration()*(v/10000d))));if(!scrubbing)arm();}}});
   dock.addView(timeline,new LinearLayout.LayoutParams(-1,0,.17f));
-  LinearLayout transport=a.row();transportBar=transport;transport.setGravity(Gravity.CENTER);transport.setClipChildren(false);transport.setClipToPadding(false);transport.setBackground(artwork(R.drawable.design4_player_dock));transport.setForeground(new BlueLaser());
+  LinearLayout transport=a.row();transportBar=transport;transport.setGravity(Gravity.CENTER);transport.setClipChildren(false);transport.setClipToPadding(false);transport.setBackground(artwork(R.drawable.design4_player_dock));transport.setForeground(new BlueLaser(0));
   LinearLayout.LayoutParams transportLp=new LinearLayout.LayoutParams(-1,0,.50f);dock.addView(transport,transportLp);
   Control prev=button(transport,0,"Previous",()->adjacent(-1));Control rew=button(transport,1,"Rewind",()->{if(canSkip(true))skip(true);});
   play=button(transport,2,"Play or pause",()->{if(playing())pauseEngine();else playEngine();refresh();});
   Control ff=button(transport,3,"Forward",()->{if(canSkip(false))skip(false);});Control next=button(transport,4,"Next",()->adjacent(1));
   transportKeys=new Control[]{prev,rew,play,ff,next};View[] keys=transportKeys;link(keys);
-  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(artwork(R.drawable.design4_player_options));opts.setForeground(new BlueSurround());dock.addView(opts,1,new LinearLayout.LayoutParams(-1,0,.33f));
+  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(artwork(R.drawable.design4_player_options));opts.setForeground(new BlueLaser(1400));dock.addView(opts,1,new LinearLayout.LayoutParams(-1,0,.33f));
   java.util.ArrayList<View> actionList=new java.util.ArrayList<>();
   actionList.add(option(opts,"Audio",()->new AlertDialog.Builder(a).setTitle("Audio").setItems(new String[]{"Audio tracks","Volume"},(dialog,i)->{if(i==0)a.chooseTrack(C.TRACK_TYPE_AUDIO);else volume();}).setNegativeButton("Cancel",null).show()));
   actionList.add(option(opts,"Subtitles",()->a.chooseTrack(C.TRACK_TYPE_TEXT)));
@@ -318,17 +318,6 @@ final class PremiumPlayerOverlay extends FrameLayout {
    ink.setTypeface(gold);ink.setShader(new LinearGradient(0,y-size*.78f,0,y+size*.10f,new int[]{0xfffff1bd,0xffffd16b,0xffd59125},null,Shader.TileMode.CLAMP));c.drawText("SHARK",x+sw+gap,y,ink);ink.setShader(null);
   }
  }
- final class BlueSurround extends Drawable {
-  final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
-  @Override public void draw(Canvas c){
-   Rect b=getBounds();if(b.isEmpty())return;float h=b.height(),pad=h*.045f,rad=h*.13f;
-   RectF r=new RectF(b.left+pad,b.top+pad,b.right-pad,b.bottom-pad);
-   ink.setStyle(Paint.Style.STROKE);ink.setShader(null);
-   for(int i=5;i>=1;i--){ink.setStrokeWidth(Math.max(1,h*.022f*i));ink.setColor(Color.argb(12,0,121,255));c.drawRoundRect(r,rad,rad,ink);}
-   ink.setStrokeWidth(Math.max(1,h*.028f));ink.setShader(new LinearGradient(0,r.top,0,r.bottom,new int[]{0xff91eaff,0xff247eea,0xff47bfff},null,Shader.TileMode.CLAMP));c.drawRoundRect(r,rad,rad,ink);ink.setShader(null);
-  }
-  @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
- }
  final class Control extends View {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);final int type;
   Control(int t){super(PremiumPlayerOverlay.this.a);type=t;}
@@ -364,18 +353,39 @@ final class PremiumPlayerOverlay extends FrameLayout {
   @Override public boolean setVisible(boolean v,boolean restart){if(!v)unscheduleSelf(tick);return super.setVisible(v,restart);}
   @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
  }
+ // Native-resolution perimeter lighting; no bitmap or layout changes.
  final class BlueLaser extends Drawable {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
+  final Path perimeter=new Path(),trail=new Path(),core=new Path();
+  final PathMeasure measure=new PathMeasure();
   final Runnable tick=()->invalidateSelf();
+  final long offset;
+  float height,length;
+  BlueLaser(long offset){this.offset=offset;}
+  @Override protected void onBoundsChange(Rect b){
+   perimeter.reset();height=b.height();float pad=Math.max(2f,height*.075f),rad=height*.12f;
+   if(b.width()<=2*pad||height<=2*pad){length=0;return;}
+   perimeter.addRoundRect(new RectF(b.left+pad,b.top+pad,b.right-pad,b.bottom-pad),rad,rad,Path.Direction.CW);
+   measure.setPath(perimeter,true);length=measure.getLength();
+  }
+  void segment(Path dst,float head,float span){
+   dst.reset();float from=head-span;
+   if(from<0){measure.getSegment(length+from,length,dst,true);measure.getSegment(0,head,dst,true);}
+   else measure.getSegment(from,head,dst,true);
+  }
   @Override public void draw(Canvas c){
-   Rect b=getBounds();if(b.isEmpty()||!PremiumPlayerOverlay.this.isShown())return;
-   float w=b.width(),h=b.height(),y=b.bottom-h*.038f;
-   float x=b.left+w*((SystemClock.uptimeMillis()%2600L)/2600f),span=w*.19f;
-   c.save();c.clipRect(b.left+h*.15f,b.top,b.right-h*.15f,b.bottom);
-   pen.setShader(null);pen.setColor(0xff177fdb);pen.setStrokeWidth(Math.max(1,h*.012f));c.drawLine(b.left,y,b.right,y,pen);
-   pen.setShader(new LinearGradient(x-span,y,x+span,y,new int[]{0x0018bfff,0xffa6f4ff,0x0018bfff},null,Shader.TileMode.CLAMP));
-   pen.setStrokeWidth(Math.max(2,h*.033f));c.drawLine(b.left,y,b.right,y,pen);pen.setShader(null);c.restore();
-   if(isVisible()&&!disposed){unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+33);}
+   if(length<=0||disposed||!PremiumPlayerOverlay.this.isShown())return;
+   pen.setStyle(Paint.Style.STROKE);pen.setStrokeCap(Paint.Cap.ROUND);pen.setStrokeJoin(Paint.Join.ROUND);
+   pen.setStrokeWidth(Math.max(1f,height*.075f));pen.setColor(0x321080ff);c.drawPath(perimeter,pen);
+   pen.setStrokeWidth(Math.max(1f,height*.022f));pen.setColor(0xff228cfa);c.drawPath(perimeter,pen);
+   boolean animate=FlamePulse.animates();
+   float head=length*(animate?((SystemClock.uptimeMillis()+offset)%4200L)/4200f:.65f);
+   segment(trail,head,length*.14f);
+   pen.setStrokeWidth(Math.max(3f,height*.12f));pen.setColor(0x60128dff);c.drawPath(trail,pen);
+   pen.setStrokeWidth(Math.max(2f,height*.061f));pen.setColor(0xc529baff);c.drawPath(trail,pen);
+   segment(core,head,length*.075f);
+   pen.setStrokeWidth(Math.max(1.5f,height*.027f));pen.setColor(0xffbcf6ff);c.drawPath(core,pen);
+   if(animate&&isVisible()){unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+40);}
   }
   @Override public boolean setVisible(boolean v,boolean restart){if(!v)unscheduleSelf(tick);return super.setVisible(v,restart);}
   @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
