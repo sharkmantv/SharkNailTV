@@ -88,8 +88,15 @@ class Fixture(BaseHTTPRequestHandler):
 def adb(*args):
     return subprocess.check_output(["adb", *map(str,args)], text=True)
 def ui():
-    adb("shell", "uiautomator", "dump", "/sdcard/shark-test.xml")
-    return ET.fromstring(adb("shell", "cat", "/sdcard/shark-test.xml"))
+    # Never reuse an old hierarchy when Android's idle-state check fails.
+    for attempt in range(3):
+        adb("shell","rm","-f","/sdcard/shark-test.xml")
+        result=subprocess.run(["adb","shell","uiautomator","dump","/sdcard/shark-test.xml"],capture_output=True,text=True)
+        if result.returncode==0 and "dumped to" in result.stdout:
+            return ET.fromstring(adb("shell","cat","/sdcard/shark-test.xml"))
+        print("UI hierarchy unavailable:",result.stdout.strip(),result.stderr.strip(),flush=True)
+        time.sleep(.3)
+    raise AssertionError("Android UIAutomator could not capture a fresh hierarchy")
 def bounds(node):
     return tuple(map(int, re.findall(r"\d+", node.get("bounds",""))))
 def tap(node):
@@ -606,9 +613,9 @@ try:
     wait_native_event("overlay shown",before)
     # Avoid a slow UIAutomator hierarchy dump during the six-second auto-hide interval.
     # Verify the actual native pause event, not just the changing accessibility label.
-    before=native_events().count("native playWhenReady=false")
+    before=native_events().count("native playWhenReady=false; actualPlaying=false")
     adb("shell","input","dpad","keyevent","23")
-    wait_native_event("native playWhenReady=false",before)
+    wait_native_event("native playWhenReady=false; actualPlaying=false",before)
     play_control=expect("Play")
     assert play_control.get("focused")=="true","Native Play must retain remote focus"
     root=ui()
@@ -626,6 +633,7 @@ try:
     wait_native_event("native playWhenReady=true",before)
     print("PASS: native fallback first frame, identical premium overlay, remote pause, Info and resume",flush=True)
 except Exception:
+    print(adb("logcat","-d","-s","SharkPlayerUI:I","SharkPlayback:I","SharkDisplay:I")[-16000:],flush=True)
     try:
         with open(f"failed-ui-{args.resolution}.xml","w") as out:
             out.write(ET.tostring(ui(),encoding="unicode"))
