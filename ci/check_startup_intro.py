@@ -1,7 +1,7 @@
 import subprocess,time
 deadline=time.monotonic()+35
 while time.monotonic()<deadline:
- log=subprocess.check_output(['adb','logcat','-d','-s','SharkIntro:I'],text=True)
+ log=subprocess.check_output(['adb','logcat','-d','-s','SharkIntro:I'],text=True,timeout=15)
  if 'home revealed: completed' in log:
   assert 'prepared ' in log and 'started ' in log,log
   print('PASS: cinematic intro played and completed into prepared home')

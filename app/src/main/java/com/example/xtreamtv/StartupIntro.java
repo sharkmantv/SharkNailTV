@@ -38,10 +38,13 @@ final class StartupIntro {
  private int resource(String name){
   return activity.getResources().getIdentifier(name,"raw",activity.getPackageName());
  }
- private boolean canDecodeUhd(){
+ private boolean isEmulator(){
   String hardware=android.os.Build.HARDWARE.toLowerCase(java.util.Locale.ROOT);
   String fingerprint=android.os.Build.FINGERPRINT.toLowerCase(java.util.Locale.ROOT);
-  if(hardware.contains("ranchu")||hardware.contains("goldfish")||fingerprint.contains("generic")||android.os.Build.MODEL.contains("sdk_gphone"))return false;
+  return hardware.contains("ranchu")||hardware.contains("goldfish")||fingerprint.contains("generic")||android.os.Build.MODEL.contains("sdk_gphone");
+ }
+ private boolean canDecodeUhd(){
+  if(isEmulator())return false;
   android.view.Display.Mode mode=activity.getWindowManager().getDefaultDisplay().getMode();
   if(Math.max(mode.getPhysicalWidth(),mode.getPhysicalHeight())<3840||Math.min(mode.getPhysicalWidth(),mode.getPhysicalHeight())<2160)return false;
   try{
@@ -71,7 +74,8 @@ final class StartupIntro {
   overlay.setOnClickListener(v->stop("skipped"));
   content.addView(overlay,new FrameLayout.LayoutParams(-1,-1));overlay.requestFocus();
   triedFallback=uhd==0||!canDecodeUhd();
-  play(triedFallback?fallback:uhd);
+  int software=isEmulator()?resource("shark_intro_software"):0;
+  play(software!=0?software:(triedFallback?fallback:uhd));
  }
  private void play(int id){
   if(overlay==null)return;
@@ -95,7 +99,7 @@ final class StartupIntro {
   });
   current.setVideoURI(Uri.parse("android.resource://"+activity.getPackageName()+"/"+id));
   current.start();
-  Log.i("SharkIntro","started "+(triedFallback?"HD":"UHD"));
+  Log.i("SharkIntro","started "+(id==resource("shark_intro_software")?"emulator software":(triedFallback?"HD":"UHD")));
  }
  boolean handleKey(KeyEvent e){
   int key=e.getKeyCode();
