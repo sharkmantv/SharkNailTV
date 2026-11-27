@@ -17,6 +17,12 @@ import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.TransferListener;
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
+import okhttp3.OkHttpClient;
+import okhttp3.ConnectionPool;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 import java.util.concurrent.atomic.AtomicLong;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
@@ -64,6 +70,14 @@ public class MainActivity extends Activity {
  long startupBeginMs, startupFirstMs=-1, startupLoadMs=-1, startupDecoderMs=-1, startupDecoderCostMs=-1, startupReadyMs=-1; int droppedVideoFrames;
  FrameRateSample frameRateSample;
  PlaybackProbe playbackProbe;
+ Player.Listener streamListener;
+ AnalyticsListener streamAnalytics;
+ String activeLiveRange="";
+ int activeLiveAttempt;
+ long epgQuietUntil;
+ static final OkHttpClient API_HTTP=new OkHttpClient.Builder().connectionPool(new ConnectionPool(5,3,TimeUnit.MINUTES)).connectTimeout(10,TimeUnit.SECONDS).readTimeout(25,TimeUnit.SECONDS).followSslRedirects(false).build();
+ static final OkHttpClient GUIDE_HTTP=API_HTTP.newBuilder().connectTimeout(5,TimeUnit.SECONDS).readTimeout(8,TimeUnit.SECONDS).build();
+ static final OkHttpClient STREAM_HTTP=API_HTTP.newBuilder().connectTimeout(8,TimeUnit.SECONDS).readTimeout(15,TimeUnit.SECONDS).build();
  Runnable matchTask;
  boolean matchedWindow;
  static final class PlaybackProbe implements TransferListener {
@@ -195,7 +209,7 @@ public class MainActivity extends Activity {
   @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
  }
  void premiumHomeFocus(View tile){tile.setForeground(new PulseFrame(false,dp(5)));}
- Drawable previewPulse(){return new PulseFrame(true,dp(4));}
+ Drawable previewPulse(){return new PulseFrame(true,dp(5));}
  StateListDrawable posterFocus(){StateListDrawable d=new StateListDrawable();d.addState(new int[]{android.R.attr.state_focused},bg(0xff223c60,0xff142642,0xff397eb9,2));d.addState(new int[]{},bg(0xff111d34,0xff0b1428,0xff397eb9,2));return d;}
  Drawable screenBackground(){return new PremiumVisuals.Backdrop(false);}
  void styleInput(EditText e){e.setTypeface(uiRegular);e.setTextColor(UI_TEXT);e.setHintTextColor(UI_SECONDARY);e.setTextSize(16);}
@@ -203,7 +217,7 @@ public class MainActivity extends Activity {
  LinearLayout row(){return new LinearLayout(this);} LinearLayout col(){LinearLayout l=row();l.setOrientation(1);return l;}
  void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());premiumHomeFocus(t);t.setPadding(dp(6),0,dp(6),0);t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
- void release(){if(matchTask!=null){ui.removeCallbacks(matchTask);matchTask=null;}if(matchedWindow){matchedWindow=false;applyDisplayMode();}playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
+ void release(){detachStreamListeners();activeLiveRange="";epgQuietUntil=0;if(matchTask!=null){ui.removeCallbacks(matchTask);matchTask=null;}if(matchedWindow){matchedWindow=false;applyDisplayMode();}playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
@@ -247,7 +261,21 @@ public class MainActivity extends Activity {
  }
  void msg(String s){if(status!=null)status.setText(s);else Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
  static String enc(String s){try{return URLEncoder.encode(s,"UTF-8").replace("+","%20");}catch(Exception e){throw new IllegalArgumentException(e);}}
- static String get(String u)throws Exception{HttpURLConnection c=(HttpURLConnection)new URL(u).openConnection();c.setConnectTimeout(10000);c.setReadTimeout(25000);c.setRequestProperty("User-Agent","SharkSky/5.0");try{if(c.getResponseCode()!=200)throw new IOException("HTTP");try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(out.size()+n>48*1024*1024)throw new IOException("Response too large");out.write(buf,0,n);}return out.toString("UTF-8");}}finally{c.disconnect();}}
+ static String readProvider(OkHttpClient client,String url,String userAgent,int limit)throws Exception{
+  if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Request cancelled");
+  Request request=new Request.Builder().url(url).header("User-Agent",userAgent).build();
+  try(Response response=client.newCall(request).execute()){
+   if(!response.isSuccessful())throw new IOException("Provider HTTP error");
+   ResponseBody body=response.body();if(body==null)throw new IOException("Empty response");
+   if(body.contentLength()>limit)throw new IOException("Response too large");
+   try(InputStream in=body.byteStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+    byte[] buf=new byte[16384];int n;
+    while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Request cancelled");if(out.size()+n>limit)throw new IOException("Response too large");out.write(buf,0,n);}
+    return out.toString("UTF-8");
+   }
+  }
+ }
+ String get(String u)throws Exception{return readProvider(API_HTTP,u,"SharkSky/5.0",48*1024*1024);}
  String api(String action,String args){return server+"/player_api.php?username="+enc(user)+"&password="+enc(pass)+(action.isEmpty()?"":"&action="+action)+args;}
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);styleInput(e);body.addView(e);return e;}
@@ -639,7 +667,7 @@ public class MainActivity extends Activity {
  void loadCats(){String k=prefix(),url=api("get_"+k+"_categories","");int req=++loadToken;msg("Loading categories…");catalogueTask("cats:"+k,CATEGORY_TTL,false,req,()->parse(new JSONArray(get(url)),"category_id","category_name"),a->{cats=new ArrayList<>();cats.add(new Item("","All",""));if(page.equals("Live TV"))cats.add(new Item("@fav","Favourites",""));cats.addAll(a);catAdapter();focusAt(left,0);loadItems();});}
  void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(right!=null){items=new ArrayList<>();setItemsAdapter(items,this::pick);}msg("Loading "+page+"…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
  void search(){EditText e=new EditText(this);e.setSingleLine();styleInput(e);new AlertDialog.Builder(this).setTitle("Search current list").setView(e).setPositiveButton("Search",(d,w)->{String q=e.getText().toString().toLowerCase(Locale.ROOT);List<Item>a=new ArrayList<>();for(Item i:items)if(i.name.toLowerCase(Locale.ROOT).contains(q))a.add(i);setItemsAdapter(a,(i,p)->pick(i,items.indexOf(i)));focusAt(right,0);}).setNegativeButton("Cancel",null).show();}
- void pick(Item i,int p){itemPos=p;if(page.equals("Live TV")){if(selected!=null&&selected.id.equals(i.id)&&player!=null){playFull(i);return;}selected=i;attach(preview,i,false);loadEpg(i);return;}if(page.equals("Series")&&seriesId.isEmpty()){episodes(i);return;}playFull(i);}
+ void pick(Item i,int p){itemPos=p;if(page.equals("Live TV")){if(selected!=null&&selected.id.equals(i.id)&&player!=null&&player.getPlayerError()==null){playFull(i);return;}selected=i;attach(preview,i,false);loadEpg(i);return;}if(page.equals("Series")&&seriesId.isEmpty()){episodes(i);return;}playFull(i);}
  void episodes(Item s){msg("Loading episodes…");int req=++loadToken;String url=api("get_series_info","&series_id="+enc(s.id));catalogueTask("episodes:"+s.id,STREAM_TTL,false,req,()->{JSONObject j=new JSONObject(get(url)).optJSONObject("episodes");List<Item>a=new ArrayList<>();if(j!=null){List<String> keys=new ArrayList<>();j.keys().forEachRemaining(keys::add);Collections.sort(keys);for(String k:keys){JSONArray e=j.optJSONArray(k);if(e!=null)for(int n=0;n<e.length();n++){JSONObject o=e.optJSONObject(n);if(o!=null&&!o.optString("id").isEmpty())a.add(new Item(o.optString("id"),"S"+k+" E"+o.optString("episode_num")+" · "+o.optString("title"),o.optString("container_extension","mp4")));}}}return a;},a->{if(req!=loadToken)return;seriesId=s.id;items=a;setItemsAdapter(items,this::pick);msg(s.name);focusAt(right,0);});}
  static String epgText(String value){
   if(value==null||value.isEmpty()||value.equals("null"))return "";
@@ -683,13 +711,7 @@ public class MainActivity extends Activity {
  static String guideTimes(Programme p){return formatGuideTime(p.start,p.rawStart)+" – "+formatGuideTime(p.end,p.rawEnd);}
  static String guideDate(Programme p){if(p.start>0)return new java.text.SimpleDateFormat("EEE d MMM",Locale.getDefault()).format(new Date(p.start));return p.rawStart.length()>=10?p.rawStart.substring(0,10)+"*":"Date unavailable";}
  String guideKey(Item i,boolean extended){return server+"|"+user+"|"+i.id+"|"+extended;}
- static String getGuide(String url)throws Exception{
-  HttpURLConnection connection=(HttpURLConnection)new URL(url).openConnection();
-  connection.setConnectTimeout(5000);connection.setReadTimeout(8000);connection.setRequestProperty("User-Agent","SharkSky/5");
-  try{if(connection.getResponseCode()!=200)throw new IOException("Guide HTTP error");
-   try(InputStream in=connection.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Guide cancelled");if(out.size()+n>4*1024*1024)throw new IOException("Guide too large");out.write(buffer,0,n);}return out.toString("UTF-8");}
-  }finally{connection.disconnect();}
- }
+ static String getGuide(String url)throws Exception{return readProvider(GUIDE_HTTP,url,"SharkSky/5",4*1024*1024);}
  GuideData fetchGuide(String fullUrl,String shortUrl,String zone,boolean extended)throws Exception{
   List<Programme> shows=new ArrayList<>();
   if(extended)try{shows=parseGuide(getGuide(fullUrl),zone);if(!shows.isEmpty())return new GuideData(shows,true);}catch(Exception ignored){}
@@ -717,7 +739,7 @@ public class MainActivity extends Activity {
   epg.setText(b.toString());if(programmeProgress!=null){if(current!=null&&current.end>current.start){programmeProgress.setProgress((int)Math.max(0,Math.min(100,100L*(now-current.start)/(current.end-current.start))));programmeProgress.setVisibility(View.VISIBLE);}else programmeProgress.setVisibility(View.INVISIBLE);}
  }
  void loadEpg(Item i){
-  if(epg==null||i==null)return;highlightedGuideItem=i;if(pendingGuideFocus!=null){ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;}ui.removeCallbacks(refreshEpg);ui.postDelayed(refreshEpg,60000);
+  if(epg==null||i==null)return;highlightedGuideItem=i;if(!defaultLiveEngine()&&page.equals("Live TV")&&SystemClock.elapsedRealtime()<epgQuietUntil){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);if(previewGuideJob!=null)previewGuideJob.cancel(true);epgToken++;GuideData saved=guideCache.get(guideKey(i,false));if(saved!=null)paintPreviewGuide(i,saved);else epg.setText(i.name+"\nLoading programme information…");int generation=screenToken;pendingGuideFocus=()->{pendingGuideFocus=null;if(generation==screenToken&&!full&&highlightedGuideItem==i)loadEpg(i);};ui.postDelayed(pendingGuideFocus,Math.max(50,epgQuietUntil-SystemClock.elapsedRealtime()));return;}if(pendingGuideFocus!=null){ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;}ui.removeCallbacks(refreshEpg);ui.postDelayed(refreshEpg,60000);
   int req=++epgToken,token=screenToken;String key=guideKey(i,false),fullUrl=api("get_simple_data_table","&stream_id="+enc(i.id)),shortUrl=api("get_short_epg","&stream_id="+enc(i.id)+"&limit=12"),zone=prefs.getString("epg_zone","");
   if(previewGuideJob!=null)previewGuideJob.cancel(true);
   if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);GuideData cached=guideCache.get(key);if(cached!=null){paintPreviewGuide(i,cached);if(System.currentTimeMillis()-cached.fetched<180000)return;}else epg.setText(i.name+"\nLoading programme information…");
@@ -849,7 +871,9 @@ public class MainActivity extends Activity {
   attachExo(host,i,fullscreen,attempt,position,cachedFirst,mode.equals("Prefer SDR")?(Build.VERSION.SDK_INT>=29?0:1):-1);
  }
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath){
-  long started=android.os.SystemClock.elapsedRealtime();release();
+  long started=android.os.SystemClock.elapsedRealtime();
+  if(attempt==0&&position==0&&tryReuseLive(host,i,fullscreen,sdrPath,started))return;
+  release();
   final boolean stock=defaultLiveEngine();
   if(stock){WindowManager.LayoutParams attrs=getWindow().getAttributes();if(attrs.preferredDisplayModeId!=0||attrs.preferredRefreshRate!=0f){attrs.preferredDisplayModeId=0;attrs.preferredRefreshRate=0f;getWindow().setAttributes(attrs);}}
   else applyDisplayMode();
@@ -893,38 +917,56 @@ public class MainActivity extends Activity {
   }
   // Keep the stock engine a genuine comparison/fallback. Only the custom live path starts sooner.
   final boolean fast=!stock&&page.equals("Live TV");
-  final PlaybackProbe probe=new PlaybackProbe(started,fast);playbackProbe=probe;
-  DefaultDataSource.Factory source=new DefaultDataSource.Factory(this).setTransferListener(probe);
   ExoPlayer.Builder builder=stock?new ExoPlayer.Builder(this):new ExoPlayer.Builder(this,factory);
-  builder.setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(source));
   if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,750,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
   ExoPlayer p=builder.build();
   if(!stock&&gpu)p.setVideoEffects(Collections.singletonList(new androidx.media3.effect.ScaleAndRotateTransformation.Builder().build()));
-  FrameRateSample sample=new FrameRateSample();frameRateSample=sample;p.setVideoFrameMetadataListener((pts,releaseNs,format,mediaFormat)->sample.accept(pts));
-  video=v;player=p;playbackItem=i;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(prefs.getInt("resize_mode",0));
+  video=v;player=p;playbackItem=i;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(!fullscreen&&page.equals("Live TV")?4:prefs.getInt("resize_mode",0));
   if(!stock)p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
    .setPreferredTextLanguage(prefs.getString("text_lang",null))
    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles_on",true)).build());
   if(!stock)p.setVideoChangeFrameRateStrategy(prefs.getBoolean("match_frame_rate",false)&&prefs.getInt("display_mode",0)==0?C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS:C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
   if(!fullscreen)p.setVolume(0);
-  final boolean vod=fullscreen&&!page.equals("Live TV");
-  final int token=screenToken;
-  p.addAnalyticsListener(new AnalyticsListener(){
-   @Override public void onLoadStarted(AnalyticsListener.EventTime time,androidx.media3.exoplayer.source.LoadEventInfo info,androidx.media3.exoplayer.source.MediaLoadData data){if(player==p&&startupLoadMs<0)startupLoadMs=Math.max(0,info.elapsedRealtimeMs-startupBeginMs);}
-   @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(player==p)droppedVideoFrames+=count;}
+  activeLiveRange=range;activeLiveAttempt=attempt;
+  startStream(p,v,host,i,fullscreen,attempt,position,cachedFirst,sdrPath,started,false);
+ }
+ void detachStreamListeners(){if(player!=null){if(streamListener!=null)player.removeListener(streamListener);if(streamAnalytics!=null)player.removeAnalyticsListener(streamAnalytics);}streamListener=null;streamAnalytics=null;}
+ boolean tryReuseLive(FrameLayout host,Item i,boolean fullscreen,int sdrPath,long started){
+  if(defaultLiveEngine()||!page.equals("Live TV")||player==null||video==null||player.getPlayerError()!=null||player.getPlaybackState()!=Player.STATE_READY||activeLiveAttempt!=0||activeSdrPath!=sdrPath||!activeLiveRange.equals(rangeFor(true))||activeStreamId.equals(i.id))return false;
+  if(fullscreen){if(!full||host!=liveSurfaceHost||liveSurfaceHost==null)return false;}else if(full||host!=preview||liveSurfaceHost==null)return false;
+  ExoPlayer p=player;PlayerView v=video;detachStreamListeners();removeRangeButton();
+  // No second player, no parallel stream. Reset per-channel metadata and track overrides.
+  startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;playbackDiagnostics="Waiting for first video frame";playbackItem=i;activeStreamId=i.id;
+  p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().clearOverrides().build());
+  android.util.Log.i("SharkPlayback","Live player reused");startStream(p,v,host,i,fullscreen,0,0,false,sdrPath,started,true);return true;
+ }
+ void startStream(ExoPlayer p,PlayerView v,FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath,long started,boolean reused){
+  final boolean stock=defaultLiveEngine(),fast=!stock&&page.equals("Live TV"),gpu=sdrPath==0;
+  final String range=rangeFor(page.equals("Live TV"));
+  final boolean vod=fullscreen&&!page.equals("Live TV");final int token=screenToken;
+  final PlaybackProbe probe=new PlaybackProbe(started,fast);playbackProbe=probe;
+  if(fast)epgQuietUntil=started+1500;
+  FrameRateSample sample=new FrameRateSample();frameRateSample=sample;p.setVideoFrameMetadataListener((pts,releaseNs,format,mediaFormat)->sample.accept(pts));
+  DefaultDataSource.Factory source=stock?new DefaultDataSource.Factory(this):new DefaultDataSource.Factory(this,new OkHttpDataSource.Factory(STREAM_HTTP));
+  source.setTransferListener(probe);
+  final String mediaId="stream-"+started+"-"+i.id;
+  streamAnalytics=new AnalyticsListener(){
+   boolean current(AnalyticsListener.EventTime time){return player==p&&playbackProbe==probe&&time.windowIndex>=0&&time.windowIndex<time.timeline.getWindowCount()&&mediaId.equals(time.timeline.getWindow(time.windowIndex,new Timeline.Window()).mediaItem.mediaId);}
+   @Override public void onLoadStarted(AnalyticsListener.EventTime time,androidx.media3.exoplayer.source.LoadEventInfo info,androidx.media3.exoplayer.source.MediaLoadData data){if(current(time)&&startupLoadMs<0)startupLoadMs=Math.max(0,info.elapsedRealtimeMs-startupBeginMs);}
+   @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(current(time))droppedVideoFrames+=count;}
    @Override public void onAudioDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){if(player==p)android.util.Log.i("SharkPlayback","audio decoder="+name);}
    @Override public void onVideoDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){
-    if(player!=p)return;if(startupDecoderMs<0){startupDecoderMs=Math.max(0,ts-startupBeginMs);startupDecoderCostMs=duration;}activeDecoder=name;android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
+    if(!current(time))return;if(startupDecoderMs<0){startupDecoderMs=Math.max(0,ts-startupBeginMs);startupDecoderCostMs=duration;}activeDecoder=name;android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
    }
-  });
-  MediaItem.Builder m=new MediaItem.Builder().setUri(stream(i));
+  };p.addAnalyticsListener(streamAnalytics);
+  MediaItem.Builder m=new MediaItem.Builder().setUri(stream(i)).setMediaId(mediaId);
   if(!stock&&page.equals("Live TV"))m.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build());
   class RecoveryListener implements Player.Listener {
    boolean recovering,firstFrame,rangeSelected;
    long audioStartedAt=-1;
    final Runnable watch=new Runnable(){@Override public void run(){
-    if(player!=p||recovering||firstFrame||stopped||token!=screenToken)return;
+    if(player!=p||playbackProbe!=probe||recovering||firstFrame||stopped||token!=screenToken)return;
     if(p.isPlaying()&&p.getPlaybackState()==Player.STATE_READY){
      long now=android.os.SystemClock.elapsedRealtime();
      if(audioStartedAt<0)audioStartedAt=now;
@@ -938,7 +980,7 @@ public class MainActivity extends Activity {
    }};
    void startWatch(){if(vod&&!stock)ui.postDelayed(watch,750);}
    @Override public void onTracksChanged(Tracks tracks){
-    if(player!=p||recovering||rangeSelected||!range.equals("Prefer HDR"))return;
+    if(player!=p||playbackProbe!=probe||recovering||rangeSelected||!range.equals("Prefer HDR"))return;
     boolean selectedDesired=false;Tracks.Group candidate=null;int index=-1;long score=-1;
     boolean wantHdr=range.equals("Prefer HDR");
     for(Tracks.Group group:tracks.getGroups()){
@@ -954,10 +996,10 @@ public class MainActivity extends Activity {
    }
 
    @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK)probe.closeStall();}
-   @Override public void onPlaybackStateChanged(int state){if(player!=p)return;if(state==Player.STATE_READY&&startupReadyMs<0)startupReadyMs=SystemClock.elapsedRealtime()-startupBeginMs;if(state==Player.STATE_BUFFERING&&firstFrame&&p.getPlayWhenReady()&&!vod&&probe.stallStart<0){probe.rebuffers++;probe.stallStart=SystemClock.elapsedRealtime();}else if(state!=Player.STATE_BUFFERING)probe.closeStall();}
+   @Override public void onPlaybackStateChanged(int state){if(player!=p||playbackProbe!=probe)return;if(state==Player.STATE_READY&&startupReadyMs<0)startupReadyMs=SystemClock.elapsedRealtime()-startupBeginMs;if(state==Player.STATE_BUFFERING&&firstFrame&&p.getPlayWhenReady()&&!vod&&probe.stallStart<0){probe.rebuffers++;probe.stallStart=SystemClock.elapsedRealtime();}else if(state!=Player.STATE_BUFFERING)probe.closeStall();}
    @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready)probe.closeStall();}
    @Override public void onRenderedFirstFrame(){
-    if(player!=p||recovering)return;
+    if(player!=p||playbackProbe!=probe||recovering||(reused&&(probe.firstByte.get()<0||p.getPlaybackState()!=Player.STATE_READY)))return;
     firstFrame=true;if(startupFirstMs<0){startupFirstMs=SystemClock.elapsedRealtime()-startupBeginMs;android.util.Log.i("SharkPlayback","startup profile="+(fast?"fast-live":"stock-buffer")+" firstFrameMs="+startupFirstMs+" firstByteMs="+probe.firstByte.get()+" decoderMs="+startupDecoderMs);if(vod&&!stock&&prefs.getBoolean("match_frame_rate",false)&&prefs.getInt("display_mode",0)==0)scheduleMovieMatch(p,sample,0);}ui.removeCallbacks(watch);
     if(!stock&&vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
@@ -966,7 +1008,7 @@ public class MainActivity extends Activity {
     android.util.Log.i("SharkPlayback",playbackDiagnostics);
    }
    @Override public void onPlayerError(PlaybackException e){
-    if(player!=p||recovering)return;
+    if(player!=p||playbackProbe!=probe||recovering)return;
     Format fmt=p.getVideoFormat();
     String detail=fmt==null?"format unknown":fmt.sampleMimeType+" "+fmt.codecs+" "+fmt.width+"x"+fmt.height+" bitrate="+fmt.bitrate;
     android.util.Log.w("SharkPlayback",e.getErrorCodeName()+" "+detail+" decoder="+activeDecoder+" attempt="+attempt);
@@ -980,7 +1022,7 @@ public class MainActivity extends Activity {
     recover(e.getErrorCodeName(),firstFrame?Math.max(0,p.getCurrentPosition()):position);
    }
    void recover(String reason,long resume){
-    if(player!=p||recovering||stopped)return;
+    if(player!=p||playbackProbe!=probe||recovering||stopped)return;
     recovering=true;ui.removeCallbacks(watch);
     if(attempt==1)decoderPrefs().edit().remove(decoderKey(i)).apply();
     final boolean live=page.equals("Live TV"),wasFull=full;
@@ -1001,8 +1043,8 @@ public class MainActivity extends Activity {
     },500);
    }
   }
-  RecoveryListener listener=new RecoveryListener();p.addListener(listener);
-  p.setMediaItem(m.build());if(vod&&position>0)p.seekTo(position);if(!stock)p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();if(fullscreen)addRangeButton(host,i,v);
+  RecoveryListener listener=new RecoveryListener();streamListener=listener;p.addListener(listener);
+  p.setMediaSource(new DefaultMediaSourceFactory(this).setDataSourceFactory(source).createMediaSource(m.build()));if(vod&&position>0)p.seekTo(position);if(!stock)p.setPlaybackSpeed(1f);p.prepare();p.play();listener.startWatch();if(fullscreen)addRangeButton(host,i,v);
  }
  void attachNative(FrameLayout host,Item i,long position){
   release();host.removeAllViews();
@@ -1160,6 +1202,7 @@ public class MainActivity extends Activity {
  void playFull(Item i){
   if(!full&&(page.equals("Movies")||page.equals("Series")))rememberCataloguePosition();
   if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
+  if(full&&page.equals("Live TV")&&liveSurfaceHost!=null&&tryReuseLive(liveSurfaceHost,i,true,activeSdrPath,SystemClock.elapsedRealtime()))return;
   release();screenToken++;loadToken++;epgToken++;full=true;status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null&&premiumPlayer==null)video.requestFocus();
  }
  void positionLiveSurface(){
@@ -1168,7 +1211,7 @@ public class MainActivity extends Activity {
   int[] target=new int[2],origin=new int[2];preview.getLocationInWindow(target);root.getLocationInWindow(origin);
   FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(preview.getWidth(),preview.getHeight(),Gravity.TOP|Gravity.LEFT);
   lp.leftMargin=target[0]-origin[0];lp.topMargin=target[1]-origin[1];
-  liveSurfaceHost.setLayoutParams(lp);if(!(liveSurfaceHost.getForeground() instanceof PulseFrame))liveSurfaceHost.setForeground(previewPulse());
+  liveSurfaceHost.setLayoutParams(lp);liveSurfaceHost.setPadding(dp(4),dp(4),dp(4),dp(4));if(video!=null)video.setResizeMode(4);if(!(liveSurfaceHost.getForeground() instanceof PulseFrame))liveSurfaceHost.setForeground(previewPulse());
  }
  boolean enterLiveFullscreen(){
   if(liveSurfaceHost==null||video==null||player==null)return false;
@@ -1176,7 +1219,7 @@ public class MainActivity extends Activity {
   full=true;status=null;
   if(body!=null){liveBodyFocusMode=body.getDescendantFocusability();liveBodyAccessibility=body.getImportantForAccessibility();body.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);}
   // Do not detach the video surface or create a second PlayerView.
-  liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));liveSurfaceHost.setForeground(null);
+  liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));liveSurfaceHost.setPadding(0,0,0,0);video.setResizeMode(prefs.getInt("resize_mode",0));liveSurfaceHost.setForeground(null);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
   video.setFocusable(true);video.setUseController(true);video.setControllerAutoShow(true);
   player.setVolume(1f);if(!player.getPlayWhenReady())player.play();video.requestFocus();if(playbackItem!=null)addRangeButton(liveSurfaceHost,playbackItem,video);

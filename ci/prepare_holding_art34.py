@@ -127,29 +127,51 @@ areas=[(20,477,438,390),(459,477,385,390),(845,477,389,390),(1235,477,397,390)]
 rims=[(43,493,453,849),(463,497,840,845),(852,497,1230,845),(1242,497,1620,845)]
 def X(x):return round(x*3840/1648)
 def Y(y):return round(y*2160/928)
-# Neutralise only the previously baked warm glow at the first tile perimeter
-# and its floor reflection. Preserve the interior lettering, logo and hands.
-px=im.load()
-for y in range(Y(488),Y(928)):
+# First tile has a permanently painted luminous rim. Replace just the side/bottom
+# profile with the adjacent silver frame, preserving hands, logo and face plate.
+import math
+source=im.copy()
+px=im.load(); donor=source.load()
+def ramp(v): return max(0.,min(1.,v))
+def rounded_distance(x,y,l,t,r,b,rad):
+    qx=abs(x-(l+r)/2)-(r-l)/2+rad
+    qy=abs(y-(t+b)/2)-(b-t)/2+rad
+    return math.hypot(max(qx,0),max(qy,0))+min(max(qx,qy),0)-rad
+for y in range(Y(488),Y(865)):
     yy=y*928/2160
     for x in range(X(20),X(458)):
         xx=x*1648/3840
-        side=max(0,min(1,(84-xx)/16,(yy-485)/16),min(1,(xx-416)/16,(yy-485)/16))
-        bottom=max(0,min(1,(yy-819)/18))
-        if yy>850:
-            bottom*=max(0,min(1,(xx-20)/20,(458-xx)/20))
-            side*=max(0,min(1,(867-yy)/17))
-        top=max(0,min(1,(yy-488)/8,(522-yy)/8)) if 224<xx<280 else 0
-        zone=max(side,bottom,top)
-        if zone<=0: continue
-        r,g,b,a=px[x,y]
-        strength=zone*min(1,max(0,(max(r,g,b)-min(r,g,b)-4)/35))
-        if strength<=0: continue
-        # Neutral metallic silver, not a replacement blue focus tint. Keep shading.
+        distance=rounded_distance(xx,yy,43,493,453,849,38)
+        band=ramp((distance+37)/8)*ramp((18-distance)/9)
+        # Do not copy another character's hands. Taper into the side from y=525.
+        band*=ramp((yy-521)/12)
+        if band<=0: continue
+        # Align the two rounded rectangles; preserve thickness in the edge zones.
+        if xx<100: dx=463+(xx-43)
+        elif xx>396: dx=840+(xx-453)
+        else: dx=520+(xx-100)*(783-520)/(396-100)
+        if yy<550: dy=497+(yy-493)
+        elif yy>790: dy=845+(yy-849)
+        else: dy=554+(yy-550)*(786-554)/(790-550)
+        r,g,b,alpha=px[x,y]
+        rr,gg,bb,_=donor[max(0,min(im.width-1,X(dx))),max(0,min(im.height-1,Y(dy)))]
+        px[x,y]=tuple(round(v+(q-v)*band) for v,q in zip((r,g,b,alpha),(rr,gg,bb,alpha)))
+# Top rim under the existing gloves: remove the painted pink/blue light only in
+# the exposed central gap and outer corners; no transplant of hands.
+for y in range(Y(488),Y(535)):
+    yy=y*928/2160
+    for x in range(X(35),X(453)):
+        xx=x*1648/3840
+        exposed=max(ramp((105-xx)/10),ramp((xx-407)/10),ramp((xx-220)/10)*ramp((286-xx)/10))
+        if exposed<=0: continue
+        r,g,b,alpha=px[x,y]
+        weight=exposed*ramp((yy-488)/6)*ramp((535-yy)/8)
         level=round(.2126*r+.7152*g+.0722*b)
-        neutral=(level,level,level,a)
-        px[x,y]=tuple(round(v*(1-strength)+c*strength) for v,c in zip((r,g,b,a),neutral))
-print("PASS: fixed source focus tint neutralised in the outer rim/reflection")
+        # Tone the baked lighting down to a chrome highlight, keep dark glove pixels.
+        weight*=ramp((max(r,g,b)-100)/60)
+        target=min(220,round(level*.85))
+        px[x,y]=tuple(round(v+(target-v)*weight) for v in (r,g,b))+(alpha,)
+print("PASS: first tile side and bottom chrome profile replaced; other tiles untouched")
 # Extract multicolour Sky wordmark from the approved first Home tile.
 wordmark=im.crop((X(112),Y(531),X(391),Y(699))).convert("RGBA")
 wp=wordmark.load()
