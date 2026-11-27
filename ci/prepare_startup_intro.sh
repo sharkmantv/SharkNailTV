@@ -8,11 +8,9 @@ cp "$src" app/src/main/res/raw/shark_intro_uhd.mp4
 cmp "$src" app/src/main/res/raw/shark_intro_uhd.mp4
 # A lighter H.264/AAC fallback for older TVs and sticks; retain the audio stream.
 ffmpeg -hide_banner -loglevel error -y -i "$src" -vf 'fps=30,scale=1920:1080:flags=lanczos,setsar=1' -map 0:v:0 -map 0:a:0 -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -profile:v main -level:v 4.0 -c:a copy -movflags +faststart app/src/main/res/raw/shark_intro_hd.mp4
-# Software-only emulator fixture: same full cinematic and exact audio, no change to physical-device assets.
-ffmpeg -hide_banner -loglevel error -y -i "$src" -vf 'fps=24,scale=1280:720:flags=lanczos,setsar=1' -map 0:v:0 -map 0:a:0 -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -profile:v baseline -level:v 3.1 -c:a copy -movflags +faststart app/src/main/res/raw/shark_intro_software.mp4
 python3 - <<'PY'
 import json,subprocess
-for name,w,h,rate in [('uhd',3840,2160,'60/1'),('hd',1920,1080,'30/1'),('software',1280,720,'24/1')]:
+for name,w,h,rate in [('uhd',3840,2160,'60/1'),('hd',1920,1080,'30/1')]:
  p=f'app/src/main/res/raw/shark_intro_{name}.mp4'
  r=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',p]))
  v=next(s for s in r['streams'] if s['codec_type']=='video')
