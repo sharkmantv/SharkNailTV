@@ -14,6 +14,7 @@ final class PremiumMockupHome {
  static final int[][] RIMS={{58,510,439,831},{475,510,829,828},{867,511,1219,828},{1257,511,1601,828}};
  static Bitmap backdrop;
  static final Bitmap[] cards=new Bitmap[4];
+ static void trimArtwork(){backdrop=null;java.util.Arrays.fill(cards,null);}
  static void prepare(MainActivity a){
   if(backdrop!=null)return;
   // Always decode the full prepared UHD layers; the device compositor chooses output resolution.
@@ -64,16 +65,16 @@ final class PremiumMockupHome {
   }
  }
  static final class HoldingTile extends View{
-  final int index;final Paint art=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG),glow=new Paint(Paint.ANTI_ALIAS_FLAG);
-  final RectF rim;
-  HoldingTile(MainActivity a,int i,String title){super(a);index=i;int[] box=AREAS[i],r=RIMS[i];
-   rim=new RectF(r[0]-box[0],r[1]-box[1],r[2]-box[0],r[3]-box[1]);
+  final int index;final Bitmap cardBitmap;final Paint art=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG),glow=new Paint(Paint.ANTI_ALIAS_FLAG);
+  final RectF rim,artBounds;
+  HoldingTile(MainActivity a,int i,String title){super(a);index=i;cardBitmap=cards[i];int[] box=AREAS[i],r=RIMS[i];
+   rim=new RectF(r[0]-box[0],r[1]-box[1],r[2]-box[0],r[3]-box[1]);artBounds=new RectF(0,0,box[2],box[3]);
    setContentDescription(title);setFocusable(true);setFocusableInTouchMode(true);setClickable(true);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
   }
   @Override protected void onFocusChanged(boolean f,int direction,Rect previous){super.onFocusChanged(f,direction,previous);invalidate();}
   @Override protected void onDraw(Canvas c){super.onDraw(c);int saved=c.save();
    int[] b=AREAS[index];c.scale(getWidth()/(float)b[2],getHeight()/(float)b[3]);
-   c.drawBitmap(cards[index],null,new RectF(0,0,b[2],b[3]),art);
+   c.drawBitmap(cardBitmap,null,artBounds,art);
    if(isFocused()){
     boolean animate=animations();
     float phase=FlamePulse.phase();

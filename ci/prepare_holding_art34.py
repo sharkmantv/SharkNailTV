@@ -172,6 +172,50 @@ for y in range(Y(488),Y(535)):
         target=min(220,round(level*.85))
         px[x,y]=tuple(round(v+(target-v)*weight) for v in (r,g,b))+(alpha,)
 print("PASS: first tile side and bottom chrome profile replaced; other tiles untouched")
+# Remove the spurious narrow light strip OUTSIDE the first chrome rim. The
+# approved card itself, hand geometry, wordmark and focus path stay unchanged.
+before_strip=im.copy()
+px=im.load()
+for y in range(Y(515),Y(854)):
+    yy=y*928/2160
+    for x in range(0,X(43)):
+        xx=x*1648/3840
+        weight=ramp((yy-515)/18)*ramp((854-yy)/14)*ramp((43-xx)/1.8)
+        if weight<=0: continue
+        old=px[x,y]
+        # Smooth navy from the existing left-side environment, without baked glow.
+        shade=round(7+3*ramp((yy-530)/300))
+        color=(shade,shade+3,44+round(13*ramp((yy-530)/300)),255)
+        px[x,y]=tuple(round(u+(q-u)*weight) for u,q in zip(old,color))
+assert im.crop((X(43),0,3840,Y(854))).tobytes()==before_strip.crop((X(43),0,3840,Y(854))).tobytes()
+del before_strip
+# Approved dark glass floor: reflect the existing exact card artwork vertically,
+# rather than inventing new logos or applying a metallic texture. Reflection
+# is compressed in perspective, slightly softened and fades towards the viewer.
+floor_start=Y(859)
+floor_h=2160-floor_start
+source_top=Y(734)
+source_bottom=Y(850)
+reflection=im.crop((0,source_top,3840,source_bottom)).transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+reflection=reflection.resize((3840,floor_h),Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(1.6))
+floor=Image.new("RGBA",(3840,floor_h))
+fp=floor.load();rp=reflection.load()
+for j in range(floor_h):
+    f=j/max(1,floor_h-1)
+    # Sharp contact edge; mirror recedes into dark transparent-looking glass.
+    opacity=.56*(1-f)**1.25+.075
+    for x in range(3840):
+        r,g,b,_=rp[x,j]
+        ambient=(4+round(2*(1-f)),8+round(3*(1-f)),32+round(13*(1-f)))
+        fp[x,j]=(round(ambient[0]*(1-opacity)+r*opacity),round(ambient[1]*(1-opacity)+g*opacity),round(ambient[2]*(1-opacity)+b*opacity),255)
+# Narrow, restrained blue glass edge, without a repeated horizontal metal pattern.
+edge=ImageDraw.Draw(floor)
+edge.line((0,floor_h-3,3839,floor_h-3),fill=(13,63,155,255),width=2)
+above=im.crop((0,0,3840,floor_start)).tobytes()
+im.paste(floor,(0,floor_start))
+assert im.crop((0,0,3840,floor_start)).tobytes()==above
+del reflection,floor,above
+print("PASS: exterior strip removed; dark mirrored glass floor; artwork above the floor preserved")
 # Extract multicolour Sky wordmark from the approved first Home tile.
 wordmark=im.crop((X(112),Y(531),X(391),Y(699))).convert("RGBA")
 wp=wordmark.load()

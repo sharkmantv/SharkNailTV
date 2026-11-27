@@ -168,9 +168,9 @@ public class MainActivity extends Activity {
  @Override public void onTrimMemory(int level){
   super.onTrimMemory(level);
   if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW&&level<android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN){clearCatalogue();posterCache.trimToSize(8*1024*1024);}
-  if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND){clearCatalogue();posterCache.evictAll();}
+  if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND){clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  }
- @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();}
+ @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  static class Item { String id,name,ext,art="",year="",tmdb=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
  @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
@@ -224,7 +224,8 @@ public class MainActivity extends Activity {
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeControls!=null){nativeControls.hide();nativeControls=null;}if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
- void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();applyDisplayMode();screenToken++;loadToken++;epgToken++;full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
+ void detachCatalogueViews(){if(left!=null){left.setAdapter(null);left=null;}if(right!=null){right.setAdapter(null);right=null;}posterIo.purge();rowGuideIo.purge();}
+ void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;applyDisplayMode();full=false;status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
  void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
  void home(){
   page="Home";screen("SHARK SKY");
@@ -670,7 +671,7 @@ public class MainActivity extends Activity {
  class Posters extends RecyclerView.Adapter<Posters.H>{
   final List<Item> data;final Pick pick;final String type;int cardHeight;
   Posters(List<Item>d,Pick p,String t,int height){data=d;pick=p;type=t;cardHeight=height;}
-  class H extends RecyclerView.ViewHolder{ImageView art;TextView title;Future<?> job;Item bound;H(LinearLayout v,ImageView a,TextView t){super(v);art=a;title=t;}}
+  class H extends RecyclerView.ViewHolder{ImageView art;TextView title;Future<?> job;Runnable retryTask;Item bound;H(LinearLayout v,ImageView a,TextView t){super(v);art=a;title=t;}}
   @Override public H onCreateViewHolder(ViewGroup parent,int viewType){
    LinearLayout v=col();v.setPadding(dp(3),dp(3),dp(3),dp(3));v.setFocusable(true);v.setClickable(true);v.setBackground(posterFocus());premiumHomeFocus(v);
    FrameLayout frame=new FrameLayout(MainActivity.this);v.addView(frame,new LinearLayout.LayoutParams(-1,-1));ImageView a=new ImageView(MainActivity.this);a.setScaleType(ImageView.ScaleType.CENTER_CROP);a.setBackgroundColor(0xff0b1529);frame.addView(a,new FrameLayout.LayoutParams(-1,-1));
@@ -679,7 +680,8 @@ public class MainActivity extends Activity {
    H h=new H(v,a,t);v.setOnFocusChangeListener((view,focused)->{if(focused&&h.bound!=null&&status!=null)status.setText(h.bound.name);});
    v.setOnClickListener(view->{int i=h.getBindingAdapterPosition();if(i>=0&&i<data.size())pick.run(data.get(i),i);});return h;
   }
-  @Override public void onBindViewHolder(H h,int pos){ViewGroup.LayoutParams lp=h.itemView.getLayoutParams();if(lp!=null&&lp.height!=cardHeight){lp.height=cardHeight;h.itemView.setLayoutParams(lp);}if(h.job!=null){h.job.cancel(true);posterIo.purge();}Item i=data.get(pos);h.bound=i;h.title.setText(i.name);h.title.setVisibility(View.VISIBLE);h.itemView.setContentDescription(i.name);h.art.setImageDrawable(null);if(h.itemView.hasFocus()&&status!=null)status.setText(i.name);int token=screenToken;String key=tmdbKey();
+  void cancelPoster(H h){if(h.retryTask!=null){h.itemView.removeCallbacks(h.retryTask);h.retryTask=null;}if(h.job!=null){h.job.cancel(true);h.job=null;posterIo.purge();}}
+  @Override public void onBindViewHolder(H h,int pos){ViewGroup.LayoutParams lp=h.itemView.getLayoutParams();if(lp!=null&&lp.height!=cardHeight){lp.height=cardHeight;h.itemView.setLayoutParams(lp);}cancelPoster(h);Item i=data.get(pos);h.bound=i;h.title.setText(i.name);h.title.setVisibility(View.VISIBLE);h.itemView.setContentDescription(i.name);h.art.setImageDrawable(null);if(h.itemView.hasFocus()&&status!=null)status.setText(i.name);int token=screenToken;String key=tmdbKey();
    loadPoster(h,i,token,key,0);
   }
   void paintPoster(H h,Item i,int token,android.graphics.Bitmap b){if(b!=null&&!Thread.currentThread().isInterrupted())ui.post(()->{if(h.bound==i&&token==screenToken&&!isFinishing()){h.art.setImageBitmap(b);h.title.setVisibility(View.GONE);}});}
@@ -691,9 +693,11 @@ public class MainActivity extends Activity {
      if(cached!=null){paintPoster(h,i,token,cached);return;}
      try{paintPoster(h,i,token,posterBitmap(i.art));}catch(Exception ignored){}
      if(!key.isEmpty()&&!Thread.currentThread().isInterrupted())try{String best=artwork(i,type,key);if(!best.equals(i.art))paintPoster(h,i,token,posterBitmap(best));}catch(Exception ignored){}
-    });}catch(RejectedExecutionException busy){if(retry<8)h.itemView.postDelayed(()->loadPoster(h,i,token,key,retry+1),250);}
+    });}catch(RejectedExecutionException busy){if(retry<8){h.retryTask=()->{h.retryTask=null;loadPoster(h,i,token,key,retry+1);};h.itemView.postDelayed(h.retryTask,250);}}
    }
-   @Override public void onViewRecycled(H h){if(h.job!=null){h.job.cancel(true);posterIo.purge();}h.bound=null;h.art.setImageDrawable(null);super.onViewRecycled(h);}
+   @Override public void onViewRecycled(H h){cancelPoster(h);h.bound=null;h.art.setImageDrawable(null);super.onViewRecycled(h);}
+   @Override public void onViewDetachedFromWindow(H h){cancelPoster(h);super.onViewDetachedFromWindow(h);}
+   @Override public void onViewAttachedToWindow(H h){super.onViewAttachedToWindow(h);if(h.bound!=null&&h.job==null&&h.art.getDrawable()==null)loadPoster(h,h.bound,screenToken,tmdbKey(),0);}
   public int getItemCount(){return data.size();}
  }
  void focusAt(RecyclerView r,int p){if(r.getAdapter()==null||r.getAdapter().getItemCount()==0)return;int i=Math.max(0,Math.min(p,r.getAdapter().getItemCount()-1));r.scrollToPosition(i);r.post(()->{RecyclerView.ViewHolder h=r.findViewHolderForAdapterPosition(i);if(h!=null)h.itemView.requestFocus();else r.requestFocus();});}
@@ -1287,7 +1291,7 @@ public class MainActivity extends Activity {
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
  @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null)nativeVideo.pause();}
- @Override protected void onDestroy(){screenToken++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();clearCatalogue();ui.removeCallbacksAndMessages(null);super.onDestroy();}
+ @Override protected void onDestroy(){screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);if(previewGuideJob!=null)previewGuideJob.cancel(true);if(fullGuideJob!=null)fullGuideJob.cancel(true);io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
  boolean updateBusy=false;
  volatile int updateProgress=0;

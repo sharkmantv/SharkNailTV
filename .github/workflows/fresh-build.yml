@@ -21,6 +21,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+          cache-read-only: false
       - name: Test automatic refresh-rate policy
         run: |
           mkdir -p "$RUNNER_TEMP/refresh-tests"
@@ -47,8 +48,53 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Build and verify matching Media3 RC FFmpeg audio extension
-        run: bash ci/build_ffmpeg_beta.sh
+      - name: Restore exact pinned FFmpeg outputs
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/libs/media3-ffmpeg-1.12.0-rc01.aar
+            app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt
+            app/src/main/assets/licenses/Media3-Apache-2.0.txt
+            app/src/main/assets/licenses/FFmpeg-NOTICE.txt
+            ffmpeg-source.tar.gz
+            ffmpeg-cache.sha256
+          key: ffmpeg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/build_ffmpeg_beta.sh') }}
+      - name: Build matching Media3 RC FFmpeg audio extension on cache miss
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          bash ci/build_ffmpeg_beta.sh
+          sha256sum app/libs/media3-ffmpeg-1.12.0-rc01.aar app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt app/src/main/assets/licenses/Media3-Apache-2.0.txt app/src/main/assets/licenses/FFmpeg-NOTICE.txt ffmpeg-source.tar.gz > ffmpeg-cache.sha256
+      - name: Verify FFmpeg integrity and all native ABIs
+        run: |
+          set -euo pipefail
+          sha256sum -c ffmpeg-cache.sha256
+          tar -tzf ffmpeg-source.tar.gz > /dev/null
+          aar=app/libs/media3-ffmpeg-1.12.0-rc01.aar
+          unzip -tq "$aar"
+          tmp=$(mktemp -d)
+          unzip -q "$aar" -d "$tmp"
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            test -s "$tmp/jni/$abi/libffmpegJNI.so"
+          done
+          for abi in arm64-v8a x86_64; do
+            align=$(readelf -lW "$tmp/jni/$abi/libffmpegJNI.so" | awk '$1=="LOAD"{print $NF}')
+            test -n "$align"
+            if grep -qv '^0x4000$' <<<"$align"; then exit 1; fi
+          done
+          rm -rf "$tmp"
+      - name: Save verified FFmpeg outputs
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/libs/media3-ffmpeg-1.12.0-rc01.aar
+            app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt
+            app/src/main/assets/licenses/Media3-Apache-2.0.txt
+            app/src/main/assets/licenses/FFmpeg-NOTICE.txt
+            ffmpeg-source.tar.gz
+            ffmpeg-cache.sha256
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
       - name: Retrieve verified open-source UHD artwork
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,7 +107,19 @@ jobs:
           gh run download "$run" --repo "$GITHUB_REPOSITORY" --name Sky-Shark-AI-enhanced-4K --dir enhanced-artwork
           test -s enhanced-artwork/verification.json
           test -s enhanced-artwork/comparison.png
-      - name: Enhance exact approved player artwork using official Real-ESRGAN
+      - name: Restore exact enhanced player artwork
+        id: artwork-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/res/drawable-nodpi/design4_player_header.png
+            app/src/main/res/drawable-nodpi/design4_player_dock.png
+            app/src/main/res/drawable-nodpi/design4_player_key.png
+            app/src/main/res/drawable-nodpi/design4_info_panel.png
+            design4-artwork-verification.json
+          key: design4-ai-x2-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/prepare_design4_player.py', 'ci/artwork/sky_shark_design4_reference.png') }}
+      - name: Enhance exact approved player artwork using official Real-ESRGAN on cache miss
+        if: steps.artwork-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           python -m venv "$RUNNER_TEMP/player-art-ai"
@@ -80,6 +138,34 @@ jobs:
           PY
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/RealESRGAN_x2plus.pth" https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth
           python -u ci/prepare_design4_player.py "$RUNNER_TEMP/RealESRGAN_x2plus.pth"
+      - name: Verify cached or newly generated player artwork
+        run: |
+          python - <<'PY'
+          import hashlib, json, struct
+          from pathlib import Path
+          report=json.loads(Path("design4-artwork-verification.json").read_text())
+          expected={"design4_player_header":(3764,208),"design4_player_dock":(3732,454),"design4_player_key":(368,224),"design4_info_panel":(1184,1184)}
+          assert set(report)==set(expected)
+          for name,size in expected.items():
+              b=(Path("app/src/main/res/drawable-nodpi")/(name+".png")).read_bytes()
+              assert b[:8]==b'\x89PNG\r\n\x1a\n'
+              assert struct.unpack('>II',b[16:24])==size
+              assert tuple(report[name]["size"])==size
+              assert hashlib.sha256(b).hexdigest()==report[name]["sha256"]
+              assert 0<=report[name]["mean_delta"]<=12
+          print("PASS: exact player artwork outputs, checksums and dimensions")
+          PY
+      - name: Save verified enhanced player artwork
+        if: steps.artwork-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/res/drawable-nodpi/design4_player_header.png
+            app/src/main/res/drawable-nodpi/design4_player_dock.png
+            app/src/main/res/drawable-nodpi/design4_player_key.png
+            app/src/main/res/drawable-nodpi/design4_info_panel.png
+            design4-artwork-verification.json
+          key: ${{ steps.artwork-cache.outputs.cache-primary-key }}
       - name: Generate and verify transparent PNG symbols
         run: |
           python -m pip install Pillow==11.3.0 fonttools==4.59.2
@@ -123,7 +209,7 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50051'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50052'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
             unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
@@ -131,9 +217,23 @@ jobs:
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.51-candidate-install-untested
+          name: SharkSky-5.0.52-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
+      - name: Audit packaged resources and duplicate files
+        run: |
+          python - <<'PY'
+          import hashlib,json,zipfile
+          from pathlib import Path
+          with zipfile.ZipFile("SharkNailTV.apk") as z:
+              files=[x for x in z.infolist() if not x.is_dir()]
+              groups={}
+              for x in files:
+                  if x.filename.startswith(("res/","assets/")):
+                      groups.setdefault(hashlib.sha256(z.read(x)).hexdigest(),[]).append(x.filename)
+              report={"apk_bytes":Path("SharkNailTV.apk").stat().st_size,"entry_count":len(files),"largest_entries":[{"name":x.filename,"bytes":x.file_size,"compressed":x.compress_size} for x in sorted(files,key=lambda x:x.compress_size,reverse=True)[:35]],"identical_resources":[v for v in groups.values() if len(v)>1]}
+              Path("apk-resource-audit.json").write_text(json.dumps(report,indent=2))
+          PY
       - name: Fetch last published APK for upgrade test
         env:
           GH_TOKEN: ${{ github.token }}
@@ -275,6 +375,18 @@ jobs:
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
           "$tools/aapt" dump badging "$RUNNER_TEMP/prior48/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50048'"
           (cd "$RUNNER_TEMP/prior48" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve installed 5.0.51 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior51"
+          gh run download 45955431992 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.51-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior51"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior51/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior51/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50051'"
+          (cd "$RUNNER_TEMP/prior51" && sha256sum -c manual-install-verified.sha256)
       - name: Create local playback test fixture
         run: |
           set -euo pipefail
@@ -336,6 +448,8 @@ jobs:
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50047'
             adb install -r "$RUNNER_TEMP/prior48/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50048'
+            adb install -r "$RUNNER_TEMP/prior51/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50051'
             adb install -r SharkNailTV.apk
             adb shell am force-stop com.google.android.apps.nexuslauncher
             adb shell am force-stop com.example.xtreamtv
@@ -343,7 +457,7 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
             adb shell pidof com.example.xtreamtv
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50051'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50052'
             sha256sum SharkNailTV.apk > manual-install-verified.sha256
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_premium_home.py
@@ -379,14 +493,14 @@ jobs:
         if: ${{ always() && hashFiles('manual-install-verified.sha256') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.51-manual-install-verified-visual-tests-may-be-incomplete
+          name: SharkSky-5.0.52-manual-install-verified-visual-tests-may-be-incomplete
           path: |
             SharkNailTV.apk
             manual-install-verified.sha256
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.51-signed
+          name: SharkSky-5.0.52-signed
           path: |
             SharkNailTV.apk
             ffmpeg-source.tar.gz
@@ -394,7 +508,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: SharkSky-5.0.51-home-preview
+          name: SharkSky-5.0.52-home-preview
           path: |
             premium-home-preview.png
             premium-home-4k.png
@@ -405,6 +519,9 @@ jobs:
             premium-settings-*.png
             premium-live-*.png
             live-startup-benchmark.json
+            performance-audit.json
+            performance-*.txt
+            apk-resource-audit.json
             premium-movies-*.png
             premium-series-*.png
             premium-player-*.png
@@ -429,7 +546,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: SharkSky-5.0.51-signed
+          name: SharkSky-5.0.52-signed
       - name: Reverify exact APK and publish OTA
         shell: bash
         run: |
@@ -440,10 +557,10 @@ jobs:
           tools="$ANDROID_HOME/build-tools/36.0.0"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50051'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50052'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"; done
-          tag=v5.0.51
+          tag=v5.0.52
           latest=$(gh release view --repo "$GH_REPO" --json tagName --jq .tagName)
           test "$latest" = v5.0.33
           mkdir -p prior
@@ -458,7 +575,7 @@ jobs:
             test "$(gh release view "$tag" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
             test "$(gh release view "$tag" --repo "$GH_REPO" --json targetCommitish --jq .targetCommitish)" = "$GITHUB_SHA"
           else
-            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.51" --notes "Verified emulator upgrade from 5.0.33; AI-enhanced UHD artwork; all main screens rendered and tested at 1080p and 3840x2160, local fixture posters and playback. Real TV and provider testing outstanding."
+            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.52" --notes "Verified emulator upgrade from 5.0.33; AI-enhanced UHD artwork; all main screens rendered and tested at 1080p and 3840x2160, local fixture posters and playback. Real TV and provider testing outstanding."
           fi
           for asset in SharkNailTV.apk update.json ffmpeg-source.tar.gz; do gh release upload "$tag" "$asset" --repo "$GH_REPO" --clobber; done
           gh release view "$tag" --repo "$GH_REPO" --json assets | jq -e --arg digest "sha256:$checksum" --argjson size "$bytes" '(.assets | length)==3 and any(.assets[]; .name=="SharkNailTV.apk" and .size==$size and .digest==$digest) and any(.assets[]; .name=="update.json" and .size>0) and any(.assets[]; .name=="ffmpeg-source.tar.gz" and .size>0)'

@@ -15,6 +15,8 @@ for i,(x,X) in enumerate(((55,440),(480,825),(865,1215),(1250,1600))):
         assert hit>.80,(i,y,hit,"artwork differs")
 a=crop(im,611,5,1037,114);b=crop(ref,611,5,1037,114)
 assert sum(sum(abs(u-v) for u,v in zip(p,q))<100 for p,q in zip(a.getdata(),b.getdata()))/(a.width*a.height)>.82,"header logo mismatch"
+floor=crop(im,20,870,1628,924);expected_floor=crop(ref,20,870,1628,924)
+assert sum(sum(abs(u-v) for u,v in zip(p,q))<80 for p,q in zip(floor.getdata(),expected_floor.getdata()))/(floor.width*floor.height)>.90,"Glass reflection differs from prepared artwork"
 rims=[(58,510,439,831),(475,510,829,828),(867,511,1219,828),(1257,511,1601,828)]
 def chroma_count(im,box,pred,vertical=False):
     p=crop(im,*box)

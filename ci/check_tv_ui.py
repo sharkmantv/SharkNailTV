@@ -161,7 +161,7 @@ def check_posters(prefix,section):
         time.sleep(1)
     raise AssertionError("Missing rendered poster art or two-row layout: "+section)
 
-def benchmark_live(profile):
+def benchmark_live(profile,save_capture=True):
     import statistics
     results=[]
     for n in range(1,6):
@@ -179,9 +179,37 @@ def benchmark_live(profile):
         assert 0<=first_byte<=frame and 0<=decoder<=frame,(profile,n,match.groups())
         assert "Live player reused" not in log,("Failed cross-channel reuse unexpectedly enabled",n)
         results.append({"channel":n,"first_frame_ms":frame,"first_network_byte_ms":first_byte,"decoder_ready_ms":decoder})
-    capture("live-playing-"+profile)
+    if save_capture: capture("live-playing-"+profile)
     print("PASS: five actual live TS first frames",profile,results,"median_ms",statistics.median([x["first_frame_ms"] for x in results]),flush=True)
     return results
+
+def perf_sample(label):
+    raw=adb("shell","dumpsys","meminfo","com.example.xtreamtv")
+    pss=re.search(r"TOTAL PSS:\s*(\d+)",raw)
+    if not pss: pss=re.search(r"^\s*TOTAL\s+(\d+)",raw,re.M)
+    assert pss,("Unable to measure app PSS",raw[-1500:])
+    Path("performance-"+label+"-meminfo.txt").write_text(raw)
+    return {"sample":label,"pss_kb":int(pss.group(1))}
+
+def performance_audit(warm_results):
+    # Warm caches and decoders first; compare equivalent channel-list state.
+    samples=[perf_sample("warm")]
+    adb("shell","dumpsys","gfxinfo","com.example.xtreamtv","reset")
+    runs=[]
+    for cycle in range(2):
+        runs.append(benchmark_live("fast-live",False))
+        time.sleep(2)
+        samples.append(perf_sample("switch-round-"+str(cycle+1)))
+    # One sustained local stream, then inspect memory and frame statistics.
+    time.sleep(45)
+    samples.append(perf_sample("soak"))
+    Path("performance-gfxinfo.txt").write_text(adb("shell","dumpsys","gfxinfo","com.example.xtreamtv","framestats"))
+    Path("performance-cpuinfo.txt").write_text(adb("shell","dumpsys","cpuinfo"))
+    report={"fixture":"local synthetic TS, 1080p emulator","channel_switches":len(warm_results)+sum(map(len,runs)),"soak_seconds":45,"pss":samples,"switch_rounds":runs}
+    Path("performance-audit.json").write_text(json.dumps(report,indent=2))
+    # Detect gross retention, not claim that finite emulator samples prove no leaks.
+    assert not (samples[-2]["pss_kb"]>samples[0]["pss_kb"]+131072 and samples[-1]["pss_kb"]>samples[0]["pss_kb"]+131072),("Sustained PSS growth >128 MiB",samples)
+    print("PASS: repeated live switching and bounded gross memory-growth check",report,flush=True)
 
 def check_player():
     adb("logcat","-c")
@@ -522,6 +550,7 @@ try:
         expect("Test channel 001")
         custom_results=benchmark_live("fast-live")
         Path("live-startup-benchmark.json").write_text(json.dumps({"stock":stock_results,"fast":custom_results},indent=2))
+        performance_audit(custom_results)
         adb("logcat","-c")
         tap(expect("Full screen"))
         deadline=time.monotonic()+25
