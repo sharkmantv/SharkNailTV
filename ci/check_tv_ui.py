@@ -274,7 +274,7 @@ def check_player():
     assert close.get("focused")=="true","Close must receive TV focus"
     info=ui()
     combined=" ".join(n.get("text","") for n in info.iter("node"))
-    for label in ("Engine:","Stream FPS:","Display:","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:","First network byte:","Startup profile:"):
+    for label in ("Engine:","Stream FPS:","Display:","Auto FPS:","Requested refresh:","Request result:","Supported modes (same resolution):","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:","First network byte:","Startup profile:"):
         assert label in combined,("Missing diagnostics",label)
     capture("player-info")
     assert bounds(close)[1]>=sh*.12 and bounds(close)[3]<=sh*.78,("Close outside panel",bounds(close))
