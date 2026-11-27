@@ -12,6 +12,8 @@ poster=io.BytesIO()
 Image.new("RGB",(780,1170),(190,39,95)).save(poster,format="PNG")
 poster_bytes=poster.getvalue()
 video_bytes=Path(args.fixture_video).read_bytes()
+live_bytes=Path(args.fixture_video).with_suffix(".ts").read_bytes()
+assert len(live_bytes)>10000
 assert len(video_bytes)>10000
 poster_url="http://127.0.0.1:18765/poster.png"
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +28,15 @@ class Fixture(BaseHTTPRequestHandler):
             self.send_header("Content-Length",str(len(poster_bytes)))
             self.end_headers()
             self.wfile.write(poster_bytes)
+            return
+        if path.startswith("/live/fixture/fixture/") and path.endswith(".ts"):
+            self.send_response(200)
+            self.send_header("Content-Type","video/mp2t")
+            self.send_header("Content-Length",str(len(live_bytes)))
+            self.end_headers()
+            try:
+                self.wfile.write(live_bytes)
+            except (BrokenPipeError,ConnectionResetError): pass
             return
         if path.startswith("/movie/fixture/fixture/") and path.endswith(".mp4"):
             match=re.fullmatch(r"bytes=(\d+)-(\d*)",self.headers.get("Range",""))
@@ -149,6 +160,26 @@ def check_posters(prefix,section):
                     return
         time.sleep(1)
     raise AssertionError("Missing rendered poster art or two-row layout: "+section)
+
+def benchmark_live(profile):
+    import statistics
+    results=[]
+    for n in range(1,6):
+        node=expect("Test channel %03d"%n)
+        adb("logcat","-c")
+        tap(node)
+        deadline=time.monotonic()+35
+        while time.monotonic()<deadline:
+            log=adb("logcat","-d","-s","SharkPlayback:I")
+            match=re.search(r"startup profile="+profile+r" firstFrameMs=(\d+) firstByteMs=(\d+) decoderMs=(\d+)",log)
+            if match: break
+            time.sleep(.5)
+        else: raise AssertionError("Live first frame missing: "+profile+" / "+str(n)+"\n"+log[-3000:])
+        frame,first_byte,decoder=map(int,match.groups())
+        assert 0<=first_byte<=frame and 0<=decoder<=frame,(profile,n,match.groups())
+        results.append({"channel":n,"first_frame_ms":frame,"first_network_byte_ms":first_byte,"decoder_ready_ms":decoder})
+    print("PASS: five actual live TS first frames",profile,results,"median_ms",statistics.median([x["first_frame_ms"] for x in results]),flush=True)
+    return results
 
 def check_player():
     adb("logcat","-c")
@@ -471,6 +502,34 @@ try:
     expect("Select a channel to see its programme schedule")
     adb("shell","input","keyevent","4")
     expect("Test channel 001")
+    if args.resolution=="1080p":
+        stock_results=benchmark_live("stock-buffer")
+        adb("shell","input","keyevent","4")
+        expect("SHARK SKY")
+        tap(expect("Settings"))
+        tap(expect("Playback"))
+        tap(expect("Playback engine: Default ExoPlayer"))
+        expect("Playback engine: Custom")
+        # Compare native output on both engines, without GPU tone mapping.
+        tap(expect("Live TV: SDR"))
+        tap(expect("Auto"))
+        expect("Live TV: Auto")
+        tap(expect("Back"))
+        tap(expect("Home"))
+        tap(expect("Live TV"))
+        expect("Test channel 001")
+        custom_results=benchmark_live("fast-live")
+        Path("live-startup-benchmark.json").write_text(json.dumps({"stock":stock_results,"fast":custom_results},indent=2))
+        adb("shell","input","keyevent","4")
+        expect("SHARK SKY")
+        tap(expect("Settings"))
+        tap(expect("Playback"))
+        tap(expect("Reset playback defaults"))
+        expect("Reset playback and display preferences?")
+        tap(expect("RESET"))
+        tap(expect("Home"))
+        tap(expect("Live TV"))
+        expect("Test channel 001")
     if mobile_navigation_expected():
         tap(expect("Home"))
         expect("SHARK SKY")
