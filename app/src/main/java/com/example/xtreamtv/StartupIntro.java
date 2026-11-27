@@ -25,12 +25,23 @@ final class StartupIntro {
  private int homeAccessibility, consumedKey=-1;
  private boolean triedFallback;
  private final Runnable watchdog=()->stop("timeout");
+ private int lastPosition, stalledChecks;
+ private final Runnable progressCheck=new Runnable(){public void run(){
+  if(overlay==null||video==null||triedFallback)return;
+  int position=video.getCurrentPosition();
+  stalledChecks=position>lastPosition+50?0:stalledChecks+1;lastPosition=position;
+  if(stalledChecks>=3){Log.w("SharkIntro","UHD stalled; switching to HD");triedFallback=true;play(resource("shark_intro_hd"));return;}
+  handler.postDelayed(this,1000);
+ }};
 
  StartupIntro(MainActivity activity){this.activity=activity;}
  private int resource(String name){
   return activity.getResources().getIdentifier(name,"raw",activity.getPackageName());
  }
  private boolean canDecodeUhd(){
+  String hardware=android.os.Build.HARDWARE.toLowerCase(java.util.Locale.ROOT);
+  String fingerprint=android.os.Build.FINGERPRINT.toLowerCase(java.util.Locale.ROOT);
+  if(hardware.contains("ranchu")||hardware.contains("goldfish")||fingerprint.contains("generic")||android.os.Build.MODEL.contains("sdk_gphone"))return false;
   android.view.Display.Mode mode=activity.getWindowManager().getDefaultDisplay().getMode();
   if(Math.max(mode.getPhysicalWidth(),mode.getPhysicalHeight())<3840||Math.min(mode.getPhysicalWidth(),mode.getPhysicalHeight())<2160)return false;
   try{
@@ -60,12 +71,15 @@ final class StartupIntro {
   overlay.setOnClickListener(v->stop("skipped"));
   content.addView(overlay,new FrameLayout.LayoutParams(-1,-1));overlay.requestFocus();
   triedFallback=uhd==0||!canDecodeUhd();
-  handler.postDelayed(watchdog,12000);
   play(triedFallback?fallback:uhd);
  }
  private void play(int id){
   if(overlay==null)return;
   if(id==0){stop("missing");return;}
+  handler.removeCallbacks(watchdog);handler.removeCallbacks(progressCheck);
+  handler.postDelayed(watchdog,12000);
+  lastPosition=0;stalledChecks=0;
+  if(!triedFallback)handler.postDelayed(progressCheck,2000);
   if(video!=null){video.setOnCompletionListener(null);video.setOnErrorListener(null);video.setOnPreparedListener(null);video.stopPlayback();overlay.removeView(video);}
   final VideoView current=new VideoView(activity);video=current;
   current.setFocusable(false);
