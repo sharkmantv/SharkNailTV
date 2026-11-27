@@ -1,0 +1,61 @@
+name: Sky Shark Real-ESRGAN intro preview
+on:
+  push:
+    branches: ['media/intro-realesrgan-preview']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  enhance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare open-source AI and video tools
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then sudo apt-get update; sudo apt-get install -y ffmpeg; fi
+          python -m pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'numpy==1.26.4' 'opencv-python==4.10.0.84' 'Pillow==10.4.0' 'basicsr==1.4.2' 'realesrgan==0.3.0'
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          f=Path(importlib.util.find_spec("basicsr").origin).parent/"data"/"degradations.py"
+          s=f.read_text()
+          old="from torchvision.transforms.functional_tensor import rgb_to_grayscale"
+          assert old in s
+          f.write_text(s.replace(old,"from torchvision.transforms.functional import rgb_to_grayscale"))
+          PY
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/RealESRGAN_x2plus.pth" https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth
+      - name: Enhance exact approved intro
+        run: |
+          set -euo pipefail
+          test "$(git hash-object Sky_Shark_Intro_4K_Upload.mp4)" = 552ab575336711315ec15168362219b4fb9fe3d6
+          mkdir -p preview
+          python -u ci/preview_intro_realesrgan.py Sky_Shark_Intro_4K_Upload.mp4 "$RUNNER_TEMP/RealESRGAN_x2plus.pth" preview/Sky_Shark_Intro_AI_4K60.mp4
+      - name: Verify dimensions, frame count, duration and original audio
+        run: |
+          python - <<'PY'
+          import subprocess,json
+          def probe(p):
+              return json.loads(subprocess.check_output(["ffprobe","-v","error","-show_streams","-show_format","-of","json",p]))
+          src="Sky_Shark_Intro_4K_Upload.mp4"
+          dst="preview/Sky_Shark_Intro_AI_4K60.mp4"
+          a,b=probe(src),probe(dst)
+          x,y=[next(s for s in z["streams"] if s["codec_type"]=="video") for z in (a,b)]
+          assert (y["width"],y["height"],y["avg_frame_rate"])==(3840,2160,"60/1")
+          assert x["nb_frames"]==y["nb_frames"]
+          assert abs(float(a["format"]["duration"])-float(b["format"]["duration"]))<.05
+          def audiohash(p):
+              return subprocess.check_output(["ffmpeg","-v","error","-i",p,"-map","0:a:0","-c","copy","-f","hash","-hash","sha256","-"])
+          assert audiohash(src)==audiohash(dst),"Audio stream changed"
+          print("PASS: exact source frame count, 4K60 and unchanged compressed audio stream")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sky-Shark-RealESRGAN-4K60-preview
+          path: preview/Sky_Shark_Intro_AI_4K60.mp4
+          if-no-files-found: error
