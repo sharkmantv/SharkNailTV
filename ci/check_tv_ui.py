@@ -86,7 +86,7 @@ class Fixture(BaseHTTPRequestHandler):
         pass
 
 def adb(*args):
-    return subprocess.check_output(["adb", *map(str,args)], text=True)
+    return subprocess.check_output(["adb", *map(str,args)], text=True, timeout=35)
 def ui():
     adb("shell", "uiautomator", "dump", "/sdcard/shark-test.xml")
     return ET.fromstring(adb("shell", "cat", "/sdcard/shark-test.xml"))
@@ -132,7 +132,7 @@ def check_catalogue_nav():
 def capture(section):
     path=f"premium-{section}-{args.resolution}.png"
     with open(path,"wb") as out:
-        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True)
+        subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=True,timeout=35)
     im=Image.open(path).convert("RGB")
     assert im.size==expected_size,(section,im.size,expected_size)
     print("PASS:",section,"actual rendered screenshot",im.size,flush=True)
@@ -285,7 +285,7 @@ def check_player():
     laser_box=(round(sw*.04),options[0][3]-max(5,round(sh*.006)),round(sw*.96),options[0][3])
     laser_frames=[]
     for i in range(3):
-        frame=Image.open(io.BytesIO(subprocess.check_output(["adb","exec-out","screencap","-p"]))).convert("RGB")
+        frame=Image.open(io.BytesIO(subprocess.check_output(["adb","exec-out","screencap","-p"],timeout=35))).convert("RGB")
         frame.save("premium-player-laser-%s-%d.png"%(args.resolution,i))
         laser_frames.append(frame.crop(laser_box))
         time.sleep(.65)
@@ -594,10 +594,15 @@ except Exception:
         with open(f"failed-ui-{args.resolution}.xml","w") as out:
             out.write(ET.tostring(ui(),encoding="unicode"))
         with open(f"failed-ui-{args.resolution}.png","wb") as out:
-            subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=False)
+            subprocess.run(["adb","exec-out","screencap","-p"],stdout=out,check=False,timeout=20)
     except Exception as diagnostic_error:
         print("Could not capture failure diagnostics:",diagnostic_error)
     raise
 finally:
-    adb("reverse","--remove","tcp:18765")
-    server.shutdown()
+    try:
+        adb("reverse","--remove","tcp:18765")
+    except (subprocess.SubprocessError, OSError) as error:
+        print("ADB cleanup failed:",error,flush=True)
+    finally:
+        server.shutdown()
+        server.server_close()
