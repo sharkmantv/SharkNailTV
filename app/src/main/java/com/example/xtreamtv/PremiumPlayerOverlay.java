@@ -17,6 +17,7 @@ import java.util.Locale;
 final class PremiumPlayerOverlay extends FrameLayout {
  MainActivity a; FrameLayout host; PlayerView surface; MainActivity.Item item; ExoPlayer p;
  final View wakeTarget;
+ LaserEdge laserEdge;
  boolean live,compact,disposed,scrubbing,consumeUp;
  static final int GOLD=0xffffca22,WHITE=0xfff7fbff;
  SeekBar progress; TextView elapsed,total,metadata; Control play;
@@ -61,14 +62,14 @@ final class PremiumPlayerOverlay extends FrameLayout {
   progress=new SeekBar(a);progress.setId(View.generateViewId());progress.setMax(10000);progress.setPadding(d(10),0,d(10),0);glassTimeline(progress);progress.setContentDescription("Playback progress");progress.setBackground(new Ring(false));timeline.addView(progress,new LinearLayout.LayoutParams(0,-1,1));
   total=a.text("00:00",compact?12:15);total.setGravity(Gravity.CENTER);total.setTextColor(WHITE);timeline.addView(total,new LinearLayout.LayoutParams(d(compact?60:76),-1));
   progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){scrubbing=true;removeCallbacks(timeout);}public void onStopTrackingTouch(SeekBar s){seek(s.getProgress());scrubbing=false;arm();}public void onProgressChanged(SeekBar s,int v,boolean user){if(user){if(!scrubbing)seek(v);else if(p.getDuration()>0)elapsed.setText(time((long)(p.getDuration()*(v/10000d))));if(!scrubbing)arm();}}});
-  dock.addView(timeline,new LinearLayout.LayoutParams(-1,0,.17f));
+  dock.addView(timeline,new LinearLayout.LayoutParams(-1,0,.16f));
   LinearLayout transport=a.row();transportBar=transport;transport.setGravity(Gravity.CENTER);transport.setClipChildren(false);transport.setClipToPadding(false);
-  LinearLayout.LayoutParams transportLp=new LinearLayout.LayoutParams(-1,0,.50f);dock.addView(transport,transportLp);
+  LinearLayout.LayoutParams transportLp=new LinearLayout.LayoutParams(-1,0,.48f);dock.addView(transport,transportLp);
   Control prev=button(transport,0,"Previous",()->adjacent(-1));Control rew=button(transport,1,"Rewind",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();});
   play=button(transport,2,"Play or pause",()->{if(p.getPlayWhenReady())p.pause();else p.play();refresh();});
   Control ff=button(transport,3,"Forward",()->{if(p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();});Control next=button(transport,4,"Next",()->adjacent(1));
   transportKeys=new Control[]{prev,rew,play,ff,next};View[] keys=transportKeys;link(keys);
-  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(skyPanel(3));dock.addView(opts,new LinearLayout.LayoutParams(-1,0,.33f));
+  LinearLayout opts=a.row();optionBar=opts;opts.setGravity(Gravity.CENTER);opts.setClipChildren(false);opts.setClipToPadding(false);opts.setBackground(skyPanel(3));laserEdge=new LaserEdge();opts.setForeground(laserEdge);dock.addView(opts,new LinearLayout.LayoutParams(-1,0,.36f));
   java.util.ArrayList<View> actionList=new java.util.ArrayList<>();
   infoButton=option(opts,"Info",this::showInfo);actionList.add(infoButton);
   if(live)actionList.add(option(opts,"EPG",()->a.openChannelGuide(item)));
@@ -92,6 +93,52 @@ final class PremiumPlayerOverlay extends FrameLayout {
   host.addView(this,new FrameLayout.LayoutParams(-1,-1));
   p.addListener(listener);
  }
+ // Draw directly in native display pixels, rather than scaling a raster screenshot.
+ void syncLaser(){if(laserEdge!=null)laserEdge.setRunning(!disposed&&isAttachedToWindow()&&isShown()&&getWindowVisibility()==VISIBLE&&FlamePulse.animates());}
+ @Override protected void onAttachedToWindow(){super.onAttachedToWindow();syncLaser();}
+ @Override protected void onDetachedFromWindow(){if(laserEdge!=null)laserEdge.setRunning(false);super.onDetachedFromWindow();}
+ @Override protected void onWindowVisibilityChanged(int visibility){super.onWindowVisibilityChanged(visibility);syncLaser();}
+ @Override protected void onVisibilityChanged(View changed,int visibility){super.onVisibilityChanged(changed,visibility);syncLaser();}
+ final class LaserEdge extends Drawable {
+  final Paint beam=new Paint(Paint.ANTI_ALIAS_FLAG);
+  final Matrix transform=new Matrix();
+  final Runnable tick=()->invalidateSelf();
+  LinearGradient moving;
+  boolean running;
+  float half,unit;
+  long began;
+  void setRunning(boolean value){
+   if(running==value)return;
+   running=value;unscheduleSelf(tick);
+   if(value){began=SystemClock.uptimeMillis();invalidateSelf();}
+  }
+  @Override protected void onBoundsChange(Rect b){
+   if(b.width()<=0||b.height()<=0){moving=null;return;}
+   half=b.width()*.12f;unit=Math.max(1f,b.height()*.018f);
+   moving=new LinearGradient(-half,0,half,0,new int[]{0x001055ff,0x502b7fff,0xca23c9ff,0xffe0faff,0xc21acbff,0x482165ff,0x001055ff},new float[]{0,.24f,.45f,.5f,.55f,.76f,1},Shader.TileMode.CLAMP);
+  }
+  @Override public void draw(Canvas canvas){
+   Rect b=getBounds();if(moving==null||b.isEmpty())return;
+   float y=b.bottom-unit*1.7f;
+   int save=canvas.save();
+   canvas.clipRect(b.left+unit*4,b.top,b.right-unit*4,b.bottom);
+   beam.setShader(null);beam.setStyle(Paint.Style.FILL);beam.setColor(0xb02672ea);
+   canvas.drawRect(b.left,y-unit*.42f,b.right,y+unit*.42f,beam);
+   float phase=running?(SystemClock.uptimeMillis()-began)%3600/3600f:.5f;
+   float x=b.left-half+(b.width()+2*half)*phase;
+   transform.setTranslate(x,0);moving.setLocalMatrix(transform);beam.setShader(moving);
+   // A continuous edge and a traveling cyan-white highlight; never flash the video.
+   beam.setAlpha(45);canvas.drawRect(b.left,y-unit*4,b.right,y+unit*1.1f,beam);
+   beam.setAlpha(110);canvas.drawRect(b.left,y-unit*1.8f,b.right,y+unit*.8f,beam);
+   beam.setAlpha(255);canvas.drawRect(b.left,y-unit*.55f,b.right,y+unit*.55f,beam);
+   beam.setShader(null);beam.setAlpha(255);canvas.restoreToCount(save);
+   if(running&&!disposed&&PremiumPlayerOverlay.this.isShown()&&getWindowVisibility()==VISIBLE){
+    unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+33);
+   }
+  }
+  @Override public boolean setVisible(boolean v,boolean restart){if(!v)unscheduleSelf(tick);return super.setVisible(v,restart);}
+  @Override public void setAlpha(int alpha){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+ }
  // Native, full-resolution atmosphere inspired by the exact approved layout.
  final class SkyAtmosphere extends Drawable {
   final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -101,7 +148,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
    float w=b.width(),h=b.height();if(w<=0||h<=0)return;
    topShade=new LinearGradient(0,0,0,h*.28f,new int[]{0xda07142f,0x730b2041,0x00071c45},new float[]{0,.45f,1},Shader.TileMode.CLAMP);
    leftShade=new LinearGradient(0,0,w*.60f,0,new int[]{0xc9061535,0x740b2448,0x00071e4d},new float[]{0,.44f,1},Shader.TileMode.CLAMP);
-   bottomShade=new LinearGradient(0,h*.49f,0,h,new int[]{0x00051843,0x79071431,0xe5071838,0xf0071a42},new float[]{0,.31f,.76f,1},Shader.TileMode.CLAMP);
+   bottomShade=new LinearGradient(0,h*.57f,0,h,new int[]{0x00051843,0x49071431,0xc9071838,0xf2071a42},new float[]{0,.31f,.76f,1},Shader.TileMode.CLAMP);
    upper.reset();upper.moveTo(-w*.02f,h*.195f);upper.cubicTo(w*.13f,h*.11f,w*.24f,h*.17f,w*.53f,-h*.02f);
    lower.reset();lower.moveTo(-w*.03f,h*.866f);lower.cubicTo(w*.13f,h*1.025f,w*.25f,h*.99f,w*.39f,h*1.07f);
    right.reset();right.moveTo(w*.36f,h*1.02f);right.cubicTo(w*.62f,h*.91f,w*.81f,h*.99f,w*1.04f,h*.77f);
@@ -109,7 +156,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   void sweep(Canvas c,Path path,float h){
    ink.setShader(null);ink.setStyle(Paint.Style.STROKE);ink.setStrokeCap(Paint.Cap.ROUND);
    for(int i=8;i>=1;i--){float q=i/8f;ink.setStrokeWidth(h*.016f*q);ink.setColor(Color.argb(Math.round(3+8*(1-q)),27,115,234));c.drawPath(path,ink);}
-   ink.setStrokeWidth(h*.0017f);ink.setColor(0xb7399fea);c.drawPath(path,ink);
+   ink.setStrokeWidth(h*.0019f);ink.setColor(0xe73db8fa);c.drawPath(path,ink);
    ink.setStrokeWidth(h*.0007f);ink.setColor(0x996ed3ff);c.drawPath(path,ink);
    ink.setStyle(Paint.Style.FILL);
   }
@@ -118,15 +165,15 @@ final class PremiumPlayerOverlay extends FrameLayout {
    c.save();c.translate(b.left,b.top);ink.setStyle(Paint.Style.FILL);ink.setAlpha(255);
    ink.setShader(topShade);c.drawRect(0,0,w,h*.28f,ink);
    ink.setShader(leftShade);c.drawRect(0,0,w*.60f,h*.61f,ink);
-   ink.setShader(bottomShade);c.drawRect(0,h*.49f,w,h,ink);
-   sweep(c,upper,h);sweep(c,lower,h);sweep(c,right,h);ink.setShader(null);c.restore();
+   ink.setShader(bottomShade);c.drawRect(0,h*.57f,w,h,ink);
+   sweep(c,upper,h);ink.setShader(null);c.restore();
   }
   @Override public void setAlpha(int n){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
  }
  Drawable skyPanel(int style){
-  int[] colors=style==0?new int[]{0xfa142b50,0xfd08162e,0xfd071226}:style==3?new int[]{0xf02a4970,0xf2102548,0xfc08182f}:new int[]{0xff294d77,0xff0b203f};
+  int[] colors=style==0?new int[]{0xfa142b50,0xfd08162e,0xfd071226}:style==3?new int[]{0xf3315b92,0xfa132b56,0xfd07162e}:new int[]{0xff294d77,0xff0b203f};
   GradientDrawable panel=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,colors);
-  panel.setCornerRadius(d(4));panel.setStroke(Math.max(1,d(1)),0xb37faace);return panel;
+  panel.setCornerRadius(d(style==3?9:5));panel.setStroke(Math.max(1,d(1)),0xc18bbbe5);return panel;
  }
  TextView status(String label,boolean accent){
   TextView v=a.text(label,15);v.setGravity(Gravity.CENTER);v.setTextColor(WHITE);v.setTypeface(a.uiMedium);v.setIncludeFontPadding(false);v.setSingleLine(true);
@@ -146,12 +193,12 @@ final class PremiumPlayerOverlay extends FrameLayout {
    FrameLayout.LayoutParams top=(FrameLayout.LayoutParams)topBar.getLayoutParams();top.width=Math.round(w*.94f);top.height=Math.round(h*.11f);top.gravity=Gravity.TOP|Gravity.CENTER_HORIZONTAL;top.topMargin=Math.round(h*.016f);
    for(TextView v:new TextView[]{liveStatus,resolutionStatus,audioStatus}){LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)v.getLayoutParams();lp.height=Math.round(h*.052f);lp.setMargins(Math.round(w*.006f),0,Math.round(w*.006f),0);px(v,h*.027f);}
    px(playerClock,h*.034f);
-   FrameLayout.LayoutParams title=(FrameLayout.LayoutParams)titlePanel.getLayoutParams();title.width=Math.round(w*.52f);title.height=Math.round(h*.36f);title.topMargin=Math.round(h*.228f);title.leftMargin=Math.round(w*.033f);
-   px(movieTitle,h*.044f);px(metadata,h*.029f);px(programmeDetails,h*.029f);metadata.setPadding(0,Math.round(h*.014f),0,Math.round(h*.012f));
-   FrameLayout.LayoutParams bottom=(FrameLayout.LayoutParams)bottomBar.getLayoutParams();bottom.width=Math.round(w*.94f);bottom.height=Math.round(h*.298f);bottom.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;bottom.bottomMargin=Math.round(h*.083f);
+   FrameLayout.LayoutParams title=(FrameLayout.LayoutParams)titlePanel.getLayoutParams();title.width=Math.round(w*.52f);title.height=Math.round(h*.36f);title.topMargin=Math.round(h*.175f);title.leftMargin=Math.round(w*.033f);
+   px(movieTitle,h*.037f);px(metadata,h*.029f);px(programmeDetails,h*.029f);metadata.setPadding(0,Math.round(h*.014f),0,Math.round(h*.012f));
+   FrameLayout.LayoutParams bottom=(FrameLayout.LayoutParams)bottomBar.getLayoutParams();bottom.width=Math.round(w*.954f);bottom.height=Math.round(h*(compact?.29f:.255f));bottom.gravity=Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL;bottom.bottomMargin=Math.round(h*(compact?.035f:.065f));
    dockBar.setPadding(0,0,0,0);
-   transportBar.setPadding(Math.round(w*.195f),0,Math.round(w*.195f),0);
-   for(Control key:transportKeys){LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)key.getLayoutParams();lp.weight=key.type==2?1.30f:1f;lp.setMargins(Math.round(w*.008f),0,Math.round(w*.008f),0);}
+   int transportInset=Math.round(w*(compact?.22f:.342f));transportBar.setPadding(transportInset,0,transportInset,0);
+   for(Control key:transportKeys){LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)key.getLayoutParams();lp.weight=key.type==2?1.24f:1f;lp.setMargins(Math.round(w*.006f),0,Math.round(w*.006f),0);}
    for(int i=0;i<optionBar.getChildCount();i++){View v=optionBar.getChildAt(i);LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)v.getLayoutParams();lp.setMargins(0,0,0,0);}
    for(TextView v:new TextView[]{elapsed,total}){px(v,h*.028f);LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)v.getLayoutParams();lp.width=Math.round(w*.083f);}
   }
@@ -194,8 +241,8 @@ final class PremiumPlayerOverlay extends FrameLayout {
   dockFocusMode=bottomBar.getDescendantFocusability();dockAccessibility=bottomBar.getImportantForAccessibility();
   bottomBar.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
   bottomBar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(Math.round(getWidth()*(compact?.67f:.38f)),Math.round(getHeight()*.62f),Gravity.TOP|Gravity.RIGHT);
-  lp.topMargin=Math.round(getHeight()*.12f);lp.rightMargin=Math.round(getWidth()*.016f);
+  FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(Math.round(getWidth()*(compact?.67f:.32f)),Math.round(getHeight()*.57f),Gravity.TOP|Gravity.RIGHT);
+  lp.topMargin=Math.round(getHeight()*.22f);lp.rightMargin=Math.round(getWidth()*.020f);
   addView(panel,lp);
   close.requestFocus();
   panel.post(()->{if(infoPanel==panel){close.requestFocus();android.util.Log.i("SharkPlayerUI","Info dialog shown");}});
@@ -263,7 +310,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
  void show(){
   if(disposed||a.player!=p)return;
   boolean opening=getVisibility()!=VISIBLE||wakeTarget.getVisibility()==VISIBLE;
-  setVisibility(VISIBLE);wakeTarget.setVisibility(GONE);refresh();
+  setVisibility(VISIBLE);wakeTarget.setVisibility(GONE);syncLaser();refresh();
   if(opening||!hasFocus()){
    play.requestFocus();
    post(()->{if(!disposed&&getVisibility()==VISIBLE&&!hasFocus())play.requestFocus();});
@@ -275,17 +322,17 @@ final class PremiumPlayerOverlay extends FrameLayout {
   if(disposed)return;
   dismissInfo(false);
   removeCallbacks(timeout);removeCallbacks(ticker);
-  wakeTarget.setVisibility(VISIBLE);setVisibility(GONE);
+  wakeTarget.setVisibility(VISIBLE);setVisibility(GONE);syncLaser();
   boolean focused=wakeTarget.requestFocus();
   if(!focused)wakeTarget.post(()->{if(!disposed&&getVisibility()!=VISIBLE)wakeTarget.requestFocus();});
   android.util.Log.i("SharkPlayerUI","overlay hidden; wake focus="+focused);
  }
  boolean handleKey(KeyEvent e){if(disposed)return false;int k=e.getKeyCode();boolean nav=k==19||k==20||k==21||k==22||k==23||k==66||k==82||k==KeyEvent.KEYCODE_BUTTON_A||k==KeyEvent.KEYCODE_NUMPAD_ENTER;if(e.getAction()==KeyEvent.ACTION_UP&&consumeUp){consumeUp=false;return true;}if(e.getAction()!=KeyEvent.ACTION_DOWN)return false;if(infoPanel!=null){if(k==KeyEvent.KEYCODE_BACK||k==KeyEvent.KEYCODE_ESCAPE){dismissInfo(true);consumeUp=true;return true;}return false;}if(k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY||k==KeyEvent.KEYCODE_MEDIA_PAUSE){if(k==KeyEvent.KEYCODE_MEDIA_PAUSE||k==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE&&p.getPlayWhenReady())p.pause();else p.play();show();consumeUp=true;return true;}if(k==KeyEvent.KEYCODE_MEDIA_REWIND||k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD){if(k==KeyEvent.KEYCODE_MEDIA_REWIND&&p.isCommandAvailable(Player.COMMAND_SEEK_BACK))p.seekBack();if(k==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD&&p.isCommandAvailable(Player.COMMAND_SEEK_FORWARD))p.seekForward();show();consumeUp=true;return true;}if(nav&&getVisibility()!=VISIBLE){show();consumeUp=true;return true;}if(nav)arm();if(k==KeyEvent.KEYCODE_DPAD_UP&&!progress.isFocusable()&&getFocusedChild()==bottomBar){View focus=findFocus();if(focus!=null&&focus.getParent()==transportBar){consumeUp=true;return true;}}if(k==82){a.choosePlayerRange(item);consumeUp=true;return true;}return false;}
- void dispose(){if(disposed)return;dismissInfo(false);disposed=true;removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);wakeTarget.setOnKeyListener(null);wakeTarget.setOnClickListener(null);host.removeView(wakeTarget);host.removeView(this);}
+ void dispose(){if(disposed)return;dismissInfo(false);disposed=true;syncLaser();removeCallbacks(timeout);removeCallbacks(ticker);p.removeListener(listener);wakeTarget.setOnKeyListener(null);wakeTarget.setOnClickListener(null);host.removeView(wakeTarget);host.removeView(this);}
  final class Control extends View {
   final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);final int type;
   Control(int t){super(PremiumPlayerOverlay.this.a);type=t;}
-  @Override protected void onDraw(Canvas c){super.onDraw(c);c.save();c.translate(getWidth()/2f,getHeight()*.5f);float scale=Math.min(getWidth(),getHeight())/(type==2?70f:87f);c.scale(scale,scale);pen.setColor(WHITE);pen.setStyle(Paint.Style.FILL);pen.setStrokeCap(Paint.Cap.ROUND);pen.setShader(null);
+  @Override protected void onDraw(Canvas c){super.onDraw(c);c.save();c.translate(getWidth()/2f,getHeight()*.5f);float scale=Math.min(getWidth(),getHeight()*.57f)/(type==2?70f:83f);c.scale(scale,scale);pen.setColor(WHITE);pen.setStyle(Paint.Style.FILL);pen.setStrokeCap(Paint.Cap.ROUND);pen.setShader(null);
    if(type==2){if(p.getPlayWhenReady()){c.drawRect(-12,-15,-3,15,pen);c.drawRect(3,-15,12,15,pen);}else triangle(c,-10,-15,15,0,-10,15);}
    else if(type==0||type==4){if(type==0){c.drawRect(-15,-12,-11,12,pen);triangle(c,12,-13,-10,0,12,13);}else{c.drawRect(11,-12,15,12,pen);triangle(c,-12,-13,10,0,-12,13);}}
    else{boolean back=type==1;pen.setStyle(Paint.Style.STROKE);pen.setStrokeWidth(3);c.drawArc(-15,-15,15,15,back?-50:-130,300,false,pen);pen.setStyle(Paint.Style.FILL);if(back)triangle(c,-13,-17,-3,-22,-3,-9);else triangle(c,13,-17,3,-22,3,-9);pen.setTextSize(12);pen.setTypeface(a.uiMedium);pen.setTextAlign(Paint.Align.CENTER);c.drawText(String.valueOf((back?p.getSeekBackIncrement():p.getSeekForwardIncrement())/1000),0,4,pen);}
@@ -307,8 +354,8 @@ final class PremiumPlayerOverlay extends FrameLayout {
   @Override protected boolean onStateChange(int[] states){boolean next=false;for(int state:states)if(state==android.R.attr.state_focused)next=true;if(next==focused)return false;focused=next;if(!next)unscheduleSelf(tick);invalidateSelf();return true;}
   @Override protected void onBoundsChange(Rect b){
    float w=b.width(),h=b.height();if(w<=0||h<=0){edge=null;return;}
-   float mx=style==2?w*.024f:w*.05f,my=style==2?h*.10f:style==1?h*.075f:h*.21f;
-   r.set(b.left+mx,b.top+my,b.right-mx,b.bottom-my);rad=h*.055f;
+   float mx=style==2?w*.038f:w*.10f,my=style==2?h*.12f:style==1?h*.22f:h*.29f;
+   r.set(b.left+mx,b.top+my,b.right-mx,b.bottom-my);rad=h*.045f;
    inner.set(r);inner.inset(Math.max(1,h*.022f),Math.max(1,h*.022f));
    edge=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xffb2d7ef,0xff507b9f,0xff1b3959,0xff7dacce},new float[]{0,.20f,.72f,1},Shader.TileMode.CLAMP);
    face=new LinearGradient(0,r.top,0,r.bottom,new int[]{0xff335579,0xff1a3357,0xff091b36},new float[]{0,.34f,1},Shader.TileMode.CLAMP);
@@ -322,7 +369,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
    ink.setShader(shine);c.drawRoundRect(inner,rad*.70f,rad*.70f,ink);
    ink.setShader(null);
    if(focused){
-    float phase=FlamePulse.phase(),scale=Math.max(1,r.height()*.052f)/12f;
+    float phase=FlamePulse.phase(),scale=Math.max(.08f,Math.min(r.height()*.009f,Math.min(r.left-getBounds().left,r.top-getBounds().top)/30f));
     // Same warm focus treatment as Home; all gradient and geometry objects cached.
     FlamePulse.draw(c,ink,r,rad,scale,phase);
     if(FlamePulse.animates()){unscheduleSelf(tick);scheduleSelf(tick,SystemClock.uptimeMillis()+40);}

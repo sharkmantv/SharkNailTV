@@ -255,8 +255,8 @@ def check_player():
     # The video and overlay must both cover the full window, including while controls are visible.
     assert f"video surface {sw}x{sh} overlay {sw}x{sh}" in player_events(),("Video resized into preview",player_events()[-2500:])
     x,y,X,Y=bounds(play_control)
-    assert sh*.64<=y<=sh*.73 and sh*.77<=Y<=sh*.84,("Transport control position differs from Design 3",y,Y,sh)
-    assert sw*.09<X-x<sw*.135,("Central key size differs from Design 3",x,X,sw)
+    assert sh*.70<=y<=sh*.76 and sh*.80<=Y<=sh*.87,("Transport row differs from approved compact player",y,Y,sh)
+    assert sw*.045<X-x<sw*.085,("Central key is not compact",x,X,sw)
     assert find(root,"Search titles") is None and find(root,"Search channels") is None,"Unexpected catalogue inside full player"
     # Design 3: timeline above a centered five-key transport row, then options.
     transport=[bounds(find(root,label)) for label in ("Previous","Rewind","Play","Forward","Next")]
@@ -270,9 +270,9 @@ def check_player():
     title=find(root,"Layout fixture 001")
     assert title is not None,"Actual movie title not rendered"
     tx,ty,tX,tY=bounds(title)
-    assert sw*.025<=tx<=sw*.05 and sh*.21<=ty<=sh*.29 and tX<=sw*.57,("Title block misplaced",bounds(title))
-    assert sh*.60<=line[1]<=sh*.66,("Timeline misplaced",line)
-    assert sh*.81<=options[0][1]<=sh*.85 and sh*.89<=options[0][3]<=sh*.94,("Option strip misplaced",options)
+    assert sw*.025<=tx<=sw*.05 and sh*.15<=ty<=sh*.21 and tX<=sw*.57,("Title block misplaced",bounds(title))
+    assert sh*.65<=line[1]<=sh*.71,("Timeline misplaced",line)
+    assert sh*.82<=options[0][1]<=sh*.87 and sh*.91<=options[0][3]<=sh*.95,("Option strip misplaced",options)
     logo=bounds(find(root,"Sky"))
     assert logo[0]<sw*.05 and logo[2]<sw*.27 and logo[3]<sh*.15,("Logo placement differs",logo)
     resolution=find(root,"360p")
@@ -280,6 +280,18 @@ def check_player():
     # A real sweep near the upper-left reference curve (not just a plain solid bar).
     upper=im.crop((round(sw*.03),round(sh*.10),round(sw*.40),round(sh*.18)))
     assert sum(b>180 and g>100 and r<120 for r,g,b in upper.getdata())>upper.width*.4,"Blue light sweep missing"
+    # Paused video gives an equivalent background for laser movement checks.
+    # Crop only the thin bottom edge; the transport pulse cannot satisfy this test.
+    laser_box=(round(sw*.04),options[0][3]-max(5,round(sh*.006)),round(sw*.96),options[0][3])
+    laser_frames=[]
+    for i in range(3):
+        frame=Image.open(io.BytesIO(subprocess.check_output(["adb","exec-out","screencap","-p"]))).convert("RGB")
+        frame.save("premium-player-laser-%s-%d.png"%(args.resolution,i))
+        laser_frames.append(frame.crop(laser_box))
+        time.sleep(.65)
+    delta=max(sum(max(pixel)>22 for pixel in ImageChops.difference(laser_frames[0],other).getdata()) for other in laser_frames[1:])
+    assert delta>sw*.08,("Blue laser did not visibly travel along dock edge",delta)
+    print("PASS: moving blue dock laser in actual paused playback renders",delta,flush=True)
     # Move from the center transport key to Audio, then left to Info on VOD.
     adb("shell","input","dpad","keyevent","20")
     time.sleep(.15)
@@ -305,7 +317,7 @@ def check_player():
     for label in ("Engine:","Stream FPS:","Display:","Auto FPS:","Requested refresh:","Request result:","Supported modes (same resolution):","Dropped frames (reported):","Buffered:","Startup to first frame:","Load requested:","Video decoder ready:","Player ready:","First network byte:","Startup profile:"):
         assert label in combined,("Missing diagnostics",label)
     capture("player-info")
-    assert bounds(close)[1]>=sh*.12 and bounds(close)[3]<=sh*.78,("Close outside panel",bounds(close))
+    assert bounds(close)[1]>=sh*.22 and bounds(close)[3]<=sh*.81,("Close outside panel",bounds(close))
     close=expect("Close")
     assert close.get("clickable")=="true","Close is not actionable"
     before_close=player_events().count("Info dismissed")
