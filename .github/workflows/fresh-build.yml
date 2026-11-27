@@ -7,7 +7,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: shark-sky-mot-5057
+  group: shark-sky-mot-5058
   cancel-in-progress: true
 jobs:
   build:
@@ -221,7 +221,7 @@ jobs:
           "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50057'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50058'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
             unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
@@ -229,7 +229,7 @@ jobs:
           rm -f "$KS"
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.57-candidate-install-untested
+          name: SharkSky-5.0.58-candidate-install-untested
           path: SharkNailTV.apk
           if-no-files-found: error
       - name: Audit packaged resources and duplicate files
@@ -474,32 +474,32 @@ jobs:
             adb install "$RUNNER_TEMP/prior51/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50051'
             adb install -r SharkNailTV.apk
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50057'
-            echo 'PASS: direct in-place upgrade from 5.0.51 to 5.0.57'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50058'
+            echo 'PASS: direct in-place upgrade from 5.0.51 to 5.0.58'
             adb uninstall com.example.xtreamtv || true
             adb install "$RUNNER_TEMP/prior52/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50052'
             adb install -r SharkNailTV.apk
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50057'
-            echo 'PASS: direct in-place upgrade from 5.0.52 to 5.0.57'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50058'
+            echo 'PASS: direct in-place upgrade from 5.0.52 to 5.0.58'
             adb uninstall com.example.xtreamtv || true
             adb install "$RUNNER_TEMP/prior53/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50053'
             adb install -r SharkNailTV.apk
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50057'
-            echo 'PASS: direct in-place upgrade from 5.0.53 to 5.0.57'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50058'
+            echo 'PASS: direct in-place upgrade from 5.0.53 to 5.0.58'
             adb uninstall com.example.xtreamtv || true
             adb install "$RUNNER_TEMP/prior54/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50054'
             adb install -r SharkNailTV.apk
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50057'
-            echo 'PASS: direct in-place upgrade from 5.0.54 to 5.0.57'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50058'
+            echo 'PASS: direct in-place upgrade from 5.0.54 to 5.0.58'
             adb uninstall com.example.xtreamtv || true
             adb install "$RUNNER_TEMP/prior55/SharkNailTV.apk"
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50055'
             adb install -r SharkNailTV.apk
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50057'
-            echo 'PASS: direct in-place upgrade from 5.0.55 to 5.0.57'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50058'
+            echo 'PASS: direct in-place upgrade from 5.0.55 to 5.0.58'
             adb uninstall com.example.xtreamtv
             adb install "$RUNNER_TEMP/previous.apk"
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
@@ -535,7 +535,7 @@ jobs:
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
             adb shell pidof com.example.xtreamtv
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50057'
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50058'
             sha256sum SharkNailTV.apk > manual-install-verified.sha256
             adb exec-out screencap -p > premium-home-preview.png
             python3 ci/check_premium_home.py
@@ -571,14 +571,14 @@ jobs:
         if: ${{ always() && hashFiles('manual-install-verified.sha256') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.57-manual-install-verified-visual-tests-may-be-incomplete
+          name: SharkSky-5.0.58-manual-install-verified-visual-tests-may-be-incomplete
           path: |
             SharkNailTV.apk
             manual-install-verified.sha256
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: SharkSky-5.0.57-signed
+          name: SharkSky-5.0.58-signed
           path: |
             SharkNailTV.apk
             ffmpeg-source.tar.gz
@@ -586,7 +586,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: SharkSky-5.0.57-home-preview
+          name: SharkSky-5.0.58-home-preview
           path: |
             premium-home-preview.png
             premium-home-4k.png
@@ -604,6 +604,7 @@ jobs:
             premium-movies-*.png
             premium-series-*.png
             premium-player-*.png
+            premium-native-player-*.png
             design4-artwork-verification.json
             player-skin-qhd.png
             player-skin-uhd.png
@@ -627,7 +628,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: SharkSky-5.0.57-signed
+          name: SharkSky-5.0.58-signed
       - name: Reverify exact APK and publish OTA
         shell: bash
         run: |
@@ -638,10 +639,10 @@ jobs:
           tools="$ANDROID_HOME/build-tools/36.0.0"
           cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
-          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50057'"
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50058'"
           unzip -tq SharkNailTV.apk
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"; done
-          tag=v5.0.57
+          tag=v5.0.58
           latest=$(gh release view --repo "$GH_REPO" --json tagName --jq .tagName)
           test "$latest" = v5.0.33
           mkdir -p prior
@@ -656,7 +657,7 @@ jobs:
             test "$(gh release view "$tag" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
             test "$(gh release view "$tag" --repo "$GH_REPO" --json targetCommitish --jq .targetCommitish)" = "$GITHUB_SHA"
           else
-            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.57" --notes "Verified emulator upgrade from 5.0.33; AI-enhanced UHD artwork; all main screens rendered and tested at 1080p and 3840x2160, local fixture posters and playback. Real TV and provider testing outstanding."
+            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.58" --notes "Verified emulator upgrade from 5.0.33; AI-enhanced UHD artwork; all main screens rendered and tested at 1080p and 3840x2160, local fixture posters and playback. Real TV and provider testing outstanding."
           fi
           for asset in SharkNailTV.apk update.json ffmpeg-source.tar.gz; do gh release upload "$tag" "$asset" --repo "$GH_REPO" --clobber; done
           gh release view "$tag" --repo "$GH_REPO" --json assets | jq -e --arg digest "sha256:$checksum" --argjson size "$bytes" '(.assets | length)==3 and any(.assets[]; .name=="SharkNailTV.apk" and .size==$size and .digest==$digest) and any(.assets[]; .name=="update.json" and .size>0) and any(.assets[]; .name=="ffmpeg-source.tar.gz" and .size>0)'

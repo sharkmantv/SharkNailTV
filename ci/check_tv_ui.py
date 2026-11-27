@@ -575,6 +575,39 @@ try:
         tap(expect("Home"))
         expect("SHARK SKY")
     print("PASS: TV footer unchanged; mobile Home and catalogue options retained")
+    # Explicit emulator/loopback-only route: same native fallback used after decoder errors.
+    adb("shell","am","force-stop","com.example.xtreamtv")
+    adb("shell","am","start","-W","-n","com.example.xtreamtv/.MainActivity","--ez","ci_native_fixture","true")
+    expect("SHARK SKY")
+    tap(expect("Movies"))
+    expect("Fixture movies")
+    adb("logcat","-c")
+    tap(expect("Layout fixture 001"))
+    deadline=time.monotonic()+45
+    while time.monotonic()<deadline:
+        logs=adb("logcat","-d","-s","SharkPlayback:I","SharkPlayerUI:I")
+        if "Native first frame" in logs and "overlay hidden" in logs: break
+        time.sleep(.5)
+    else: raise AssertionError("Native fallback did not render/hide overlay: "+logs[-3000:])
+    expect("Show playback controls")
+    adb("shell","input","dpad","keyevent","23")
+    expect("Pause")
+    adb("shell","input","dpad","keyevent","23")
+    expect("Play")
+    for label in ("Sky","Play","Audio","Subtitles","Aspect","Picture","Info","Playback progress"):
+        expect(label)
+    capture("native-player")
+    tap(expect("Info"))
+    expect("Close")
+    assert "Android native fallback" in " ".join(n.get("text","") for n in ui().iter("node"))
+    tap(expect("Close"))
+    tap(expect("Play"))
+    deadline=time.monotonic()+15
+    while time.monotonic()<deadline:
+        if "native playWhenReady=true" in adb("logcat","-d","-s","SharkPlayerUI:I"): break
+        time.sleep(.25)
+    else: raise AssertionError("Native premium resume failed")
+    print("PASS: native fallback first frame, identical premium overlay, remote pause, Info and resume",flush=True)
 except Exception:
     try:
         with open(f"failed-ui-{args.resolution}.xml","w") as out:
