@@ -21,6 +21,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+          cache-read-only: false
       - name: Test automatic refresh-rate policy
         run: |
           mkdir -p "$RUNNER_TEMP/refresh-tests"
@@ -47,8 +48,510 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Build and verify matching Media3 RC FFmpeg audio extension
-        run: bash ci/build_ffmpeg_beta.sh
+      - name: Restore exact pinned FFmpeg outputs
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/libs/media3-ffmpeg-1.12.0-rc01.aar
+            app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt
+            app/src/main/assets/licenses/Media3-Apache-2.0.txt
+            app/src/main/assets/licenses/FFmpeg-NOTICE.txt
+            ffmpeg-source.tar.gz
+            ffmpeg-cache.sha256
+          key: ffmpeg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/build_ffmpeg_beta.sh') }}
+      - name: Build matching Media3 RC FFmpeg audio extension on cache miss
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          bash ci/build_ffmpeg_beta.sh
+          sha256sum app/libs/media3-ffmpeg-1.12.0-rc01.aar app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt app/src/main/assets/licenses/Media3-Apache-2.0.txt app/src/main/assets/licenses/FFmpeg-NOTICE.txt ffmpeg-source.tar.gz > ffmpeg-cache.sha256
+      - name: Verify FFmpeg integrity and all native ABIs
+        run: |
+          set -euo pipefail
+          sha256sum -c ffmpeg-cache.sha256
+          tar -tzf ffmpeg-source.tar.gz > /dev/null
+          aar=app/libs/media3-ffmpeg-1.12.0-rc01.aar
+          unzip -tq "$aar"
+          tmp=$(mktemp -d)
+          unzip -q "$aar" -d "$tmp"
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            test -s "$tmp/jni/$abi/libffmpegJNI.so"
+          done
+          for abi in arm64-v8a x86_64; do
+            align=$(readelf -lW "$tmp/jni/$abi/libffmpegJNI.so" | awk '$1=="LOAD"{print $NF}')
+            test -n "$align"
+            if grep -qv '^0x4000
+      - name: Retrieve verified open-source UHD artwork
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=45769076206
+          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json headSha,headBranch | jq -e '.headSha=="d79b2bc6497e5d380f718826e1977f36fb2bc91c" and .headBranch=="artwork/realesrgan-4k"'
+          timeout 95m gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
+          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json conclusion | jq -e '.conclusion=="success"'
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name Sky-Shark-AI-enhanced-4K --dir enhanced-artwork
+          test -s enhanced-artwork/verification.json
+          test -s enhanced-artwork/comparison.png
+      - name: Restore exact enhanced player artwork
+        id: artwork-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/res/drawable-nodpi/design4_player_header.png
+            app/src/main/res/drawable-nodpi/design4_player_dock.png
+            app/src/main/res/drawable-nodpi/design4_player_key.png
+            app/src/main/res/drawable-nodpi/design4_info_panel.png
+            design4-artwork-verification.json
+          key: design4-ai-x2-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/prepare_design4_player.py', 'ci/artwork/sky_shark_design4_reference.png') }}
+      - name: Enhance exact approved player artwork using official Real-ESRGAN on cache miss
+        if: steps.artwork-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/player-art-ai"
+          source "$RUNNER_TEMP/player-art-ai/bin/activate"
+          python -m pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'numpy==1.26.4' 'opencv-python==4.10.0.84' 'Pillow==10.4.0' 'basicsr==1.4.2' 'realesrgan==0.3.0'
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec=importlib.util.find_spec("basicsr")
+          f=Path(spec.origin).parent/"data"/"degradations.py"
+          text=f.read_text()
+          old="from torchvision.transforms.functional_tensor import rgb_to_grayscale"
+          assert old in text
+          f.write_text(text.replace(old,"from torchvision.transforms.functional import rgb_to_grayscale"))
+          PY
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/RealESRGAN_x2plus.pth" https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth
+          python -u ci/prepare_design4_player.py "$RUNNER_TEMP/RealESRGAN_x2plus.pth"
+      - name: Verify cached or newly generated player artwork
+        run: |
+          python - <<'PY'
+          import hashlib, json, struct
+          from pathlib import Path
+          report=json.loads(Path("design4-artwork-verification.json").read_text())
+          expected={"design4_player_header":(3764,208),"design4_player_dock":(3732,454),"design4_player_key":(368,224),"design4_info_panel":(1184,1184)}
+          assert set(report)==set(expected)
+          for name,size in expected.items():
+              b=(Path("app/src/main/res/drawable-nodpi")/(name+".png")).read_bytes()
+              assert b[:8]==b'\x89PNG\r\n\x1a\n'
+              assert struct.unpack('>II',b[16:24])==size
+              assert tuple(report[name]["size"])==size
+              assert hashlib.sha256(b).hexdigest()==report[name]["sha256"]
+              assert 0<=report[name]["mean_delta"]<=12
+          print("PASS: exact player artwork outputs, checksums and dimensions")
+          PY
+      - name: Save verified enhanced player artwork
+        if: steps.artwork-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/res/drawable-nodpi/design4_player_header.png
+            app/src/main/res/drawable-nodpi/design4_player_dock.png
+            app/src/main/res/drawable-nodpi/design4_player_key.png
+            app/src/main/res/drawable-nodpi/design4_info_panel.png
+            design4-artwork-verification.json
+          key: ${{ steps.artwork-cache.outputs.cache-primary-key }}
+      - name: Generate and verify transparent PNG symbols
+        run: |
+          python -m pip install Pillow==11.3.0 fonttools==4.59.2
+          python ci/prepare_sky_font.py
+          python ci/extract_premium_art.py
+          python ci/prepare_holding_art34.py --enhanced-dir enhanced-artwork
+          python ci/prepare_player_art.py
+          echo '8b93640d45757966232af87dafbbc0d4dcfe11e9a05bd9f3143a7c609b6e50ba  app/src/main/res/drawable-nodpi/four_sharks_atlas.png' | sha256sum -c -
+          python -c "from PIL import Image; im=Image.open('app/src/main/res/drawable-nodpi/four_sharks_atlas.png'); assert im.mode=='RGBA' and im.size==(1672,941) and im.getchannel('A').getextrema()==(0,255)"
+      - name: Compile
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Sign and verify
+        env:
+          SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
+          SHARK_KEYSTORE_B64: ${{ secrets.SHARK_KEYSTORE_B64 }}
+          SHARK_KEYSTORE_PASSWORD: ${{ secrets.SHARK_KEYSTORE_PASSWORD }}
+          SHARK_KEY_ALIAS: ${{ secrets.SHARK_KEY_ALIAS }}
+          SHARK_KEY_PASSWORD: ${{ secrets.SHARK_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export KS="$RUNNER_TEMP/shark-key"
+          if [[ -n "$SHARK_SIGNING_BUNDLE" ]]; then
+            SHARK_KEYSTORE_PASSWORD=$(python - <<'PY'
+          import os,json,base64
+          from pathlib import Path
+          b=json.loads(os.environ["SHARK_SIGNING_BUNDLE"].strip(),strict=False)
+          Path(os.environ["KS"]).write_bytes(base64.b64decode(''.join(b["keystore"].split()),validate=True))
+          print(''.join(b["password"].split()))
+          PY
+            )
+            echo "::add-mask::$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEYSTORE_PASSWORD
+            export SHARK_KEY_PASSWORD="$SHARK_KEYSTORE_PASSWORD"
+            export SHARK_KEY_ALIAS=sharknailtv
+          else
+            printf '%s' "${SHARK_KEYSTORE_B64:?Missing signing key}" | base64 -d > "$KS"
+          fi
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$KS" --ks-key-alias "$SHARK_KEY_ALIAS" --ks-pass env:SHARK_KEYSTORE_PASSWORD --key-pass env:SHARK_KEY_PASSWORD --out SharkNailTV.apk "$RUNNER_TEMP/aligned.apk"
+          cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50051'"
+          unzip -tq SharkNailTV.apk
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"
+          done
+          rm -f "$KS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkSky-5.0.51-candidate-install-untested
+          path: SharkNailTV.apk
+          if-no-files-found: error
+      - name: Fetch last published APK for upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v5.0.26 --repo "$GITHUB_REPOSITORY" --pattern SharkNailTV.apk --output "$RUNNER_TEMP/previous.apk"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          previous_cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/previous.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$previous_cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/previous.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50026'"
+      - name: Retrieve published 5.0.33 APK for upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior33"
+          gh release download v5.0.33 --repo "$GITHUB_REPOSITORY" --pattern SharkNailTV.apk --output "$RUNNER_TEMP/prior33/SharkNailTV.apk"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior33/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior33/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50033'"
+      - name: Retrieve manually installed 5.0.34 APK for upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior34"
+          gh run download 45785192289 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.34-candidate-install-untested --dir "$RUNNER_TEMP/prior34"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior34/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior34/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50034'"
+          unzip -tq "$RUNNER_TEMP/prior34/SharkNailTV.apk"
+      - name: Retrieve verified 5.0.35 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior35"
+          gh run download 45808098868 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.35-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior35"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior35/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior35/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50035'"
+          (cd "$RUNNER_TEMP/prior35" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve verified 5.0.36 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior36"
+          gh run download 45818509588 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.36-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior36"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior36/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior36/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50036'"
+          (cd "$RUNNER_TEMP/prior36" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve verified 5.0.37 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior37"
+          gh run download 45825801323 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.37-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior37"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior37/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior37/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50037'"
+          (cd "$RUNNER_TEMP/prior37" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve verified 5.0.39 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior39"
+          gh run download 45847794349 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.39-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior39"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior39/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior39/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50039'"
+          (cd "$RUNNER_TEMP/prior39" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve installed 5.0.44 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior44"
+          gh run download 45871696603 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.44-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior44"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior44/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior44/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50044'"
+          (cd "$RUNNER_TEMP/prior44" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve installed 5.0.45 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior45"
+          gh run download 45888447582 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.45-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior45"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior45/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior45/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50045'"
+          (cd "$RUNNER_TEMP/prior45" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve installed 5.0.46 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior46"
+          gh run download 45908602075 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.46-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior46"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior46/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior46/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50046'"
+          (cd "$RUNNER_TEMP/prior46" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve installed 5.0.47 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior47"
+          gh run download 45915024340 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.47-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior47"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior47/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior47/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50047'"
+          (cd "$RUNNER_TEMP/prior47" && sha256sum -c manual-install-verified.sha256)
+      - name: Retrieve installed 5.0.48 for actual upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior48"
+          gh run download 45948143655 --repo "$GITHUB_REPOSITORY" --name SharkSky-5.0.48-manual-install-verified-visual-tests-may-be-incomplete --dir "$RUNNER_TEMP/prior48"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/prior48/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging "$RUNNER_TEMP/prior48/SharkNailTV.apk" | grep -F "package: name='com.example.xtreamtv' versionCode='50048'"
+          (cd "$RUNNER_TEMP/prior48" && sha256sum -c manual-install-verified.sha256)
+      - name: Create local playback test fixture
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 180 -c:v libx264 -preset veryfast -pix_fmt yuv420p -b:v 500k -c:a aac -movflags +faststart fixture.mp4
+          ffmpeg -hide_banner -loglevel error -y -i fixture.mp4 -c copy -f mpegts fixture.ts
+          test -s fixture.mp4 && test -s fixture.ts
+      - name: Prepare emulator acceleration
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod a+rw /dev/kvm
+          fi
+      - name: Emulator smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_I_WANT_MY_TCG: "yes"
+        with:
+          api-level: 35
+          emulator-boot-timeout: 1200
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          ram-size: 3072M
+          heap-size: 512M
+          pre-emulator-launch-script: python3 ci/configure_uhd_emulator.py
+          script: |
+            set -e
+            adb shell settings put secure immersive_mode_confirmations confirmed
+            adb shell wm size 1080x1920
+            adb shell wm density 320
+            adb shell input keyevent KEYCODE_WAKEUP
+            adb shell wm dismiss-keyguard
+            adb install "$RUNNER_TEMP/previous.apk"
+            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            adb shell pidof com.example.xtreamtv
+            adb install -r "$RUNNER_TEMP/prior33/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50033'
+            adb install -r "$RUNNER_TEMP/prior34/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50034'
+            adb install -r "$RUNNER_TEMP/prior35/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50035'
+            adb install -r "$RUNNER_TEMP/prior36/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50036'
+            adb install -r "$RUNNER_TEMP/prior37/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50037'
+            adb install -r "$RUNNER_TEMP/prior39/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50039'
+            adb install -r "$RUNNER_TEMP/prior44/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50044'
+            adb install -r "$RUNNER_TEMP/prior45/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50045'
+            adb install -r "$RUNNER_TEMP/prior46/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50046'
+            adb install -r "$RUNNER_TEMP/prior47/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50047'
+            adb install -r "$RUNNER_TEMP/prior48/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50048'
+            adb install -r SharkNailTV.apk
+            adb shell am force-stop com.google.android.apps.nexuslauncher
+            adb shell am force-stop com.example.xtreamtv
+            adb logcat -c
+            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            sleep 5
+            adb shell pidof com.example.xtreamtv
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50051'
+            sha256sum SharkNailTV.apk > manual-install-verified.sha256
+            adb exec-out screencap -p > premium-home-preview.png
+            python3 ci/check_premium_home.py
+            adb exec-out screencap -p > premium-home-preview.png
+            python3 ci/check_rendered_art.py
+            adb logcat -d -s SharkUHD:I | grep -F 'Full resolution 3840x2160 artwork and all four card layers decoded'
+            adb shell wm size reset
+            adb shell wm size
+            adb shell am force-stop com.example.xtreamtv
+            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            sleep 4
+            python3 ci/check_premium_home.py
+            adb exec-out screencap -p > premium-home-4k.png
+            python3 -c "from PIL import Image; im=Image.open('premium-home-4k.png'); assert im.size==(3840,2160),im.size; print('PASS: actual 3840x2160 emulator screenshot')"
+            adb shell wm size 1080x1920
+            adb shell am force-stop com.example.xtreamtv
+            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            sleep 3
+            python3 ci/check_tv_ui.py --resolution 1080p --fixture-video fixture.mp4
+            adb shell wm size reset
+            adb shell wm density 640
+            adb shell am force-stop com.example.xtreamtv
+            adb shell am start -W -n com.example.xtreamtv/.MainActivity
+            sleep 4
+            python3 ci/check_premium_home.py
+            adb exec-out screencap -p > premium-home-scaled-4k.png
+            python3 -c "from PIL import Image; assert Image.open('premium-home-scaled-4k.png').size==(3840,2160)"
+            python3 ci/check_tv_ui.py --resolution 4k --fixture-video fixture.mp4 --saved-login
+            python3 -c "from PIL import Image; from pathlib import Path; assert all(Path(f'premium-{s}-{r}.png').is_file() and Image.open(f'premium-{s}-{r}.png').size==size for s in ('settings','movies','series','live','player') for r,size in (('1080p',(1920,1080)),('4k',(3840,2160)))); print('PASS: all main screens verified at 1080p and UHD')"
+            adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/shark-crash.log"
+            if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/shark-crash.log"; then exit 1; fi
+      - name: Upload installation-verified manual test APK
+        if: ${{ always() && hashFiles('manual-install-verified.sha256') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SharkSky-5.0.51-manual-install-verified-visual-tests-may-be-incomplete
+          path: |
+            SharkNailTV.apk
+            manual-install-verified.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SharkSky-5.0.51-signed
+          path: |
+            SharkNailTV.apk
+            ffmpeg-source.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SharkSky-5.0.51-home-preview
+          path: |
+            premium-home-preview.png
+            premium-home-4k.png
+            enhanced-artwork/comparison.png
+            enhanced-artwork/verification.json
+            premium-focus-*.png
+            premium-home-scaled-4k.png
+            premium-settings-*.png
+            premium-live-*.png
+            live-startup-benchmark.json
+            premium-movies-*.png
+            premium-series-*.png
+            premium-player-*.png
+            design4-artwork-verification.json
+            failed-ui*.xml
+            failed-ui*.png
+          if-no-files-found: ignore
+  publish:
+    needs: build
+    # Manual APK delivery only until the owner explicitly re-enables OTA.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: shark-sky-verified-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SharkSky-5.0.51-signed
+      - name: Reverify exact APK and publish OTA
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          cert=$("$tools/apksigner" verify --print-certs SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
+          "$tools/aapt" dump badging SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50051'"
+          unzip -tq SharkNailTV.apk
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do unzip -l SharkNailTV.apk | grep -F "lib/$abi/libffmpegJNI.so"; done
+          tag=v5.0.51
+          latest=$(gh release view --repo "$GH_REPO" --json tagName --jq .tagName)
+          test "$latest" = v5.0.33
+          mkdir -p prior
+          gh release download "$latest" --repo "$GH_REPO" --pattern SharkNailTV.apk --dir prior
+          priorcert=$("$tools/apksigner" verify --print-certs prior/SharkNailTV.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$cert" = "$priorcert"
+          "$tools/aapt" dump badging prior/SharkNailTV.apk | grep -F "package: name='com.example.xtreamtv' versionCode='50033'"
+          checksum=$(sha256sum SharkNailTV.apk | cut -d' ' -f1)
+          bytes=$(stat -c %s SharkNailTV.apk)
+          jq -n --arg tag "$tag" --arg link "https://github.com/$GH_REPO/releases/download/$tag/SharkNailTV.apk" --arg digest "sha256:$checksum" --argjson size "$bytes" '{tag_name:$tag,assets:[{name:"SharkNailTV.apk",browser_download_url:$link,size:$size,digest:$digest}]}' > update.json
+          if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+            test "$(gh release view "$tag" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
+            test "$(gh release view "$tag" --repo "$GH_REPO" --json targetCommitish --jq .targetCommitish)" = "$GITHUB_SHA"
+          else
+            gh release create "$tag" --draft --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Shark Sky 5.0.51" --notes "Verified emulator upgrade from 5.0.33; AI-enhanced UHD artwork; all main screens rendered and tested at 1080p and 3840x2160, local fixture posters and playback. Real TV and provider testing outstanding."
+          fi
+          for asset in SharkNailTV.apk update.json ffmpeg-source.tar.gz; do gh release upload "$tag" "$asset" --repo "$GH_REPO" --clobber; done
+          gh release view "$tag" --repo "$GH_REPO" --json assets | jq -e --arg digest "sha256:$checksum" --argjson size "$bytes" '(.assets | length)==3 and any(.assets[]; .name=="SharkNailTV.apk" and .size==$size and .digest==$digest) and any(.assets[]; .name=="update.json" and .size>0) and any(.assets[]; .name=="ffmpeg-source.tar.gz" and .size>0)'
+          gh release edit "$tag" --repo "$GH_REPO" --draft=false --latest
+          gh release view "$tag" --repo "$GH_REPO" --json tagName,isDraft,assets | jq -e --arg tag "$tag" '.tagName==$tag and .isDraft==false and any(.assets[]; .name=="SharkNailTV.apk") and any(.assets[]; .name=="update.json")'
+
+ <<<"$align"; then exit 1; fi
+          done
+          rm -rf "$tmp"
+      - name: Save verified FFmpeg outputs
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/libs/media3-ffmpeg-1.12.0-rc01.aar
+            app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt
+            app/src/main/assets/licenses/Media3-Apache-2.0.txt
+            app/src/main/assets/licenses/FFmpeg-NOTICE.txt
+            ffmpeg-source.tar.gz
+            ffmpeg-cache.sha256
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
       - name: Retrieve verified open-source UHD artwork
         env:
           GH_TOKEN: ${{ github.token }}
