@@ -132,10 +132,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run view 46156801867 --repo "$GITHUB_REPOSITORY" --json conclusion,headSha | jq -e '.conclusion=="success" and .headSha=="75ea4b20f00cceac4aadb6244a6976294364249d"'
-          gh run download 46156801867 --repo "$GITHUB_REPOSITORY" --name Sky-Shark-5.1.13-quick-install-verified --dir "$RUNNER_TEMP/prior513"
-          (cd "$RUNNER_TEMP/prior513" && sha256sum -c quick-install-verified.sha256)
-          cert=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/prior513/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          gh run view 46158427714 --repo "$GITHUB_REPOSITORY" --json conclusion,headSha | jq -e '.conclusion=="success" and .headSha=="2bef6cf2259ffbc03b93af98f5e0c51c9b8d5a53"'
+          gh run download 46158427714 --repo "$GITHUB_REPOSITORY" --name Sky-Shark-5.1.14-quick-install-verified --dir "$RUNNER_TEMP/prior514"
+          (cd "$RUNNER_TEMP/prior514" && sha256sum -c quick-install-verified.sha256)
+          cert=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/prior514/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
       - name: Enable emulator acceleration
         run: if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
@@ -151,8 +151,8 @@ jobs:
           disable-animations: true
           script: |
             set -e
-            adb install "$RUNNER_TEMP/prior513/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50113 '
+            adb install "$RUNNER_TEMP/prior514/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50114 '
             adb install -r SharkNailTV.apk
             adb shell dumpsys package com.example.xtreamtv | grep -F "versionCode=$VERSION_CODE "
             adb logcat -c

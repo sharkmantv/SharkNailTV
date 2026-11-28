@@ -670,7 +670,8 @@ public class MainActivity extends Activity {
   clearSurfaceHint();matchProbe=null;requestedFps=requestedHz=-1;refreshRequestedAt=-1;refreshRequest="Not requested";
   if(restore&&matchedWindow){matchedWindow=false;applyDisplayMode();}
  }
- boolean refreshInCurrentView(){return full||(page.equals("Live TV")&&activeSdrPath==0);}
+ // Live preview never requests a content refresh-rate switch, including Force SDR.
+ boolean refreshInCurrentView(){return full;}
  void scheduleRefreshMatch(ExoPlayer p,FrameRateSample sample,int attempts){
   if(!refreshInCurrentView()||stopped||!autoRefresh()||sample==null||playbackProbe==null)return;
   final PlaybackProbe probe=playbackProbe;
@@ -688,6 +689,7 @@ public class MainActivity extends Activity {
   };ui.postDelayed(matchTask,attempts==0?1500:1000);
  }
  void requestRefresh(PlaybackProbe probe,float fps){
+  if(!full||stopped||!autoRefresh()||probe!=playbackProbe)return;
   android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode current=d.getMode();
   ArrayList<android.view.Display.Mode> modes=new ArrayList<>();
   for(android.view.Display.Mode mode:d.getSupportedModes())if(mode.getPhysicalWidth()==current.getPhysicalWidth()&&mode.getPhysicalHeight()==current.getPhysicalHeight())modes.add(mode);
@@ -1555,13 +1557,24 @@ public class MainActivity extends Activity {
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
   video.setFocusable(true);video.setUseController(true);video.setControllerAutoShow(true);
   player.setVolume(1f);if(!player.getPlayWhenReady())player.play();video.requestFocus();if(playbackItem!=null)addRangeButton(liveSurfaceHost,playbackItem,video);
-  if(autoRefresh())scheduleRefreshMatch(player,frameRateSample,0);
+  if(autoRefresh()&&playbackProbe!=null){
+   // The identical live session already knows its FPS: request the mode as fullscreen opens.
+   Format known=player.getVideoFormat();float fps=known==null?-1:known.frameRate;
+   if(!RefreshMatch.valid(fps))fps=playbackProbe.sourceFps;
+   if(RefreshMatch.valid(fps)){
+    android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode current=d.getMode();
+    ArrayList<Float> available=new ArrayList<>();for(android.view.Display.Mode mode:d.getSupportedModes())if(mode.getPhysicalWidth()==current.getPhysicalWidth()&&mode.getPhysicalHeight()==current.getPhysicalHeight())available.add(mode.getRefreshRate());
+    float[] rates=new float[available.size()];for(int n=0;n<rates.length;n++)rates[n]=available.get(n);
+    if(RefreshMatch.select(current.getRefreshRate(),fps,rates)>=0||RefreshMatch.compatible(current.getRefreshRate(),fps))requestRefresh(playbackProbe,fps);
+    else scheduleRefreshMatch(player,frameRateSample,0);
+   }else scheduleRefreshMatch(player,frameRateSample,0);
+  }
   android.util.Log.i("SharkPlayback","Live fullscreen: same player, output target ready for fullscreen");return true;
  }
  boolean exitLiveFullscreen(){
   if(liveSurfaceHost==null||player==null||video==null||preview==null)return false;
-  // Keep the matched mode across SDR preview/fullscreen transitions to avoid a display reset.
-  if(activeSdrPath!=0||!autoRefresh())clearRefreshMatch(true);removeRangeButton();video.hideController();video.setUseController(false);video.setFocusable(false);
+  // Return to the normal system/manual display mode when leaving fullscreen, and cancel queued matches.
+  clearRefreshMatch(true);removeRangeButton();video.hideController();video.setUseController(false);video.setFocusable(false);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
   player.setVolume(0f);full=false;if(regionalGuide!=null)regionalGuide.setBusy(stopped);if(playbackProbe!=null)playbackProbe.health.reset();status=liveReturnStatus;liveReturnStatus=null;
   switchLiveSdrOutput(false);if(playbackProbe!=null)playbackProbe.resetModeStats();positionLiveSurface();if(highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(selected!=null&&epg!=null)loadEpg(selected);
