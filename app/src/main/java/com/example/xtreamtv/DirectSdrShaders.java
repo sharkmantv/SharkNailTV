@@ -8,6 +8,9 @@ final class DirectSdrShaders {
  static String pqToSdr(){return HDR
   .replace("uniform int uInputColorTransfer;", "const int uInputColorTransfer = 6;")
   .replace("uniform int uApplyHdrToSdrToneMapping;", "const int uApplyHdrToSdrToneMapping = 1;")
-  .replace("uniform int uOutputColorTransfer;", "const int uOutputColorTransfer = 10;");}
+  .replace("uniform int uOutputColorTransfer;", "const int uOutputColorTransfer = 10;")
+  // The direct graph always supplies identity. Eliminate the redundant per-pixel matrix multiply.
+  .replace("uniform mat4 uRgbMatrix;", "const mat4 uRgbMatrix = mat4(1.0);")
+  .replace("vec4 transformedColors = uRgbMatrix * opticalColor;", "vec4 transformedColors = opticalColor;");}
  static final String SDR="#version 300 es\n#extension GL_OES_EGL_image_external_essl3 : require\nprecision mediump float;\nuniform samplerExternalOES uTexSampler;\nin vec2 vTexSamplingCoord;\nout vec4 outColor;\nvoid main(){outColor=texture(uTexSampler,vTexSamplingCoord);}";
 }

@@ -55,7 +55,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private GlProgram hdrProgram,pqProgram,sdrProgram,boundProgram;
  private boolean pqSpecializationUnavailable;
  private boolean drawStateDirty=true,needsClear=true;
- private int textureMatrixLocation=-1;
+ private int textureMatrixLocation=-1,quadVbo;
  private final float[] boundTextureMatrix=new float[16];
  private int tex,width=1,height=1,transfer=C.COLOR_TRANSFER_SDR;
  private float pixelAspect=1;
@@ -92,6 +92,21 @@ final class DirectSdrVideoGraph implements VideoGraph {
    context=GlUtil.createEglContext(EGL14.EGL_NO_CONTEXT,display,3,GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888);
    placeholder=GlUtil.createFocusedPlaceholderEglSurface(context,display);
    tex=GlUtil.createExternalTexture();texture=new SurfaceTexture(tex);input=new Surface(texture);
+   int[] buffer=new int[1];
+   try{
+    GLES20.glGenBuffers(1,buffer,0);quadVbo=buffer[0];
+    if(quadVbo!=0){
+     java.nio.FloatBuffer data=java.nio.ByteBuffer.allocateDirect(QUAD.length*4).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer();
+     data.put(QUAD).position(0);
+     GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER,quadVbo);
+     GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER,QUAD.length*4,data,GLES20.GL_STATIC_DRAW);
+     GlUtil.checkGlError();
+    }
+   }catch(Exception e){
+    if(quadVbo!=0)GLES20.glDeleteBuffers(1,new int[]{quadVbo},0);
+    quadVbo=0;
+    android.util.Log.w("SharkPlayback","Static vertex buffer unavailable; using client geometry",e);
+   }finally{GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER,0);}
    texture.setOnFrameAvailableListener(t->onFrame(),gl);
    ready=true;
   });}catch(Exception e){release();throw new VideoFrameProcessingException(e);}
@@ -136,7 +151,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
     }
     if((transfer!=C.COLOR_TRANSFER_ST2084||pqProgram==null)&&hdrProgram==null){hdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.HDR);hdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
    }else if(sdrProgram==null){sdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.SDR);sdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
-   shaderName.accept(transfer==C.COLOR_TRANSFER_ST2084&&pqProgram!=null?"PQ specialized":hdr?"Standard HDR":"SDR pass-through");
+   shaderName.accept(transfer==C.COLOR_TRANSFER_ST2084&&pqProgram!=null?"PQ specialized / identity elided":hdr?"Standard HDR":"SDR pass-through");
    drawStateDirty=true;
    if(width<=0||height<=0)throw new IllegalArgumentException("Invalid dimensions");
    this.offset=offsetUs;texture.setDefaultBufferSize(width,height);ended=false;configured=true;
@@ -187,7 +202,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
      p.setFloatsUniform("uTexTransformationMatrix",texMatrix);
      p.setFloatsUniform("uTransformationMatrix",position);
      if(hdr){
-      p.setFloatsUniform("uRgbMatrix",identity);
+      if(!specialized)p.setFloatsUniform("uRgbMatrix",identity);
       p.setFloatsUniform("uYuvToRgbColorTransform",fullRange?FULL:LIMITED);
       if(!specialized){
        p.setIntUniform("uInputColorTransfer",transfer);
@@ -196,6 +211,13 @@ final class DirectSdrVideoGraph implements VideoGraph {
       }
      }
      p.bindAttributesAndUniforms();
+     if(quadVbo!=0){
+      int location=p.getAttributeArrayLocationAndEnable("aFramePosition");
+      GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER,quadVbo);
+      GLES20.glVertexAttribPointer(location,4,GLES20.GL_FLOAT,false,0,0);
+      GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER,0);
+      GlUtil.checkGlError();
+     }
      textureMatrixLocation=p.getUniformLocation("uTexTransformationMatrix");
      System.arraycopy(texMatrix,0,boundTextureMatrix,0,16);
      boundProgram=p;drawStateDirty=false;
@@ -240,6 +262,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
    if(display!=null&&context!=null&&placeholder!=null)focusPlaceholder();
    if(input!=null)input.release();if(texture!=null){texture.setOnFrameAvailableListener(null);texture.release();}
    if(hdrProgram!=null)hdrProgram.delete();if(pqProgram!=null)pqProgram.delete();if(sdrProgram!=null)sdrProgram.delete();
+   if(quadVbo!=0)GLES20.glDeleteBuffers(1,new int[]{quadVbo},0);
    if(tex!=0)GlUtil.deleteTexture(tex);
    if(window!=null)GlUtil.destroyEglSurface(display,window);
    if(placeholder!=null)GlUtil.destroyEglSurface(display,placeholder);
