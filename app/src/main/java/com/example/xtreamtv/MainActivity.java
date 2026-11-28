@@ -94,7 +94,7 @@ public class MainActivity extends Activity {
  }
  static final class PlaybackProbe implements TransferListener {
   final FrameCadence graphInput=new FrameCadence(), graphReady=new FrameCadence(), graphSubmitted=new FrameCadence();
-  volatile long graphOutputDrops;
+  volatile long graphOutputDrops; volatile boolean directGraph;
   final long started;final boolean fast;final AtomicLong opening=new AtomicLong(-1),firstByte=new AtomicLong(-1),lastByte=new AtomicLong(-1),lastFrame=new AtomicLong(-1);
   final PlaybackHealth health=new PlaybackHealth(); String recoveryReason="None"; volatile int outputTransfer=-1; volatile boolean outputKnown=false; boolean sdrRejected; boolean headroomRequested; volatile float sourceFps=-1; volatile long graphFrames,graphFirstNs,graphLastNs; volatile int sourceTransfer=-1; volatile int decodedTransfer=-1; Item sourceItem; boolean alternate;
   int rebuffers;long stallStart=-1,stallTotal;
@@ -355,7 +355,7 @@ public class MainActivity extends Activity {
  String sdrStatus(Format f){
   PlaybackProbe probe=playbackProbe;
 
-  if(activeSdrPath==0&&probe!=null)return "ExoPlayer BT.709 SDR requested; packed texture + frame lookahead (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
+  if(activeSdrPath==0&&probe!=null)return "ExoPlayer BT.709 SDR requested; "+(probe.directGraph?"direct single pass":"reference graph")+" (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
   if(probe!=null&&probe.outputKnown)return "Decoder output "+transferName(probe.outputTransfer)+" (native surface)";
   if(f!=null&&f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR&&!isHdr(f))return "SDR source; output unverified";
 
@@ -1033,7 +1033,7 @@ public class MainActivity extends Activity {
   }else host.addView(v,new FrameLayout.LayoutParams(-1,-1));
   final String range=rangeFor(page.equals("Live TV"));
   final boolean fast=!stock&&page.equals("Live TV");
-  final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?liveStartupBufferMs():-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);playbackProbe=probe;
+  final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?(sdrPath==0?Math.max(1000,liveStartupBufferMs()):liveStartupBufferMs()):-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);playbackProbe=probe;
   final boolean gpu=sdrPath==0&&!stock;
   DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
    @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
@@ -1045,7 +1045,7 @@ public class MainActivity extends Activity {
      @Override protected androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper createPlaybackVideoGraphWrapper(Context context,androidx.media3.exoplayer.video.VideoFrameReleaseControl control){
       androidx.media3.effect.DefaultVideoFrameProcessor.Factory processor=new androidx.media3.effect.DefaultVideoFrameProcessor.Factory.Builder()
        .setSdrWorkingColorSpace(androidx.media3.effect.DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_ORIGINAL)
-       .setGlObjectsProvider(new SdrPackedGlProvider()).setEnableReplayableCache(true).build();
+       .setEnableReplayableCache(false).build();
       androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper graph=new androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper.Builder(context,control)
        .setVideoGraphFactory(new androidx.media3.common.VideoGraph.Factory(){
         @Override public boolean supportsMultipleInputs(){return false;}
@@ -1057,6 +1057,10 @@ public class MainActivity extends Activity {
           @Override public void onEnded(long pts){downstream.onEnded(pts);}
           @Override public void onError(androidx.media3.common.VideoFrameProcessingException e){downstream.onError(e);}
          };
+         if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
+          probe.directGraph=true;
+          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++);
+         }
          return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
           @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}
           @Override public void renderOutputFrame(long timeNs){super.renderOutputFrame(timeNs);if(timeNs==androidx.media3.common.VideoFrameProcessor.DROP_OUTPUT_FRAME)probe.graphOutputDrops++;else probe.graphSubmitted.record();}
