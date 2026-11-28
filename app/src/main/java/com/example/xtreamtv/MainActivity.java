@@ -98,7 +98,7 @@ public class MainActivity extends Activity {
   String label(){long n=count;return n==0?"collecting":String.format(Locale.US,"%.2f ms avg / %.2f max",totalNs/1e6/n,maxNs/1e6);}
  }
  static final class PlaybackProbe implements TransferListener {
-  final StageTiming directLatch=new StageTiming(),directDraw=new StageTiming(),directSwap=new StageTiming(),directLate=new StageTiming();
+  final StageTiming directLatch=new StageTiming(),directDraw=new StageTiming(),directSwap=new StageTiming(),directLate=new StageTiming(),directQueue=new StageTiming();
   final FrameCadence graphInput=new FrameCadence(), graphReady=new FrameCadence(), graphSubmitted=new FrameCadence();
   volatile long graphOutputDrops; volatile boolean directGraph;
   final long started;final boolean fast;final AtomicLong opening=new AtomicLong(-1),firstByte=new AtomicLong(-1),lastByte=new AtomicLong(-1),lastFrame=new AtomicLong(-1);
@@ -382,7 +382,7 @@ public class MainActivity extends Activity {
   return playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
    +(playbackProbe!=null&&playbackProbe.alternate?"\nSDR alternative feed: "+playbackProbe.sourceItem.name:"")
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
-   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count:""):"")
+   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label():""):"")
    +"\nDropped frames (reported): "+droppedVideoFrames+(activeSdrPath==0&&playbackProbe!=null?"\nGPU frame callbacks: "+playbackProbe.graphFrames+"; "+(playbackProbe.graphFrames>1&&playbackProbe.graphLastNs>playbackProbe.graphFirstNs?String.format(Locale.US,"%.2f callbacks/s",(playbackProbe.graphFrames-1)*1e9/(playbackProbe.graphLastNs-playbackProbe.graphFirstNs)):"collecting"):"")
    +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
    +"\nVideo codec: "+(f==null?"Unknown":String.valueOf(f.sampleMimeType))
@@ -1065,7 +1065,7 @@ public class MainActivity extends Activity {
          };
          if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
           probe.directGraph=true;
-          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record);
+          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record);
          }
          return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
           @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}

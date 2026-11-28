@@ -42,7 +42,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final Listener listener;
  private final Executor callback;
  private final Runnable inputCounter,submitCounter,dropCounter;
- private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming,lateTiming;
+ private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming,lateTiming,queueTiming;
  private final AtomicBoolean pending=new AtomicBoolean();
  private final HandlerThread thread=new HandlerThread("SharkDirectSDR",android.os.Process.THREAD_PRIORITY_DISPLAY);
  private Handler gl;
@@ -63,8 +63,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private volatile boolean ready,released,failed,zero,configured;
  private volatile int generation;
  private SurfaceInfo output;
- DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming){
-  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;Matrix.setIdentityM(identity,0);
+ DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming){
+  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;Matrix.setIdentityM(identity,0);
  }
  private interface Task{void run()throws Exception;}
  private void sync(Task task)throws Exception{
@@ -86,6 +86,10 @@ final class DirectSdrVideoGraph implements VideoGraph {
  @Override public void initialize()throws VideoFrameProcessingException{
   thread.start();gl=new Handler(thread.getLooper());
   try{sync(()->{
+   // A dedicated, short-lived display worker; leave the existing priority intact if
+   // this device disallows the stronger scheduling hint. No realtime policy.
+   try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY);}
+   catch(SecurityException|IllegalArgumentException ignored){}
    display=GlUtil.getDefaultEglDisplay();
    context=GlUtil.createEglContext(EGL14.EGL_NO_CONTEXT,display,3,GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888);
    placeholder=GlUtil.createFocusedPlaceholderEglSurface(context,display);
@@ -151,12 +155,13 @@ final class DirectSdrVideoGraph implements VideoGraph {
  }
  @Override public void renderOutputFrame(long ns){
   final int token=generation;
+  final long queuedAt=System.nanoTime();
   post(()->{
    if(token!=generation)return;
    if(!latched){throw new IllegalStateException("No latched decoder frame");}
    if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();}
    else if(window!=null&&output!=null){
-    long drawStart=System.nanoTime();focusWindow();
+    long drawStart=System.nanoTime();queueTiming.accept(drawStart-queuedAt);focusWindow();
     boolean hdr=transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG;
     GlProgram p=hdr?hdrProgram:sdrProgram;
     if(drawStateDirty||boundProgram!=p){
