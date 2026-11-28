@@ -404,7 +404,17 @@ public class MainActivity extends Activity {
   return "Decoder output unknown; SDR not verified";
  }
  String directPlaybackSummary(PlaybackProbe q,Format f,float rate,float hz){
-  if(q==null||!q.directGraph)return "";
+  if(q==null)return "";
+  if(!q.directGraph){
+   if(full||activeSdrPath!=0)return "";
+   return "SDR preview • "+BuildConfig.VERSION_NAME+" • reference graph\n"
+    +String.format(Locale.US,"%s | %.2f fps / %.2f Hz\n",f==null?"Unknown size":f.width+"x"+f.height,rate,hz)
+    +"Input: "+q.graphInput.label()+"\nReady: "+q.graphReady.label()+"\n"
+    +"Render requests: "+q.graphSubmitted.label()+"\n"
+    +"Graph/reported drops: "+q.graphOutputDrops+"/"+droppedVideoFrames+"\n"
+    +"Decoded gaps: "+q.decodedPts.steadyLabel()+"\n"
+    +"Render requests are not measured surface swaps.\nPanel timing unverified • Details below\n\n";
+  }
   String[] lines=q.directGraphics.split("\\n");
   String fence="GPU fence: collecting",lead="Lead: collecting",pre="Pre-draw: collecting";
   for(String line:lines){
@@ -435,7 +445,7 @@ public class MainActivity extends Activity {
   return directPlaybackSummary(playbackProbe,f,rate,hz)+playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
    +(playbackProbe!=null&&playbackProbe.alternate?"\nSDR alternative feed: "+playbackProbe.sourceItem.name:"")
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
-   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label()+"\nSDR shader: "+playbackProbe.directShader+"\nGL draw API CPU: "+playbackProbe.directDrawCall.steadyLabel()+"\nEGL timestamp API CPU: "+playbackProbe.directPresentCall.steadyLabel()+"\n"+playbackProbe.directGraphics+"\nDecoded timestamp intervals: "+playbackProbe.decodedPts.label()+"\nRequested release intervals: "+playbackProbe.targetPts.label()+"\nSurface submission intervals (not panel): "+playbackProbe.submittedIntervals.label()+"\nAfter first 5 s — draw: "+playbackProbe.directDraw.steadyLabel()+"\nSteady lateness: "+playbackProbe.directLate.steadyLabel()+"\nSteady decoded intervals: "+playbackProbe.decodedPts.steadyLabel()+"\nSteady release intervals: "+playbackProbe.targetPts.steadyLabel()+"\nSteady submission intervals: "+playbackProbe.submittedIntervals.steadyLabel():""):"")
+   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+(playbackProbe.directGraph?"\nSurface submissions: ":"\nRender requests (not measured swaps): ")+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label()+"\nSDR shader: "+playbackProbe.directShader+"\nGL draw API CPU: "+playbackProbe.directDrawCall.steadyLabel()+"\nEGL timestamp API CPU: "+playbackProbe.directPresentCall.steadyLabel()+"\n"+playbackProbe.directGraphics+"\nDecoded timestamp intervals: "+playbackProbe.decodedPts.label()+"\nRequested release intervals: "+playbackProbe.targetPts.label()+"\nSurface submission intervals (not panel): "+playbackProbe.submittedIntervals.label()+"\nAfter first 5 s — draw: "+playbackProbe.directDraw.steadyLabel()+"\nSteady lateness: "+playbackProbe.directLate.steadyLabel()+"\nSteady decoded intervals: "+playbackProbe.decodedPts.steadyLabel()+"\nSteady release intervals: "+playbackProbe.targetPts.steadyLabel()+"\nSteady submission intervals: "+playbackProbe.submittedIntervals.steadyLabel():""):"")
    +"\nDropped frames (reported): "+droppedVideoFrames+(activeSdrPath==0&&playbackProbe!=null?"\nGPU frame callbacks: "+playbackProbe.graphFrames+"; "+(playbackProbe.graphFrames>1&&playbackProbe.graphLastNs>playbackProbe.graphFirstNs?String.format(Locale.US,"%.2f callbacks/s",(playbackProbe.graphFrames-1)*1e9/(playbackProbe.graphLastNs-playbackProbe.graphFirstNs)):"collecting"):"")
    +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
    +"\nVideo codec: "+(f==null?"Unknown":String.valueOf(f.sampleMimeType))
@@ -1095,6 +1105,8 @@ public class MainActivity extends Activity {
   final boolean fast=!stock&&page.equals("Live TV");
   final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?(sdrPath==0?Math.max(1000,liveStartupBufferMs()):liveStartupBufferMs()):-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);probe.sampleMemory(SystemClock.elapsedRealtime());playbackProbe=probe;
   final boolean gpu=sdrPath==0&&!stock;
+  // Preview and fullscreen have independent players. Use the reference SDR graph only in the muted preview.
+  final boolean referencePreview=gpu&&!fullscreen&&page.equals("Live TV");
   DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
    @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
     if(!gpu){super.buildVideoRenderers(context,extensionRendererMode,selector,fallback,handler,listener,joining,out);return;}
@@ -1118,7 +1130,7 @@ public class MainActivity extends Activity {
           @Override public void onEnded(long pts){downstream.onEnded(pts);}
           @Override public void onError(androidx.media3.common.VideoFrameProcessingException e){downstream.onError(e);}
          };
-         if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
+         if(!referencePreview&&fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
           probe.directGraph=true;
           return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name,()->requestNextDirectFrame(),probe.directDrawCall::record,probe.directPresentCall::record,info->probe.directGraphics=info);
          }
