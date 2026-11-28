@@ -72,6 +72,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private float pixelAspect=1;
  private boolean fullRange,latched,ended,windowFocused;
  // Pre-draw the latched HDR frame; only ExoPlayer's render command may swap/present it.
+ private final boolean preDrawEnabled;
  private long preparedDrawNs=-1;
  private long preparedFrames,preparedUsed;
  private long pts,offset,lastPts=C.TIME_UNSET;
@@ -79,7 +80,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private volatile boolean ready,released,failed,zero,configured;
  private volatile int generation;
  private SurfaceInfo output;
- DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming,java.util.function.LongConsumer targetTiming,java.util.function.LongConsumer submissionTiming,java.util.function.Consumer<String> shaderName,Runnable slotAvailable,java.util.function.LongConsumer drawCallTiming,java.util.function.LongConsumer presentationCallTiming,java.util.function.Consumer<String> graphicsInfo){
+ DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming,java.util.function.LongConsumer targetTiming,java.util.function.LongConsumer submissionTiming,java.util.function.Consumer<String> shaderName,Runnable slotAvailable,java.util.function.LongConsumer drawCallTiming,java.util.function.LongConsumer presentationCallTiming,java.util.function.Consumer<String> graphicsInfo,boolean preDrawEnabled){
+  this.preDrawEnabled=preDrawEnabled;
   listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;this.targetTiming=targetTiming;this.submissionTiming=submissionTiming;this.shaderName=shaderName;this.slotAvailable=slotAvailable;this.drawCallTiming=drawCallTiming;this.presentationCallTiming=presentationCallTiming;this.graphicsInfo=graphicsInfo;Matrix.setIdentityM(identity,0);
  }
  private interface Task{void run()throws Exception;}
@@ -280,7 +282,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
    callback.execute(()->{if(!released&&!failed&&token==generation)listener.onOutputFrameAvailableForRendering(timestamp,false);});
    // Notify the scheduler first, then overlap its work with the draw on this GL thread.
    // A queued render/drop cannot run until this callback returns. Surface changes invalidate the pre-draw.
-   if(window!=null&&output!=null&&(transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG)){
+   if(preDrawEnabled&&window!=null&&output!=null&&(transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG)){
     long drawBegin=System.nanoTime();drawLatchedFrame();preparedDrawNs=System.nanoTime()-drawBegin;preparedFrames++;
    }
   }catch(Exception e){error(e);}

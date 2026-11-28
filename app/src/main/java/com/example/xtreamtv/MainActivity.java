@@ -1105,8 +1105,8 @@ public class MainActivity extends Activity {
   final boolean fast=!stock&&page.equals("Live TV");
   final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?(sdrPath==0?Math.max(1000,liveStartupBufferMs()):liveStartupBufferMs()):-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);probe.sampleMemory(SystemClock.elapsedRealtime());playbackProbe=probe;
   final boolean gpu=sdrPath==0&&!stock;
-  // Preview and fullscreen have independent players. Use the reference SDR graph only in the muted preview.
-  final boolean referencePreview=gpu&&!fullscreen&&page.equals("Live TV");
+  // Restore the pre-5.1.2 draw-on-release sequence for Live TV preview only.
+  final boolean previewDrawOnRelease=gpu&&!fullscreen&&page.equals("Live TV");
   DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
    @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
     if(!gpu){super.buildVideoRenderers(context,extensionRendererMode,selector,fallback,handler,listener,joining,out);return;}
@@ -1130,9 +1130,9 @@ public class MainActivity extends Activity {
           @Override public void onEnded(long pts){downstream.onEnded(pts);}
           @Override public void onError(androidx.media3.common.VideoFrameProcessingException e){downstream.onError(e);}
          };
-         if(!referencePreview&&fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
+         if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
           probe.directGraph=true;
-          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name,()->requestNextDirectFrame(),probe.directDrawCall::record,probe.directPresentCall::record,info->probe.directGraphics=info);
+          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name,()->requestNextDirectFrame(),probe.directDrawCall::record,probe.directPresentCall::record,info->probe.directGraphics=info,!previewDrawOnRelease);
          }
          return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
           @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}
@@ -1186,7 +1186,7 @@ public class MainActivity extends Activity {
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
    .setPreferredTextLanguage(prefs.getString("text_lang",null))
    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!prefs.getBoolean("subtitles_on",true))
-   .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO,!fullscreen&&page.equals("Live TV")&&gpu).build());
+   .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO,false).build());
   if(!stock||movieDisplayPolicy())p.setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF);
   if(!fullscreen)p.setVolume(0);
   startStream(p,v,host,i,fullscreen,attempt,position,cachedFirst,sdrPath,started,probe);
