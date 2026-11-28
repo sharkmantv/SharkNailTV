@@ -334,10 +334,10 @@ public class MainActivity extends Activity {
  }
  String sdrStatus(Format f){
   PlaybackProbe probe=playbackProbe;
-  if(activeSdrPath==0)return "GPU tone mapping requested; 1080-line output. TV SDR and cadence unverified."+(probe!=null&&probe.outputKnown?"\nDecoder input to graph: "+transferName(probe.outputTransfer):"");
+
   if(probe!=null&&probe.outputKnown)return "Decoder output "+transferName(probe.outputTransfer)+" (native surface)";
   if(f!=null&&f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR&&!isHdr(f))return "SDR source; output unverified";
-  if(rangeFor(page.equals("Live TV")).equals("Force SDR GPU"))return "GPU route not active; native output";
+
   return "Decoder output unknown; SDR not verified";
  }
  String currentPlaybackDiagnostics(){
@@ -486,7 +486,7 @@ public class MainActivity extends Activity {
   LinearLayout r2=row();int mode=prefs.getInt("resize_mode",0);button(r2,"Picture: "+(mode==3?"Stretch":mode==4?"Zoom":"Fit"),()->{prefs.edit().putInt("resize_mode",mode==0?3:mode==3?4:0).apply();playbackSettings();});
   button(r2,"Audio: "+prefs.getString("audio_lang","Automatic"),()->languageDialog("audio_lang","Preferred audio language"));button(r2,"Text: "+prefs.getString("text_lang","Automatic"),()->languageDialog("text_lang","Preferred subtitle language"));body.addView(r2);
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
-  TextView hint=text("Native mode preserves source resolution and range. Force SDR test uses GPU tone mapping with 1080-line output; the TV must confirm SDR. Native playback is unchanged.",13);body.addView(hint);
+  TextView hint=text("Native playback preserves source resolution and dynamic range. Experimental SDR conversion is disabled.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
   LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Live FPS (custom): "+(prefs.getBoolean("match_frame_rate",true)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",true)).apply();playbackSettings();});button(rate,"Live buffer: "+(defaultLiveEngine()?"Stock":liveStartupBufferMs()+" ms"),this::liveBufferSettings);body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
@@ -499,11 +499,11 @@ public class MainActivity extends Activity {
   new AlertDialog.Builder(this).setTitle("Live TV startup buffer (TS / M3U8)").setSingleChoiceItems(labels,selected,(d,n)->{prefs.edit().putInt("live_startup_buffer_ms",values[n]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();
  }
  boolean defaultLiveEngine(){return prefs.getBoolean("default_live_engine",false);}
- String rangeFor(boolean live){if(defaultLiveEngine())return "Auto";String mode=prefs.getString(live?"range_live":"range_vod","Auto");return Build.VERSION.SDK_INT>=29&&mode.equals("Force SDR GPU")?mode:"Auto";}
- String rangeName(String mode){return mode.equals("Force SDR GPU")?"Force SDR (1080p test)":"Auto / native";}
+ String rangeFor(boolean live){return "Auto";}
+ String rangeName(String mode){return "Auto / native";}
  void rangeSettings(boolean live){
   if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Default mode uses native picture output. Switch Playback engine to Custom to change SDR/HDR preferences.").setPositiveButton("OK",null).show();return;}
-  String[] choices=Build.VERSION.SDK_INT>=29?new String[]{"Auto / native (full resolution)","Force SDR (GPU 1080p test)"}:new String[]{"Auto / native (full resolution)"};String[] values=Build.VERSION.SDK_INT>=29?new String[]{"Auto","Force SDR GPU"}:new String[]{"Auto"};
+  String[] choices={"Auto / native (full resolution)"};String[] values={"Auto"};
   new AlertDialog.Builder(this).setTitle(live?"Live TV picture mode":"Movie and series picture mode").setSingleChoiceItems(choices,Arrays.asList(values).indexOf(rangeFor(live)),(d,n)->{prefs.edit().putString(live?"range_live":"range_vod",values[n]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();
  }
  void languageDialog(String key,String title){String[] labels={"Automatic","English","Spanish","French","German","Italian","Arabic"},codes={null,"en","es","fr","de","it","ar"};new AlertDialog.Builder(this).setTitle(title).setItems(labels,(d,i)->{prefs.edit().putString(key,codes[i]).apply();playbackSettings();}).setNegativeButton("Cancel",null).show();}
@@ -983,7 +983,7 @@ public class MainActivity extends Activity {
  static boolean isHdr(Format f){return f!=null&&(MimeTypes.VIDEO_DOLBY_VISION.equals(f.sampleMimeType)||(f.colorInfo!=null&&(f.colorInfo.colorTransfer==C.COLOR_TRANSFER_ST2084||f.colorInfo.colorTransfer==C.COLOR_TRANSFER_HLG||f.colorInfo.hdrStaticInfo!=null)));}
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst){
   String mode=rangeFor(page.equals("Live TV"));
-  int route=mode.equals("Force SDR GPU")?0:-1;
+  int route=-1;
   attachExo(host,i,fullscreen,attempt,position,cachedFirst,route);
  }
  Item matchingSdrFeed(Item original){
@@ -1010,23 +1010,9 @@ public class MainActivity extends Activity {
    preview.addOnLayoutChangeListener(livePreviewLayout);positionLiveSurface();preview.post(()->{if(!full)positionLiveSurface();});
   }else host.addView(v,new FrameLayout.LayoutParams(-1,-1));
   final String range=rangeFor(page.equals("Live TV"));
-  final boolean gpu=sdrPath==0;
   final boolean fast=!stock&&page.equals("Live TV");
   final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?liveStartupBufferMs():-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);playbackProbe=probe;
-  DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
-   @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
-    if(!gpu){super.buildVideoRenderers(context,extensionRendererMode,selector,fallback,handler,listener,joining,out);return;}
-    androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder b=new androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder(context)
-      .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(selector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50);
-    out.add(new androidx.media3.exoplayer.video.MediaCodecVideoRenderer(b){
-     @Override protected androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper createPlaybackVideoGraphWrapper(Context context,androidx.media3.exoplayer.video.VideoFrameReleaseControl control){
-      androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper graph=super.createPlaybackVideoGraphWrapper(context,control);
-      graph.setRequestOpenGlToneMapping(true);
-      return graph;
-     }
-    });
-   }
-  }.setEnableDecoderFallback(true);
+  DefaultRenderersFactory factory=new DefaultRenderersFactory(this).setEnableDecoderFallback(true);
   factory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
   if(attempt==1){
    factory.forceDisableMediaCodecAsynchronousQueueing();
@@ -1046,7 +1032,7 @@ public class MainActivity extends Activity {
   builder.setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(source));
   if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,probe.startupBufferMs,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
   ExoPlayer p=builder.build();
-  if(gpu&&!stock)p.setVideoEffects(Collections.singletonList(androidx.media3.effect.Presentation.createForHeight(1080)));
+
   video=v;player=p;playbackItem=i;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(!fullscreen&&page.equals("Live TV")?4:prefs.getInt("resize_mode",0));
   if(!stock)p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon()
    .setPreferredAudioLanguage(prefs.getString("audio_lang",null))
@@ -1111,7 +1097,7 @@ public class MainActivity extends Activity {
     }else audioStartedAt=-1;
     ui.postDelayed(this,750);
    }};
-   void startWatch(){if(!stock&&(vod||sdrPath==0)){decoderWatch=watch;ui.postDelayed(watch,750);}if(page.equals("Live TV")){stopLiveHealth();liveHealthWatch=liveWatch;ui.postDelayed(liveWatch,2000);}}
+   void startWatch(){if(!stock&&vod){decoderWatch=watch;ui.postDelayed(watch,750);}if(page.equals("Live TV")){stopLiveHealth();liveHealthWatch=liveWatch;ui.postDelayed(liveWatch,2000);}}
 
 
     @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK){probe.closeStall();probe.health.reset();}}
@@ -1123,7 +1109,7 @@ public class MainActivity extends Activity {
     if(!stock&&vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
     playbackDiagnostics=(activeDecoder.isEmpty()?"Decoder unavailable":activeDecoder)+(f==null?"":" · "+f.width+"×"+f.height+(f.bitrate>0?" · "+String.format(Locale.US,"%.1f Mb/s",f.bitrate/1000000.0):""))
-     +"\n"+(isHdr(f)?"HDR source":"SDR / unknown source")+" · "+(sdrPath==0?"GPU SDR requested (1080p test)":"Native source output");
+     +"\n"+(isHdr(f)?"HDR source":"SDR / unknown source")+" · "+"Native source output";
     android.util.Log.i("SharkPlayback",playbackDiagnostics);
    }
    @Override public void onPlayerError(PlaybackException e){
@@ -1140,12 +1126,12 @@ public class MainActivity extends Activity {
     boolean transientNetwork=e.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED||e.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT;
     if(transientNetwork&&liveEligible()&&full&&p.getPlayWhenReady()&&probe.health.attempts<2){networkErrorAt=SystemClock.elapsedRealtime();networkError=e.getErrorCodeName();return;}
     if(probe.alternate&&!stock&&!stopped){recover("SDR alternative unavailable",0);return;}
-    if(stock||stopped||!decoderError||(!vod&&sdrPath!=0)){ui.removeCallbacks(watch);msg("Playback failed: "+e.getErrorCodeName());return;}
+    if(stock||stopped||!decoderError||!vod){ui.removeCallbacks(watch);msg("Playback failed: "+e.getErrorCodeName());return;}
     recover(e.getErrorCodeName(),firstFrame?Math.max(0,p.getCurrentPosition()):position);
    }
    void recover(String reason,long resume){
     if(probe.alternate){restart(reason,resume,-1,i);return;}
-    if(sdrPath==0&&page.equals("Live TV")){msg("GPU SDR unavailable; returning to native output");restart(reason,resume,-1,i);return;}
+
     if(player!=p||playbackProbe!=probe||recovering||stopped)return;
     recovering=true;ui.removeCallbacks(watch);
     if(attempt==1)decoderPrefs().edit().remove(decoderKey(i)).apply();
@@ -1158,7 +1144,7 @@ public class MainActivity extends Activity {
      if(token!=screenToken||stopped||isFinishing()||player!=null||nativeVideo!=null)return;
      if(live&&selected!=i)return;
      if(!live&&!full)return;
-     if(sdrPath==0){msg("GPU SDR unavailable; returning to native output");attachExo(host,i,fullscreen,0,resume,false,-1);return;}
+
      if(attempt==0&&!cachedFirst)attachExo(host,i,true,1,resume,false,sdrPath);
      else if(attempt==1&&cachedFirst)attachExo(host,i,true,0,resume,true,sdrPath);
      else if(sdrPath>=0){msg("SDR playback unavailable. Select Auto to retry without conversion.");}
@@ -1290,8 +1276,8 @@ public class MainActivity extends Activity {
   }return super.dispatchKeyEvent(event);
  }
  void choosePlayerRange(Item item){
-  String[] choices=Build.VERSION.SDK_INT>=29?new String[]{"Auto / native (full resolution)","Force SDR (GPU 1080p test)"}:new String[]{"Auto / native (full resolution)"};
-  String[] values=Build.VERSION.SDK_INT>=29?new String[]{"Auto","Force SDR GPU"}:new String[]{"Auto"};
+  String[] choices={"Auto / native (full resolution)"};
+  String[] values={"Auto"};
   boolean live=page.equals("Live TV");if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Native picture output. To change SDR/HDR, select Custom in Playback settings.").setPositiveButton("Close",null).show();return;}int current=Arrays.asList(values).indexOf(rangeFor(live));
   new AlertDialog.Builder(this).setTitle("Video dynamic range").setSingleChoiceItems(choices,current,(dialog,n)->{
    dialog.dismiss();String range=values[n];if(range.equals(rangeFor(live)))return;
