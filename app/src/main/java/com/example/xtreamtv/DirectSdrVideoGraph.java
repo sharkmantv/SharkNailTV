@@ -75,9 +75,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private long preparedDrawNs=-1;
  private long preparedFrames,preparedUsed;
  private long firstLatchedNs=-1,steadyGraphDrops,steadyGraphSubmits,steadyLeadTotal;
- private long preFlushCount,preFlushTotal,preFlushMax;
- private int slowFlushes;
- private boolean preFlushDisabled;
+
  private long pts,offset,lastPts=C.TIME_UNSET;
  private final float[] texMatrix=new float[16],position=new float[16],identity=new float[16];
  private volatile boolean ready,released,failed,zero,configured;
@@ -176,7 +174,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   long observed=fenceAtSwap+fenceAtNextFrame+fenceAtLaterFrame;
   graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, by later latch %d, pending after four latches %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6))
    +String.format(java.util.Locale.US,"\nGPU fence vs requested target: before %d, after %d, uncertain %d, no target %d\nSubmission lead (target minus swap end): %s; under 20 ms %d/%d; EGL timestamp rejects %d",fenceBeforeTarget,fenceAfterTarget,fenceTargetUncertain,fenceNoTarget,submissionLeadCount==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f min",submissionLeadTotal/1e6/submissionLeadCount,submissionLeadMin/1e6),submissionLeadUnder20,submissionLeadCount,eglTimestampRejected)
-   +String.format(java.util.Locale.US,"\nPre-draw used: %d/%d\nSteady graph drops: %d/%d; lead %s\nEarly GPU flush: %s (%d calls, %.2f ms avg / %.2f max)",preparedUsed,preparedFrames,steadyGraphDrops,steadyGraphSubmits+steadyGraphDrops,steadyGraphSubmits==0?"n/a":String.format(java.util.Locale.US,"%.2f ms",steadyLeadTotal/1e6/steadyGraphSubmits),preFlushDisabled?"disabled":"on",preFlushCount,preFlushCount==0?0.0:preFlushTotal/1e6/preFlushCount,preFlushMax/1e6));
+   +String.format(java.util.Locale.US,"\nPre-draw used: %d/%d\nSteady graph drops: %d/%d; lead %s",preparedUsed,preparedFrames,steadyGraphDrops,steadyGraphSubmits+steadyGraphDrops,steadyGraphSubmits==0?"n/a":String.format(java.util.Locale.US,"%.2f ms",steadyLeadTotal/1e6/steadyGraphSubmits)));
  }
  private void disableFence(){
   fenceFailed++;fenceDisabled=true;discardFence();publishFence();
@@ -287,13 +285,6 @@ final class DirectSdrVideoGraph implements VideoGraph {
    // A queued render/drop cannot run until this callback returns. Surface changes invalidate the pre-draw.
    if(window!=null&&output!=null&&(transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG)){
     long drawBegin=System.nanoTime();drawLatchedFrame();
-    // Request earlier command dispatch, without glFinish or a fence wait.
-    // Some tiled GPU drivers can make flush expensive; back off on repeated slow calls.
-    if(!preFlushDisabled){
-     long flushStart=System.nanoTime();GLES20.glFlush();long cost=System.nanoTime()-flushStart;
-     preFlushCount++;preFlushTotal+=cost;preFlushMax=Math.max(preFlushMax,cost);
-     if(cost>3_000_000L){if(++slowFlushes>=3)preFlushDisabled=true;}else if(slowFlushes>0)slowFlushes--;
-    }
     preparedDrawNs=System.nanoTime()-drawBegin;preparedFrames++;
    }
   }catch(Exception e){error(e);}
