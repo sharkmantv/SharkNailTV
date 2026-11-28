@@ -957,7 +957,7 @@ public class MainActivity extends Activity {
   GuideData data=cached!=null?cached:guideCache.get(guideKey(i,false));
   if(data!=null)paintPreviewGuide(i,data);else epg.setText(i.name+"\nLoading programme information…");
   int token=screenToken;pendingGuideFocus=()->{pendingGuideFocus=null;if(token==screenToken&&!full&&highlightedGuideItem==i&&epg!=null)loadEpg(i);};
-  ui.postDelayed(pendingGuideFocus,120);
+  ui.postDelayed(pendingGuideFocus,80);
  }
  void paintPreviewGuide(Item i,GuideData data){
   if(epg==null||i==null||data==null)return;long now=System.currentTimeMillis();Programme current=null,next=null;
