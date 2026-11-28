@@ -62,7 +62,9 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private EGLSurface placeholder,window;
  private SurfaceTexture texture;
  private Surface input;
- private GlProgram hdrProgram,pqProgram,sdrProgram,boundProgram;
+ private GlProgram hdrProgram,pqProgram,pqPreviewProgram,sdrProgram,boundProgram;
+ private int pqPreviewLut;
+ private boolean pqPreviewUnavailable;
  private boolean pqSpecializationUnavailable;
  private boolean drawStateDirty=true,needsClear=true;
  private int textureMatrixLocation=-1;
@@ -137,6 +139,31 @@ final class DirectSdrVideoGraph implements VideoGraph {
    if(info!=null)window=GlUtil.createEglSurface(display,info.surface,C.COLOR_TRANSFER_SDR,false);
   });}catch(Exception e){error(e);}
  }
+ // Upload once per graph. R16F is filterable in GLES 3; store nits rather than
+ // normalized luminance to preserve near-black precision. Failure keeps the original shader.
+ private void preparePqPreview(){
+  if(pqPreviewProgram!=null||pqPreviewUnavailable||pqProgram==null)return;
+  int[] names=new int[1];
+  try{
+   pqPreviewProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.pqPreviewToSdr());
+   pqPreviewProgram.setBufferAttribute("aFramePosition",QUAD,4);
+   java.nio.FloatBuffer data=java.nio.ByteBuffer.allocateDirect(PqPreviewLut.SIZE*4).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer();
+   for(int i=0;i<PqPreviewLut.SIZE;i++)data.put(PqPreviewLut.nits((double)i/(PqPreviewLut.SIZE-1)));data.flip();
+   GLES20.glActiveTexture(GLES20.GL_TEXTURE1);GLES20.glGenTextures(1,names,0);
+   GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,names[0]);
+   GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MIN_FILTER,GLES20.GL_LINEAR);
+   GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_MAG_FILTER,GLES20.GL_LINEAR);
+   GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_S,GLES20.GL_CLAMP_TO_EDGE);
+   GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE);
+   GLES30.glTexImage2D(GLES20.GL_TEXTURE_2D,0,GLES30.GL_R16F,PqPreviewLut.SIZE,1,0,GLES30.GL_RED,GLES20.GL_FLOAT,data);
+   GlUtil.checkGlError();if(names[0]==0)throw new IllegalStateException("PQ LUT texture unavailable");
+   pqPreviewLut=names[0];android.util.Log.i("SharkPlayback","PQ preview lookup ready");
+  }catch(Exception e){
+   if(pqPreviewProgram!=null){try{pqPreviewProgram.delete();}catch(Exception ignored){}pqPreviewProgram=null;}
+   if(names[0]!=0)GLES20.glDeleteTextures(1,names,0);pqPreviewUnavailable=true;
+   android.util.Log.w("SharkPlayback","PQ preview lookup unavailable; original shader retained",e);
+  }finally{GLES20.glActiveTexture(GLES20.GL_TEXTURE0);}
+ }
  @Override public void registerInputStream(int index,int type,Format f,List<Effect> effects,long offsetUs){
   if(type!=VideoFrameProcessor.INPUT_TYPE_SURFACE||!effects.isEmpty()){error(new IllegalArgumentException("Direct SDR requires decoded surface frames"));return;}
   try{sync(()->{
@@ -157,6 +184,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
       android.util.Log.w("SharkPlayback","PQ specialization unavailable; using standard HDR shader",e);
      }
     }
+    if(transfer==C.COLOR_TRANSFER_ST2084&&!preDrawEnabled.getAsBoolean())preparePqPreview();
     if((transfer!=C.COLOR_TRANSFER_ST2084||pqProgram==null)&&hdrProgram==null){hdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.HDR);hdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
    }else if(sdrProgram==null){sdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.SDR);sdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
    shaderName.accept(transfer==C.COLOR_TRANSFER_ST2084&&pqProgram!=null?"PQ specialized":hdr?"Standard HDR":"SDR pass-through");
@@ -226,7 +254,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
     focusWindow();
     boolean hdr=transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG;
     boolean specialized=transfer==C.COLOR_TRANSFER_ST2084&&pqProgram!=null;
-    GlProgram p=hdr?(specialized?pqProgram:hdrProgram):sdrProgram;
+    boolean previewLut=specialized&&!preDrawEnabled.getAsBoolean()&&pqPreviewProgram!=null&&pqPreviewLut!=0;
+    GlProgram p=hdr?(specialized?(previewLut?pqPreviewProgram:pqProgram):hdrProgram):sdrProgram;
     if(drawStateDirty||boundProgram!=p){
      drawsUntilErrorCheck=0;
      Matrix.setIdentityM(position,0);
@@ -238,6 +267,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
      needsClear=sx<1f||sy<1f||output.orientationDegrees!=0;
      p.use();
      p.setSamplerTexIdUniform("uTexSampler",tex,0);
+     if(previewLut)p.setSamplerTexIdUniform("uPqLut",pqPreviewLut,1);
      p.setFloatsUniform("uTexTransformationMatrix",texMatrix);
      p.setFloatsUniform("uTransformationMatrix",position);
      if(hdr){
@@ -250,6 +280,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
       }
      }
      p.bindAttributesAndUniforms();
+     if(previewLut)GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+     shaderName.accept(previewLut?"PQ preview lookup":specialized?"PQ specialized":hdr?"Standard HDR":"SDR pass-through");
      textureMatrixLocation=p.getUniformLocation("uTexTransformationMatrix");
      System.arraycopy(texMatrix,0,boundTextureMatrix,0,16);
      boundProgram=p;drawStateDirty=false;
@@ -352,7 +384,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
    if(display!=null&&context!=null&&placeholder!=null)focusPlaceholder();
    discardFence();
    if(input!=null)input.release();if(texture!=null){texture.setOnFrameAvailableListener(null);texture.release();}
-   if(hdrProgram!=null)hdrProgram.delete();if(pqProgram!=null)pqProgram.delete();if(sdrProgram!=null)sdrProgram.delete();
+   if(hdrProgram!=null)hdrProgram.delete();if(pqProgram!=null)pqProgram.delete();if(pqPreviewProgram!=null)pqPreviewProgram.delete();if(sdrProgram!=null)sdrProgram.delete();
+   if(pqPreviewLut!=0)GlUtil.deleteTexture(pqPreviewLut);
    if(tex!=0)GlUtil.deleteTexture(tex);
    if(window!=null)GlUtil.destroyEglSurface(display,window);
    if(placeholder!=null)GlUtil.destroyEglSurface(display,placeholder);

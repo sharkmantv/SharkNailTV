@@ -6,7 +6,7 @@ android {
     buildFeatures { buildConfig = true }
     namespace = "com.example.xtreamtv"
     compileSdkVersion("android-37.0")
-    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 24; targetSdk = 35; versionCode = 50117; versionName = "5.1.17"; buildConfigField("String", "TMDB_API_KEY", "\""+artworkProperties.getProperty("TMDB_API_KEY","").trim()+"\"") }
+    defaultConfig { applicationId = "com.example.xtreamtv"; minSdk = 24; targetSdk = 35; versionCode = 50118; versionName = "5.1.18"; buildConfigField("String", "TMDB_API_KEY", "\""+artworkProperties.getProperty("TMDB_API_KEY","").trim()+"\"") }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
 dependencies {

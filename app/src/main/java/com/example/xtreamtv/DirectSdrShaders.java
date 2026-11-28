@@ -15,5 +15,9 @@ final class DirectSdrShaders {
   // Same fixed Hermite curves in Horner form: fewer per-pixel arithmetic operations.
   .replace("nits = (y1 * (1.0 + 2.0 * t) + h12 * m1 * t) * (1.0 - t) * (1.0 - t) +\n           (y2 * (3.0 - 2.0 * t) + h12 * m2 * (t - 1.0)) * t * t;", "nits = 375.0 + t * (93.75 + t * (31.25 - 31.25 * t));")
   .replace("nits =\n        (y2 * (1.0 + 2.0 * t) + h23 * m2 * t) * (1.0 - t) * (1.0 - t) +\n        (maxOutputLuminance * (3.0 - 2.0 * t) + h23 * m3 * (t - 1.0)) * t * t;", "nits = 468.75 + t * (62.5 + t * (-62.5 + 31.25 * t));");}
+ // Preview-only PQ EOTF lookup. Keep the existing gamut, tone curve and output gamma.
+ static String pqPreviewToSdr(){return pqToSdr()
+  .replace("uniform __samplerExternal2DY2YEXT uTexSampler;", "uniform __samplerExternal2DY2YEXT uTexSampler;\nuniform highp sampler2D uPqLut;")
+  .replace("highp vec3 temp = pow(clamp(pqColor, 0.0, 1.0), 1.0 / vec3(m2));\n  temp = max(temp - c1, 0.0) / (c2 - c3 * temp);\n  return pow(temp, 1.0 / vec3(m1));", "highp vec3 uv = (clamp(pqColor, 0.0, 1.0) * 2047.0 + 0.5) / 2048.0;\n  return vec3(texture(uPqLut, vec2(uv.r, 0.5)).r, texture(uPqLut, vec2(uv.g, 0.5)).r, texture(uPqLut, vec2(uv.b, 0.5)).r) * 0.0001;");}
  static final String SDR="#version 300 es\n#extension GL_OES_EGL_image_external_essl3 : require\nprecision mediump float;\nuniform samplerExternalOES uTexSampler;\nin vec2 vTexSamplingCoord;\nout vec4 outColor;\nvoid main(){outColor=texture(uTexSampler,vTexSamplingCoord);}";
 }
