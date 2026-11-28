@@ -335,7 +335,7 @@ public class MainActivity extends Activity {
  String sdrStatus(Format f){
   PlaybackProbe probe=playbackProbe;
 
-  if(activeSdrPath==0&&probe!=null)return "ExoPlayer GPU output requested: BT.709 SDR (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
+  if(activeSdrPath==0&&probe!=null)return "ExoPlayer BT.709 SDR requested; 150 ms scheduling (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
   if(probe!=null&&probe.outputKnown)return "Decoder output "+transferName(probe.outputTransfer)+" (native surface)";
   if(f!=null&&f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR&&!isHdr(f))return "SDR source; output unverified";
 
@@ -1018,10 +1018,10 @@ public class MainActivity extends Activity {
    @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
     if(!gpu){super.buildVideoRenderers(context,extensionRendererMode,selector,fallback,handler,listener,joining,out);return;}
     androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder b=new androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder(context)
-     .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(selector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(1);
+     .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(selector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50).setEarlySchedulingThresholdUs(150_000);
     out.add(new androidx.media3.exoplayer.video.MediaCodecVideoRenderer(b){
      @Override protected androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper createPlaybackVideoGraphWrapper(Context context,androidx.media3.exoplayer.video.VideoFrameReleaseControl control){
-      androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper graph=super.createPlaybackVideoGraphWrapper(context,control);
+      androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper graph=new androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper.Builder(context,control).setEnablePlaylistMode(true).setClock(getClock()).experimentalSetLateThresholdToDropInputUs(40_000).build();
       graph.setRequestOpenGlToneMapping(true);return graph;
      }
      @Override protected void onOutputFormatChanged(Format format,android.media.MediaFormat media){
@@ -1052,7 +1052,7 @@ public class MainActivity extends Activity {
   source.setTransferListener(probe);
   ExoPlayer.Builder builder=stock?new ExoPlayer.Builder(this):new ExoPlayer.Builder(this,factory);
   builder.setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(source));
-  if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,probe.startupBufferMs,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
+  if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,gpu?Math.max(1000,probe.startupBufferMs):probe.startupBufferMs,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
   ExoPlayer p=builder.build();
   if(gpu)p.setVideoEffects(Collections.emptyList());
 
