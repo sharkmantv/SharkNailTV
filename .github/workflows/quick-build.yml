@@ -63,11 +63,15 @@ jobs:
           rm -rf app
           cp -a "$kit/app" app
           rm -rf app/build app/.gradle
-      - name: Compile signed-test candidate
+      - name: SDK
         run: |
           set -euo pipefail
-          sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
-          gradle --no-daemon :app:assembleRelease
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Compile signed-test candidate
+        run: gradle --no-daemon :app:assembleRelease
       - name: Sign and verify
         env:
           SHARK_SIGNING_BUNDLE: ${{ secrets.SHARK_SIGNING_BUNDLE }}
