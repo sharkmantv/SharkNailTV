@@ -86,7 +86,26 @@ public class MainActivity extends Activity {
  static final OkHttpClient API_HTTP=new OkHttpClient.Builder().connectionPool(new ConnectionPool(5,3,TimeUnit.MINUTES)).connectTimeout(10,TimeUnit.SECONDS).readTimeout(25,TimeUnit.SECONDS).followSslRedirects(false).build();
  static final OkHttpClient GUIDE_HTTP=API_HTTP.newBuilder().connectTimeout(5,TimeUnit.SECONDS).readTimeout(8,TimeUnit.SECONDS).build();
  static final OkHttpClient POSTER_HTTP=API_HTTP.newBuilder().connectTimeout(3500,TimeUnit.MILLISECONDS).readTimeout(5000,TimeUnit.MILLISECONDS).followSslRedirects(true).build();
- static final OkHttpClient STREAM_HTTP=API_HTTP.newBuilder().connectTimeout(8,TimeUnit.SECONDS).readTimeout(15,TimeUnit.SECONDS).build();
+ static final OkHttpClient STREAM_HTTP=API_HTTP.newBuilder().connectTimeout(8,TimeUnit.SECONDS).readTimeout(15,TimeUnit.SECONDS).eventListenerFactory(call->new StreamNetworkTiming()).build();
+ // Diagnostics only: no request headers, URLs, credentials, or IP addresses are logged.
+ static final class StreamNetworkTiming extends okhttp3.EventListener {
+  private static final AtomicLong lastReport=new AtomicLong(-3000);
+  long start,dnsAt=-1,connectAt=-1,tlsAt=-1,requestAt=-1,dnsMs,connectMs,tlsMs;
+  boolean connected;
+  @Override public void callStart(okhttp3.Call c){start=SystemClock.elapsedRealtime();}
+  @Override public void dnsStart(okhttp3.Call c,String name){dnsAt=SystemClock.elapsedRealtime();}
+  @Override public void dnsEnd(okhttp3.Call c,String name,List<java.net.InetAddress> addresses){if(dnsAt>=0)dnsMs+=SystemClock.elapsedRealtime()-dnsAt;dnsAt=-1;}
+  @Override public void connectStart(okhttp3.Call c,java.net.InetSocketAddress address,java.net.Proxy proxy){connected=true;connectAt=SystemClock.elapsedRealtime();}
+  @Override public void connectEnd(okhttp3.Call c,java.net.InetSocketAddress address,java.net.Proxy proxy,okhttp3.Protocol protocol){if(connectAt>=0)connectMs+=SystemClock.elapsedRealtime()-connectAt;connectAt=-1;}
+  @Override public void secureConnectStart(okhttp3.Call c){tlsAt=SystemClock.elapsedRealtime();}
+  @Override public void secureConnectEnd(okhttp3.Call c,okhttp3.Handshake handshake){if(tlsAt>=0)tlsMs+=SystemClock.elapsedRealtime()-tlsAt;tlsAt=-1;}
+  @Override public void requestHeadersEnd(okhttp3.Call c,Request request){requestAt=SystemClock.elapsedRealtime();}
+  @Override public void responseHeadersEnd(okhttp3.Call c,Response response){
+   long now=SystemClock.elapsedRealtime(),previous=lastReport.get();
+   if(now-previous<3000||!lastReport.compareAndSet(previous,now))return;
+   android.util.Log.i("SharkNetwork","headersMs="+(now-start)+" dnsMs="+dnsMs+" connectMs="+connectMs+" tlsMs="+tlsMs+" requestToHeadersMs="+(requestAt<0?-1:now-requestAt)+" newConnection="+connected+" protocol="+response.protocol()+" status="+response.code());
+  }
+ }
  Runnable matchTask;
  boolean matchedWindow;
  android.view.Surface matchSurface;
@@ -228,7 +247,7 @@ public class MainActivity extends Activity {
    if(token==screenToken&&req==loadToken&&!isFinishing())done.run(new ArrayList<>(cached.items));
    return;
   }
-  catalogueJob=io.submit(()->{
+  catalogueJob=submitGuide(io,()->{
    try{
     List<Item> loaded=fetch.run();
     if(Thread.currentThread().isInterrupted())return;
@@ -346,15 +365,20 @@ public class MainActivity extends Activity {
  static String readProvider(OkHttpClient client,String url,String userAgent,int limit)throws Exception{
   if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Request cancelled");
   Request request=new Request.Builder().url(url).header("User-Agent",userAgent).build();
-  okhttp3.Call call=client.newCall(request);GuideTask guide=client==GUIDE_HTTP?runningGuide.get():null;if(guide!=null)guide.attach(call);
+  okhttp3.Call call=client.newCall(request);GuideTask guide=runningGuide.get();if(guide!=null)guide.attach(call);
   try(Response response=call.execute()){
    if(!response.isSuccessful())throw new IOException("Provider HTTP error");
    ResponseBody body=response.body();if(body==null)throw new IOException("Empty response");
    if(body.contentLength()>limit)throw new IOException("Response too large");
-   try(InputStream in=body.byteStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
-    byte[] buf=new byte[16384];int n;
-    while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Request cancelled");if(out.size()+n>limit)throw new IOException("Response too large");out.write(buf,0,n);}
-    return out.toString("UTF-8");
+   try(InputStream in=body.byteStream();Reader reader=new InputStreamReader(new FilterInputStream(in){
+     long total;
+     void count(int n)throws IOException{if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Request cancelled");if(n>0&&(total+=n)>limit)throw new IOException("Response too large");}
+     @Override public int read()throws IOException{int n=in.read();count(n<0?0:1);return n;}
+     @Override public int read(byte[] b,int off,int len)throws IOException{int n=in.read(b,off,len);count(n);return n;}
+    },java.nio.charset.StandardCharsets.UTF_8)){
+    StringBuilder out=new StringBuilder(16384);char[] buf=new char[8192];int n;
+    while((n=reader.read(buf))!=-1)out.append(buf,0,n);
+    return out.toString();
    }
   }finally{if(guide!=null)guide.detach(call);}
  }
