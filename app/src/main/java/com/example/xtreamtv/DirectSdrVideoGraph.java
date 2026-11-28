@@ -86,10 +86,6 @@ final class DirectSdrVideoGraph implements VideoGraph {
  @Override public void initialize()throws VideoFrameProcessingException{
   thread.start();gl=new Handler(thread.getLooper());
   try{sync(()->{
-   // A dedicated, short-lived display worker; leave the existing priority intact if
-   // this device disallows the stronger scheduling hint. No realtime policy.
-   try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY);}
-   catch(SecurityException|IllegalArgumentException ignored){}
    display=GlUtil.getDefaultEglDisplay();
    context=GlUtil.createEglContext(EGL14.EGL_NO_CONTEXT,display,3,GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888);
    placeholder=GlUtil.createFocusedPlaceholderEglSurface(context,display);
