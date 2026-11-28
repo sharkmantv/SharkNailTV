@@ -47,8 +47,9 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final java.util.function.Consumer<String> shaderName,graphicsInfo;
  private final java.util.function.LongConsumer drawCallTiming,presentationCallTiming;
  // Sparse, non-blocking fence observations: not a GPU execution timer or scanout timestamp.
- private long sampledFence,fenceIssuedNs,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceStillPending,fenceFailed,fenceUpperTotal,fenceUpperMax;
- private int sampleCounter,drawsUntilErrorCheck;
+ private long sampledFence,fenceIssuedNs,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,fenceUpperTotal,fenceUpperMax;
+ private int sampleCounter,drawsUntilErrorCheck,fenceLatchPolls;
+ private static final int MAX_FENCE_LATCH_POLLS=4;
  private static final int DRAW_ERROR_CHECK_INTERVAL=60;
  private boolean fenceDisabled;
  private String gpuDescription="Not initialized";
@@ -163,8 +164,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
   if(sampledFence!=0){GLES30.glDeleteSync(sampledFence);sampledFence=0;}
  }
  private void publishFence(){
-  long observed=fenceAtSwap+fenceAtNextFrame;
-  graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, still pending %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6)));
+  long observed=fenceAtSwap+fenceAtNextFrame+fenceAtLaterFrame;
+  graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, by later latch %d, pending after four latches %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6)));
  }
  private void disableFence(){
   fenceFailed++;fenceDisabled=true;discardFence();publishFence();
@@ -173,22 +174,25 @@ final class DirectSdrVideoGraph implements VideoGraph {
   if(fenceDisabled||sampledFence!=0||++sampleCounter%120!=0)return;
   fenceSamples++;
   try{
+   fenceLatchPolls=0;
    fenceIssuedNs=System.nanoTime();
    sampledFence=GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE,0);
    if(sampledFence==0){GLES20.glGetError();disableFence();}
   }catch(RuntimeException e){disableFence();}
  }
  private void pollFence(boolean afterSwap){
-  if(sampledFence==0)return;
+  if(sampledFence==0||(afterSwap&&fenceLatchPolls>0))return;
+  // Keep the sparse probe alive for up to four subsequent latches. Never wait for the GPU.
+  if(!afterSwap)fenceLatchPolls++;
   try{
    int status=GLES30.glClientWaitSync(sampledFence,0,0);
    if(status==GLES30.GL_ALREADY_SIGNALED||status==GLES30.GL_CONDITION_SATISFIED){
     long elapsed=Math.max(0,System.nanoTime()-fenceIssuedNs);
-    if(afterSwap)fenceAtSwap++;else fenceAtNextFrame++;
+    if(afterSwap)fenceAtSwap++;else if(fenceLatchPolls==1)fenceAtNextFrame++;else fenceAtLaterFrame++;
     fenceUpperTotal+=elapsed;fenceUpperMax=Math.max(fenceUpperMax,elapsed);
     discardFence();publishFence();
    }else if(status==GLES30.GL_TIMEOUT_EXPIRED){
-    if(!afterSwap){fenceStillPending++;discardFence();publishFence();}
+    if(!afterSwap&&fenceLatchPolls>=MAX_FENCE_LATCH_POLLS){fenceStillPending++;discardFence();publishFence();}
    }else{GLES20.glGetError();disableFence();}
   }catch(RuntimeException e){disableFence();}
  }
@@ -233,7 +237,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
      p.setFloatsUniform("uTexTransformationMatrix",texMatrix);
      p.setFloatsUniform("uTransformationMatrix",position);
      if(hdr){
-      p.setFloatsUniform("uRgbMatrix",identity);
+      if(!specialized)p.setFloatsUniform("uRgbMatrix",identity);
       p.setFloatsUniform("uYuvToRgbColorTransform",fullRange?FULL:LIMITED);
       if(!specialized){
        p.setIntUniform("uInputColorTransfer",transfer);

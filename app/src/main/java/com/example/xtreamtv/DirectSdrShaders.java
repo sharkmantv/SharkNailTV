@@ -9,6 +9,9 @@ final class DirectSdrShaders {
   .replace("uniform int uInputColorTransfer;", "const int uInputColorTransfer = 6;")
   .replace("uniform int uApplyHdrToSdrToneMapping;", "const int uApplyHdrToSdrToneMapping = 1;")
   .replace("uniform int uOutputColorTransfer;", "const int uOutputColorTransfer = 10;")
+  // The direct PQ graph uses an identity RGB matrix. Elide that redundant per-pixel operation.
+  .replace("uniform mat4 uRgbMatrix;", "const mat4 uRgbMatrix = mat4(1.0);")
+  .replace("vec4 transformedColors = uRgbMatrix * opticalColor;", "vec4 transformedColors = opticalColor;")
   // Same fixed Hermite curves in Horner form: fewer per-pixel arithmetic operations.
   .replace("nits = (y1 * (1.0 + 2.0 * t) + h12 * m1 * t) * (1.0 - t) * (1.0 - t) +\n           (y2 * (3.0 - 2.0 * t) + h12 * m2 * (t - 1.0)) * t * t;", "nits = 375.0 + t * (93.75 + t * (31.25 - 31.25 * t));")
   .replace("nits =\n        (y2 * (1.0 + 2.0 * t) + h23 * m2 * t) * (1.0 - t) * (1.0 - t) +\n        (maxOutputLuminance * (3.0 - 2.0 * t) + h23 * m3 * (t - 1.0)) * t * t;", "nits = 468.75 + t * (62.5 + t * (-62.5 + 31.25 * t));");}
