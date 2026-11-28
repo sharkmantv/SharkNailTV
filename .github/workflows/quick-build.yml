@@ -178,6 +178,7 @@ jobs:
             adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50120 '
             adb install -r SharkNailTV.apk
             adb shell dumpsys package com.example.xtreamtv | grep -F "versionCode=$VERSION_CODE "
+            adb shell settings put secure immersive_mode_confirmations confirmed
             adb logcat -c
             adb shell am start -W -n com.example.xtreamtv/.MainActivity
             sleep 5
@@ -189,6 +190,7 @@ jobs:
             adb shell dumpsys window > login-window.txt
             adb shell uiautomator dump /sdcard/shark-login.xml
             adb pull /sdcard/shark-login.xml "$RUNNER_TEMP/shark-login.xml"
+            if grep -F 'text="Viewing full screen"' "$RUNNER_TEMP/shark-login.xml"; then python -c 'import os,re,subprocess,xml.etree.ElementTree as E; n=next(n for n in E.parse(os.path.join(os.environ["RUNNER_TEMP"],"shark-login.xml")).iter("node") if n.get("package")=="android" and n.get("text")=="Got it"); x1,y1,x2,y2=map(int,re.findall(r"\d+",n.get("bounds"))); subprocess.check_call(["adb","shell","input","tap",str((x1+x2)//2),str((y1+y2)//2)])' && sleep 2 && adb shell uiautomator dump /sdcard/shark-login.xml && adb pull /sdcard/shark-login.xml "$RUNNER_TEMP/shark-login.xml"; fi
             cp "$RUNNER_TEMP/shark-login.xml" login-hierarchy.xml
             adb exec-out screencap -p > login-preview.png
             python -c 'import xml.etree.ElementTree as E; print([(n.get("package"),n.get("class"),n.get("text"),n.get("bounds")) for n in E.parse("login-hierarchy.xml").iter("node")])'
