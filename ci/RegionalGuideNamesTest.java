@@ -10,6 +10,8 @@ public final class RegionalGuideNamesTest {
   if(RegionalGuideNames.normalize("US: ABC East").equals(RegionalGuideNames.normalize("US: ABC West")))throw new AssertionError("regional collision");
   eq(RegionalGuideNames.epoch("20261127230000 +0000"),RegionalGuideNames.epoch("20261127180000 -0500"));
   eq(RegionalGuideNames.epoch("20261127230000"),0L);
+  eq(RegionalGuideNames.sources("US").length,2);eq(RegionalGuideNames.file("US_SPORTS"),"US_SPORTS1");eq(RegionalGuideNames.sources("UK").length,1);
+  long now=1800000000000L;eq(RegionalGuideNames.withinWindow(now+7*86400000L,now+8*86400000L,now),true);eq(RegionalGuideNames.withinWindow(now+15*86400000L,now+16*86400000L,now),false);
   System.out.println("PASS: five regional EPG feeds, HD/4K matching, +1 and regional isolation, XMLTV time offsets");
  }
 }

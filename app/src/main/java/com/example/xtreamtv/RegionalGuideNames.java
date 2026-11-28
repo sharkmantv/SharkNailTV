@@ -21,7 +21,12 @@ final class RegionalGuideNames {
   s=s.replaceAll("\\bplus\\s*1\\b","+1");
   return s.replaceAll("[^a-z0-9+]","");
  }
- static String file(String region){switch(region){case "UK":return "UK1";case "US":return "US2";case "CA":return "CA2";case "AU":return "AU1";case "NZ":return "NZ1";default:return "";}}
+ static String file(String region){switch(region){case "UK":return "UK1";case "US":return "US2";case "US_SPORTS":return "US_SPORTS1";case "CA":return "CA2";case "AU":return "AU1";case "NZ":return "NZ1";default:return "";}}
+ static final int GUIDE_DAYS=14;
+ static final int FULL_LIMIT=1200;
+ static final int PREVIEW_LIMIT=120;
+ static String[] sources(String region){return "US".equals(region)?new String[]{"US","US_SPORTS"}:file(region).isEmpty()?new String[0]:new String[]{region};}
+ static boolean withinWindow(long start,long end,long now){return start>0&&end>start&&end>now-6*3600000L&&start<now+GUIDE_DAYS*86400000L;}
  static long epoch(String s){
   if(s==null||!s.matches("\\d{14}\\s*[+-]\\d{4}"))return 0;
   try{SimpleDateFormat f=new SimpleDateFormat("yyyyMMddHHmmss Z",Locale.US);f.setLenient(false);return f.parse(s.substring(0,14)+" "+s.substring(14).trim()).getTime();}catch(Exception e){return 0;}

@@ -16,7 +16,7 @@ final class RegionalGuide {
  final File dir;final ExecutorService worker=Executors.newSingleThreadExecutor();
  final Set<String> pending=new HashSet<>();final Map<String,Long> retry=new HashMap<>();
  final Runnable changed;volatile boolean closed,busy;volatile Call active;
- RegionalGuide(Context context,Runnable changed){dir=new File(context.getCacheDir(),"regional-epg-v1");this.changed=changed;}
+ RegionalGuide(Context context,Runnable changed){dir=new File(context.getCacheDir(),"regional-epg-v2");this.changed=changed;}
  File file(String region){return new File(dir,region+".db");}
  synchronized void ensure(String region){
   if(closed||busy||RegionalGuideNames.file(region).isEmpty()||pending.contains(region))return;
@@ -39,6 +39,7 @@ final class RegionalGuide {
   @Override public int read()throws IOException{if(left<=0)throw new IOException("EPG size limit");int v=super.read();if(v>=0)left--;return v;}
   @Override public int read(byte[] b,int off,int len)throws IOException{if(len==0)return 0;if(left<=0)throw new IOException("EPG size limit");int n=super.read(b,off,(int)Math.min(len,left));if(n>0)left-=n;return n;}
  }
+ void ensureRegion(String region){for(String source:RegionalGuideNames.sources(region))ensure(source);}
  void download(String region)throws Exception{
   if(closed||busy)throw new InterruptedException();
   if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("EPG cache");
@@ -75,8 +76,8 @@ final class RegionalGuide {
      }else if(event==XmlPullParser.END_TAG){
       if("channel".equals(p.getName()))channel="";
       else if("programme".equals(p.getName())){programme=false;
-       if(!pid.isEmpty()&&!title.isEmpty()&&start>0&&end>start&&end>now-6*3600000L&&start<now+3*DAY){
-        insert.clearBindings();insert.bindString(1,pid);insert.bindLong(2,start);insert.bindLong(3,end);insert.bindString(4,title);insert.bindString(5,desc);insert.executeInsert();if(++count>300000)throw new IOException("Too many programmes");
+       if(!pid.isEmpty()&&!title.isEmpty()&&RegionalGuideNames.withinWindow(start,end,now)){
+        insert.clearBindings();insert.bindString(1,pid);insert.bindLong(2,start);insert.bindLong(3,end);insert.bindString(4,title);insert.bindString(5,desc);insert.executeInsert();if(++count>500000)throw new IOException("Too many programmes");
        }
       }
      }
@@ -91,12 +92,15 @@ final class RegionalGuide {
   if(name.isEmpty())return "";
   try(Cursor c=db.rawQuery("SELECT id FROM aliases WHERE name=? LIMIT 2",new String[]{name})){if(!c.moveToFirst())return "";String id=c.getString(0);return c.moveToNext()?"":id;}
  }
- List<MainActivity.Programme> lookup(String region,String name,String epgId){
+ List<MainActivity.Programme> lookup(String region,String name,String epgId,boolean extended){
+  List<MainActivity.Programme> all=new ArrayList<>();for(String source:RegionalGuideNames.sources(region))all=MainActivity.mergeGuide(all,lookupSource(source,name,epgId,extended));return all;
+ }
+ List<MainActivity.Programme> lookupSource(String region,String name,String epgId,boolean extended){
   List<MainActivity.Programme> out=new ArrayList<>();File f=file(region);if(!f.isFile()||System.currentTimeMillis()-f.lastModified()>3*DAY)return out;
   try(SQLiteDatabase db=SQLiteDatabase.openDatabase(f.getPath(),null,SQLiteDatabase.OPEN_READONLY|SQLiteDatabase.NO_LOCALIZED_COLLATORS)){
    String id=unique(db,"id:"+epgId.toLowerCase(Locale.ROOT));
    if(id.isEmpty())id=unique(db,RegionalGuideNames.normalize(name));if(id.isEmpty())return out;
-   try(Cursor c=db.rawQuery("SELECT start,end,title,description FROM programmes WHERE id=? AND end>? ORDER BY start LIMIT 300",new String[]{id,Long.toString(System.currentTimeMillis()-6*3600000L)})){
+   try(Cursor c=db.rawQuery("SELECT start,end,title,description FROM programmes WHERE id=? AND end>? AND start<? ORDER BY start LIMIT "+(extended?RegionalGuideNames.FULL_LIMIT:RegionalGuideNames.PREVIEW_LIMIT),new String[]{id,Long.toString(System.currentTimeMillis()-6*3600000L),Long.toString(System.currentTimeMillis()+(extended?RegionalGuideNames.GUIDE_DAYS:1)*DAY)})){
     while(c.moveToNext()){MainActivity.Programme p=new MainActivity.Programme();p.start=c.getLong(0);p.end=c.getLong(1);p.title=c.getString(2);p.description=c.getString(3);p.rawStart=p.rawEnd="";out.add(p);}
    }
   }catch(Exception ignored){}

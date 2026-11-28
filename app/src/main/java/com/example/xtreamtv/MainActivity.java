@@ -42,13 +42,14 @@ public class MainActivity extends Activity {
  final ThreadPoolExecutor epgIo=(ThreadPoolExecutor)Executors.newFixedThreadPool(2);
  final ThreadPoolExecutor rowGuideIo=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(24),new ThreadPoolExecutor.AbortPolicy());
  final Runnable tickRows=new Runnable(){public void run(){if(stopped||!page.equals("Live TV"))return;if(!full&&right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);ui.postDelayed(this,60000);}};
- final android.util.LruCache<String,GuideData> guideCache=new android.util.LruCache<>(80);
+ final android.util.LruCache<String,GuideData> guideCache=new android.util.LruCache<String,GuideData>(4800){@Override protected int sizeOf(String key,GuideData value){return Math.max(60,value.shows.size());}};
  Future<?> previewGuideJob,fullGuideJob;
  RegionalGuide regionalGuide;
  Item highlightedGuideItem;
  Runnable pendingGuideFocus;
  int guideRequest;
  Dialog guideDialog;
+ Runnable regionalGuideRefresh;
  final Runnable refreshEpg=new Runnable(){public void run(){if(!stopped&&!full&&page.equals("Live TV")&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(!stopped&&page.equals("Live TV"))ui.postDelayed(this,60000);}};
  static class Programme{String title,description,rawStart,rawEnd;long start,end;}
  static class GuideData{final List<Programme> shows;final long fetched=System.currentTimeMillis();final boolean extended;GuideData(List<Programme>s,boolean x){shows=s;extended=x;}}
@@ -178,9 +179,9 @@ public class MainActivity extends Activity {
   if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND){clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  }
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
- static class Item { String id,name,ext,art="",year="",tmdb="",epgId=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
+ static class Item { String id,name,ext,art="",year="",tmdb="",epgId="",epgRegion=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);regionalGuide=new RegionalGuide(this,()->ui.post(()->{if(isFinishing()||isDestroyed())return;guideCache.evictAll();if(!full&&!stopped&&page.equals("Live TV")){if(right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);if(highlightedGuideItem!=null)loadEpg(highlightedGuideItem);}}));if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_policy_50060",false)){prefs.edit().putBoolean("match_frame_rate",true).putBoolean("refresh_policy_50060",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);regionalGuide=new RegionalGuide(this,()->ui.post(()->{if(isFinishing()||isDestroyed())return;guideCache.evictAll();if(!full&&!stopped&&page.equals("Live TV")){if(right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);if(highlightedGuideItem!=null)loadEpg(highlightedGuideItem);if(regionalGuideRefresh!=null)regionalGuideRefresh.run();}}));if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_policy_50060",false)){prefs.edit().putBoolean("match_frame_rate",true).putBoolean("refresh_policy_50060",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
@@ -741,7 +742,7 @@ public class MainActivity extends Activity {
  void retryCatalogue(){clearCatalogue();if(cats.isEmpty())loadCats();else loadItems();}
  void liveOptions(){if(full||!page.equals("Live TV"))return;new AlertDialog.Builder(this).setTitle("Live TV options").setItems(new String[]{"Home","Search","TV Guide","Retry"},(d,n)->{switch(n){case 0:home();break;case 1:search();break;case 2:openGuide();break;case 3:retryCatalogue();break;}}).setNegativeButton("Cancel",null).show();}
  void loadCats(){String k=prefix(),url=api("get_"+k+"_categories","");int req=++loadToken;msg("Loading categories…");catalogueTask("cats:"+k,CATEGORY_TTL,false,req,()->parse(new JSONArray(get(url)),"category_id","category_name"),a->{cats=new ArrayList<>();cats.add(new Item("","All",""));if(page.equals("Live TV"))cats.add(new Item("@fav","Favourites",""));cats.addAll(a);catAdapter();focusAt(left,0);loadItems();});}
- void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(right!=null){items=new ArrayList<>();setItemsAdapter(items,this::pick);}msg("Loading "+page+"…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
+ void loadItems(){clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null)previewGuideJob.cancel(true);release();selected=null;epgToken++;if(epg!=null)epg.setText("Programme information");if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);if(preview!=null){preview.removeAllViews();TextView t=text("Press OK to preview",14);t.setGravity(Gravity.CENTER);preview.addView(t,new FrameLayout.LayoutParams(-1,-1));}int req=++loadToken;String k=prefix(),c=cat.equals("@fav")?"":cat;String url=api(k.equals("series")?"get_series":"get_"+k+"_streams",c.isEmpty()?"":"&category_id="+enc(c));if(right!=null){items=new ArrayList<>();setItemsAdapter(items,this::pick);}msg("Loading "+page+"…");catalogueTask("items:"+k+":"+c,STREAM_TTL,false,req,()->parse(new JSONArray(get(url)),k.equals("series")?"series_id":"stream_id","name"),a->{if(req!=loadToken)return;items=a;if(cat.equals("@fav")){Set<String> f=prefs.getStringSet("fav",Collections.emptySet());items.removeIf(i->!f.contains(i.id));}if(page.equals("Live TV")&&regionalGuide!=null){String categoryRegion="";for(Item category:cats)if(category.id.equals(c)){categoryRegion=RegionalGuideNames.region(category.name,"");break;}Set<String> regions=new LinkedHashSet<>();for(Item channel:items){channel.epgRegion=RegionalGuideNames.region(channel.name,channel.epgId);if(channel.epgRegion.isEmpty())channel.epgRegion=categoryRegion;if(!channel.epgRegion.isEmpty())regions.add(channel.epgRegion);}for(String region:regions)regionalGuide.ensureRegion(region);}setItemsAdapter(items,this::pick);msg(items.size()+" titles");});}
  void search(){EditText e=new EditText(this);e.setSingleLine();styleInput(e);new AlertDialog.Builder(this).setTitle("Search current list").setView(e).setPositiveButton("Search",(d,w)->{String q=e.getText().toString().toLowerCase(Locale.ROOT);List<Item>a=new ArrayList<>();for(Item i:items)if(i.name.toLowerCase(Locale.ROOT).contains(q))a.add(i);setItemsAdapter(a,(i,p)->pick(i,items.indexOf(i)));focusAt(right,0);}).setNegativeButton("Cancel",null).show();}
  void pick(Item i,int p){itemPos=p;if(page.equals("Live TV")){if(selected!=null&&selected.id.equals(i.id)&&player!=null&&player.getPlayerError()==null){playFull(i);return;}selected=i;attach(preview,i,false);loadEpg(i);return;}if(page.equals("Series")&&seriesId.isEmpty()){episodes(i);return;}playFull(i);}
  void episodes(Item s){msg("Loading episodes…");int req=++loadToken;String url=api("get_series_info","&series_id="+enc(s.id));catalogueTask("episodes:"+s.id,STREAM_TTL,false,req,()->{JSONObject j=new JSONObject(get(url)).optJSONObject("episodes");List<Item>a=new ArrayList<>();if(j!=null){List<String> keys=new ArrayList<>();j.keys().forEachRemaining(keys::add);Collections.sort(keys);for(String k:keys){JSONArray e=j.optJSONArray(k);if(e!=null)for(int n=0;n<e.length();n++){JSONObject o=e.optJSONObject(n);if(o!=null&&!o.optString("id").isEmpty())a.add(new Item(o.optString("id"),"S"+k+" E"+o.optString("episode_num")+" · "+o.optString("title"),o.optString("container_extension","mp4")));}}}return a;},a->{if(req!=loadToken)return;seriesId=s.id;items=a;setItemsAdapter(items,this::pick);msg(s.name);focusAt(right,0);});}
@@ -797,11 +798,8 @@ public class MainActivity extends Activity {
    try{List<Programme> more=parseGuide(getGuide(extended?shortUrl:fullUrl),zone);if(!more.isEmpty()){shows=mergeGuide(shows,more);if(!extended)fullLoaded=true;}}catch(Exception ignored){}
   }
   if(Thread.currentThread().isInterrupted())throw new InterruptedException();
-  GuideData provider=new GuideData(shows,fullLoaded);
-  if(extended||currentProgramme(provider,now)==null||nextProgramme(provider,now)==null){
-   String region=RegionalGuideNames.region(item.name,item.epgId);
-   if(regionalGuide!=null&&!region.isEmpty()){regionalGuide.ensure(region);shows=mergeGuide(shows,regionalGuide.lookup(region,item.name,item.epgId));}
-  }
+  String region=item.epgRegion.isEmpty()?RegionalGuideNames.region(item.name,item.epgId):item.epgRegion;
+  if(regionalGuide!=null&&!region.isEmpty()){regionalGuide.ensureRegion(region);List<Programme> regional=regionalGuide.lookup(region,item.name,item.epgId,extended);if(!regional.isEmpty()){shows=mergeGuide(shows,regional);if(extended)fullLoaded=true;}}
   return new GuideData(shows,fullLoaded);
  }
  static List<Programme> mergeGuide(List<Programme> primary,List<Programme> fallback){
@@ -904,7 +902,7 @@ public class MainActivity extends Activity {
   Runnable headerUpdate=()->{header.removeAllViews();TextView label=text(new java.text.SimpleDateFormat("EEE d MMM",Locale.getDefault()).format(new Date(start[0])),13);header.addView(label,new LinearLayout.LayoutParams(0,-1,1.15f));LinearLayout times=row();header.addView(times,new LinearLayout.LayoutParams(0,-1,3f));for(int i=0;i<6;i++){TextView t=text(formatGuideTime(start[0]+i*GUIDE_SLOT,""),13);t.setTextColor(UI_ACCENT);times.addView(t,new LinearLayout.LayoutParams(0,-1,1));}};
   Runnable change=()->{adapter.from=start[0];headerUpdate.run();adapter.refreshVisible(channels);};
   LinearLayout actions=row();button(actions,"Earlier",()->{start[0]-=3*GUIDE_SLOT;change.run();});button(actions,"Now",()->{long t=System.currentTimeMillis();start[0]=t-t%GUIDE_SLOT;change.run();});button(actions,"Later",()->{start[0]+=3*GUIDE_SLOT;change.run();});button(actions,"Close",dialog::dismiss);layout.addView(actions);
-  headerUpdate.run();dialog.setContentView(layout);dialog.setOnDismissListener(d->{adapter.disposed=true;channels.setAdapter(null);if(guideDialog==dialog)guideDialog=null;});dialog.show();
+  regionalGuideRefresh=()->{if(dialog.isShowing())adapter.refreshVisible(channels);};headerUpdate.run();dialog.setContentView(layout);dialog.setOnDismissListener(d->{regionalGuideRefresh=null;adapter.disposed=true;channels.setAdapter(null);if(guideDialog==dialog)guideDialog=null;});dialog.show();
   if(dialog.getWindow()!=null){dialog.getWindow().setLayout(-1,-1);dialog.getWindow().getDecorView().setSystemUiVisibility(5894);}
   focusAt(channels,Math.min(Math.max(itemPos,0),channelList.size()-1));
  }
@@ -923,22 +921,29 @@ public class MainActivity extends Activity {
   List<Item> channelList=new ArrayList<>(items);
   channels.setAdapter(new Rows(channelList,(item,n)->{choice[0]=item;loadFullGuide(dialog,item,label,entries,scroll,false);}));
   LinearLayout actions=row();button(actions,"Refresh guide",()->loadFullGuide(dialog,choice[0],label,entries,scroll,true));button(actions,"Back to grid",()->{dialog.dismiss();openGuide();});layout.addView(actions);
-  dialog.setContentView(layout);dialog.setOnDismissListener(d->{guideRequest++;if(fullGuideJob!=null)fullGuideJob.cancel(true);if(guideDialog==dialog)guideDialog=null;});dialog.show();
+  regionalGuideRefresh=()->{if(dialog.isShowing())loadFullGuide(dialog,choice[0],label,entries,scroll,true);};dialog.setContentView(layout);dialog.setOnDismissListener(d->{regionalGuideRefresh=null;guideRequest++;if(fullGuideJob!=null)fullGuideJob.cancel(true);if(guideDialog==dialog)guideDialog=null;});dialog.show();
   if(dialog.getWindow()!=null){dialog.getWindow().setLayout(-1,-1);dialog.getWindow().getDecorView().setSystemUiVisibility(5894);}
   int index=0;for(int n=0;n<channelList.size();n++)if(channelList.get(n).id.equals(choice[0].id)){index=n;break;}
   focusAt(channels,index);loadFullGuide(dialog,choice[0],label,entries,scroll,false);
  }
  void showFullGuide(Item item,GuideData data,TextView label,LinearLayout entries,ScrollView scroll){
-  label.setText(item.name+"  •  "+(data.extended?"Full schedule":"Available listings")+"  •  * Provider time");
+  long now=System.currentTimeMillis();int first=0;while(first<data.shows.size()&&data.shows.get(first).end>0&&data.shows.get(first).end<=now)first++;
+  int offset=Math.min(first/80*80,Math.max(0,(data.shows.size()-1)/80*80));showFullGuidePage(item,data,label,entries,scroll,offset,true);
+ }
+ void showFullGuidePage(Item item,GuideData data,TextView label,LinearLayout entries,ScrollView scroll,int offset,boolean seekCurrent){
+  int end=Math.min(offset+80,data.shows.size());
+  label.setText(item.name+"  •  "+(data.extended?"Full available schedule":"Available listings")+"  •  "+(data.shows.isEmpty()?"0":(offset+1)+"–"+end)+"/"+data.shows.size());
   entries.removeAllViews();long now=System.currentTimeMillis();String lastDate="";View firstCurrent=null;
-  for(Programme p:data.shows){String day=guideDate(p);if(!day.equals(lastDate)){TextView header=text(day,15);header.setTextColor(UI_ACCENT);header.setTypeface(uiMedium);entries.addView(header,new LinearLayout.LayoutParams(-1,dp(29)));lastDate=day;}
+  if(offset>0){LinearLayout nav=row();button(nav,"Earlier programmes",()->showFullGuidePage(item,data,label,entries,scroll,Math.max(0,offset-80),false));entries.addView(nav);}
+  for(Programme p:data.shows.subList(offset,end)){String day=guideDate(p);if(!day.equals(lastDate)){TextView header=text(day,15);header.setTextColor(UI_ACCENT);header.setTypeface(uiMedium);entries.addView(header,new LinearLayout.LayoutParams(-1,dp(29)));lastDate=day;}
    boolean current=p.start>0&&p.end>0&&p.start<=now&&now<p.end;
    TextView entry=text((current?"NOW  ":"")+guideTimes(p)+"  "+p.title+(p.description.isEmpty()?"":"\n"+p.description),14);
    entry.setMaxLines(5);entry.setPadding(dp(10),dp(7),dp(10),dp(7));entry.setFocusable(true);entry.setBackground(focus());premiumHomeFocus(entry);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(2),0,dp(2));entries.addView(entry,lp);
    if(firstCurrent==null&&(current||p.start>now))firstCurrent=entry;
   }
   if(data.shows.isEmpty())entries.addView(text("No programme schedule provided for this channel.",15));
-  View target=firstCurrent;scroll.post(()->scroll.scrollTo(0,target==null?0:target.getTop()));
+  if(end<data.shows.size()){LinearLayout nav=row();button(nav,"Later programmes",()->showFullGuidePage(item,data,label,entries,scroll,end,false));entries.addView(nav);}
+  View target=seekCurrent?firstCurrent:null;scroll.post(()->scroll.scrollTo(0,target==null?0:target.getTop()));
  }
  void loadFullGuide(Dialog dialog,Item item,TextView label,LinearLayout entries,ScrollView scroll,boolean force){
   int req=++guideRequest;if(fullGuideJob!=null)fullGuideJob.cancel(true);
