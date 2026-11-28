@@ -302,7 +302,7 @@ public class MainActivity extends Activity {
   decoderPrefs().edit().clear().apply();liveExt="ts";
  }
  void resetVisualSettings(){
-  new AlertDialog.Builder(this).setTitle("Reset playback and display preferences?").setMessage("Restore Custom ExoPlayer with decoder SDR for Live TV, native Movies/Series, automatic Live FPS and TS live format. Xtream login and favourites will be kept.").setNegativeButton("Cancel",null).setPositiveButton("Reset",(d,n)->{restorePlaybackDefaults();applyDisplayMode();settings();}).show();
+  new AlertDialog.Builder(this).setTitle("Reset playback and display preferences?").setMessage("Restore Custom ExoPlayer with native SDR preference for Live TV, native Movies/Series, automatic Live FPS and TS live format. Xtream login and favourites will be kept.").setNegativeButton("Cancel",null).setPositiveButton("Reset",(d,n)->{restorePlaybackDefaults();applyDisplayMode();settings();}).show();
  }
  void settings(){
   page="Settings";screen("Settings");
@@ -334,9 +334,9 @@ public class MainActivity extends Activity {
  }
  String sdrStatus(Format f){
   PlaybackProbe probe=playbackProbe;
-  if(probe!=null&&probe.outputKnown){if(probe.outputTransfer==3)return "Decoder output SDR (panel not independently verified)";if(probe.outputTransfer==6||probe.outputTransfer==7)return "Decoder output "+transferName(probe.outputTransfer)+"; SDR not achieved";}
+  if(probe!=null&&probe.outputKnown){if(probe.outputTransfer==3)return "Decoder output SDR (panel not independently verified)";if(probe.outputTransfer==6||probe.outputTransfer==7)return "Decoder output "+transferName(probe.outputTransfer)+(rangeFor(page.equals("Live TV")).equals("Prefer SDR")?"; SDR not achieved":"");}
   if(f!=null&&f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR&&!isHdr(f))return "SDR source; output unverified";
-  if(probe!=null&&probe.sdrRejected)return "No verified SDR conversion; native output";
+  if(isHdr(f)&&rangeFor(page.equals("Live TV")).equals("Prefer SDR"))return "HDR source; no confirmed native SDR track selected";
   return "Decoder output unknown; SDR not verified";
  }
  String currentPlaybackDiagnostics(){
@@ -485,7 +485,7 @@ public class MainActivity extends Activity {
   LinearLayout r2=row();int mode=prefs.getInt("resize_mode",0);button(r2,"Picture: "+(mode==3?"Stretch":mode==4?"Zoom":"Fit"),()->{prefs.edit().putInt("resize_mode",mode==0?3:mode==3?4:0).apply();playbackSettings();});
   button(r2,"Audio: "+prefs.getString("audio_lang","Automatic"),()->languageDialog("audio_lang","Preferred audio language"));button(r2,"Text: "+prefs.getString("text_lang","Automatic"),()->languageDialog("text_lang","Preferred subtitle language"));body.addView(r2);
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
-  TextView hint=text("SDR prefers native SDR tracks or a matching SDR feed already loaded, then supported decoder conversion. If unavailable, native HDR plays smoothly. Auto preserves the selected source.",13);body.addView(hint);
+  TextView hint=text("SDR and HDR select matching native video tracks when available. No forced conversion or channel substitution. If no matching track exists, native output is retained.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
   LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Live FPS (custom): "+(prefs.getBoolean("match_frame_rate",true)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",true)).apply();playbackSettings();});button(rate,"Live buffer: "+(defaultLiveEngine()?"Stock":liveStartupBufferMs()+" ms"),this::liveBufferSettings);body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
@@ -979,10 +979,10 @@ public class MainActivity extends Activity {
  boolean rememberedDecoder(Item i){long when=decoderPrefs().getLong(decoderKey(i),0);long age=System.currentTimeMillis()-when;return when>0&&age>=0&&age<7L*24*60*60*1000;}
  void rememberDecoder(Item i){android.content.SharedPreferences d=decoderPrefs();android.content.SharedPreferences.Editor e=d.edit();Map<String,?> all=d.getAll();if(all.size()>=128){String oldest=null;long time=Long.MAX_VALUE;for(Map.Entry<String,?> entry:all.entrySet())if(entry.getValue() instanceof Long&&(Long)entry.getValue()<time){oldest=entry.getKey();time=(Long)entry.getValue();}if(oldest!=null)e.remove(oldest);}e.putLong(decoderKey(i),System.currentTimeMillis()).apply();}
  void attach(FrameLayout host,Item i,boolean fullscreen){if(fullscreen&&!page.equals("Live TV")&&getIntent().getBooleanExtra("ci_native_fixture",false)&&("ranchu".equals(Build.HARDWARE)||Build.FINGERPRINT.startsWith("generic"))&&server.equals("http://127.0.0.1:18765")&&user.equals("fixture")&&pass.equals("fixture")){attachNative(host,i,0);return;}boolean cached=fullscreen&&!page.equals("Live TV")&&rememberedDecoder(i);attachExo(host,i,fullscreen,cached?1:0,0,cached);}
- static boolean isHdr(Format f){return f!=null&&(MimeTypes.VIDEO_DOLBY_VISION.equals(f.sampleMimeType)||(f.colorInfo!=null&&(f.colorInfo.colorTransfer==C.COLOR_TRANSFER_ST2084||f.colorInfo.colorTransfer==C.COLOR_TRANSFER_HLG||f.colorInfo.hdrStaticInfo!=null)));}
+ static boolean isHdr(Format f){return f!=null&&(MimeTypes.VIDEO_DOLBY_VISION.equals(f.sampleMimeType)||(f.colorInfo!=null&&(f.colorInfo.colorTransfer==C.COLOR_TRANSFER_ST2084||f.colorInfo.colorTransfer==C.COLOR_TRANSFER_HLG||f.colorInfo.colorSpace==C.COLOR_SPACE_BT2020||f.colorInfo.hdrStaticInfo!=null)));}
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst){
   String mode=rangeFor(page.equals("Live TV"));
-  int route=mode.equals("Prefer SDR")&&Build.VERSION.SDK_INT>=31?2:-1;
+  int route=-1; // Wave reference: native tracks, no forced conversion.
   attachExo(host,i,fullscreen,attempt,position,cachedFirst,route);
  }
  Item matchingSdrFeed(Item original){
@@ -1012,24 +1012,7 @@ public class MainActivity extends Activity {
   final boolean decoderSdr=sdrPath==2;
   final boolean fast=!stock&&page.equals("Live TV");
   final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?liveStartupBufferMs():-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);playbackProbe=probe;
-  if(fast&&range.equals("Prefer SDR")&&Build.VERSION.SDK_INT>=35&&v.getVideoSurfaceView() instanceof android.view.SurfaceView){try{((android.view.SurfaceView)v.getVideoSurfaceView()).setDesiredHdrHeadroom(1f);probe.headroomRequested=true;}catch(RuntimeException|LinkageError ignored){android.util.Log.w("SharkPlayback","System SDR headroom unavailable");}}
-  DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
-   @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
-    if(!decoderSdr){super.buildVideoRenderers(context,extensionRendererMode,selector,fallback,handler,listener,joining,out);return;}
-    androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder builder=new androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder(context)
-     .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(selector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50);
-    out.add(new androidx.media3.exoplayer.video.MediaCodecVideoRenderer(builder){
-     @Override protected void onOutputFormatChanged(Format format,android.media.MediaFormat mediaFormat) {
-      probe.outputTransfer=mediaFormat==null?-1:mediaFormat.getInteger(android.media.MediaFormat.KEY_COLOR_TRANSFER,-1);probe.outputKnown=probe.outputTransfer>0;android.util.Log.i("SharkPlayback","Actual codec output transfer="+probe.outputTransfer);super.onOutputFormatChanged(format,mediaFormat);
-     }
-     @Override protected android.media.MediaFormat getMediaFormat(Format format,String codecMimeType,CodecMaxValues codecMaxValues,float codecOperatingRate,boolean deviceNeedsNoPostProcessWorkaround,int tunnelingAudioSessionId){
-      android.media.MediaFormat media=super.getMediaFormat(format,codecMimeType,codecMaxValues,codecOperatingRate,deviceNeedsNoPostProcessWorkaround,tunnelingAudioSessionId);
-      if(decoderSdr&&Build.VERSION.SDK_INT>=31&&isHdr(format)){media.setInteger(android.media.MediaFormat.KEY_COLOR_TRANSFER_REQUEST,android.media.MediaFormat.COLOR_TRANSFER_SDR_VIDEO);android.util.Log.i("SharkPlayback","Decoder SDR conversion requested");}
-      return media;
-     }
-    });
-   }
-  }.setEnableDecoderFallback(true);
+  DefaultRenderersFactory factory=new DefaultRenderersFactory(this).setEnableDecoderFallback(true);
   factory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
   if(attempt==1){
    factory.forceDisableMediaCodecAsynchronousQueueing();
@@ -1079,7 +1062,7 @@ public class MainActivity extends Activity {
   MediaItem.Builder m=new MediaItem.Builder().setUri(stream(probe.sourceItem)).setMediaId(mediaId);
   if(!stock&&page.equals("Live TV"))m.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build());
   class RecoveryListener implements Player.Listener {
-   boolean recovering,firstFrame,rangeSelected;
+   boolean recovering,firstFrame;
    long networkErrorAt=-1,firstRenderedAt=-1;
    String networkError="";
    boolean liveEligible(){return player==p&&playbackProbe==probe&&!recovering&&!stopped&&token==screenToken&&page.equals("Live TV");}
@@ -1087,13 +1070,6 @@ public class MainActivity extends Activity {
     if(!liveEligible())return;
     long now=SystemClock.elapsedRealtime();
     int state=p.getPlaybackState();
-    if(range.equals("Prefer SDR")&&firstRenderedAt>=0&&p.getPlayWhenReady()&&state==Player.STATE_READY){
-     if(probe.alternate&&isHdr(p.getVideoFormat())){recover("Alternative feed is HDR",0);return;}
-     if(!probe.alternate&&!probe.sdrRejected&&SdrCadence.shouldTryGpu(isHdr(p.getVideoFormat()),sdrPath==2&&probe.outputKnown,probe.outputTransfer,now-firstRenderedAt)){
-      Item alternative=matchingSdrFeed(i);if(alternative!=null){restart("Matching native SDR feed",0,-1,alternative);return;}
-      probe.sdrRejected=true;android.util.Log.i("SharkPlayback","No matching SDR feed; retain native HDR");
-     }
-    }
     boolean eligible=full&&p.getPlayWhenReady()&&p.getPlaybackSuppressionReason()==Player.PLAYBACK_SUPPRESSION_REASON_NONE;
     boolean networkFailure=networkErrorAt>=0&&p.getPlayerError()!=null;
     boolean stalled=probe.health.observe(now,p.getCurrentPosition(),eligible&&!networkFailure&&p.getPlayerError()==null&&(state==Player.STATE_READY||state==Player.STATE_BUFFERING||state==Player.STATE_ENDED));
@@ -1122,22 +1098,11 @@ public class MainActivity extends Activity {
    }};
    void startWatch(){if(!stock&&(vod||sdrPath==2||probe.alternate)){decoderWatch=watch;ui.postDelayed(watch,750);}if(page.equals("Live TV")){stopLiveHealth();liveHealthWatch=liveWatch;ui.postDelayed(liveWatch,2000);}}
    @Override public void onTracksChanged(Tracks tracks){
-    if(player!=p||playbackProbe!=probe||recovering||rangeSelected||stock||(!range.equals("Prefer HDR")&&!range.equals("Prefer SDR")))return;
-    boolean selectedDesired=false;Tracks.Group candidate=null;int index=-1;long score=-1;
-    boolean wantHdr=range.equals("Prefer HDR");
-    for(Tracks.Group group:tracks.getGroups()){
-     if(group.getType()!=C.TRACK_TYPE_VIDEO)continue;
-     for(int n=0;n<group.length;n++){Format f=group.getTrackFormat(n);boolean desired=wantHdr?isHdr(f):f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR&&!isHdr(f);if(!desired||!group.isTrackSupported(n))continue;
-      if(group.isTrackSelected(n))selectedDesired=true;
-      long pixels=(long)Math.max(0,f.width)*Math.max(0,f.height);
-      if(pixels>score){score=pixels;candidate=group;index=n;}
-     }
+     if(player!=p||playbackProbe!=probe||recovering||stock)return;
+     applyNativeRange(p,tracks,rangeFor(page.equals("Live TV")));
     }
-    if(selectedDesired){rangeSelected=true;return;}
-    if(candidate!=null){rangeSelected=true;p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().setOverrideForType(new TrackSelectionOverride(candidate.getMediaTrackGroup(),index)).build());}
-   }
 
-   @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK){probe.closeStall();probe.health.reset();}}
+    @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK){probe.closeStall();probe.health.reset();}}
    @Override public void onPlaybackStateChanged(int state){if(player!=p||playbackProbe!=probe)return;if(state==Player.STATE_READY&&startupReadyMs<0)startupReadyMs=SystemClock.elapsedRealtime()-startupBeginMs;if(state==Player.STATE_BUFFERING&&firstFrame&&p.getPlayWhenReady()&&!vod&&probe.stallStart<0){probe.rebuffers++;probe.stallStart=SystemClock.elapsedRealtime();}else if(state!=Player.STATE_BUFFERING)probe.closeStall();}
    @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready){probe.closeStall();probe.health.reset();}}
    @Override public void onRenderedFirstFrame(){
@@ -1227,6 +1192,35 @@ public class MainActivity extends Activity {
   if(playerHeader!=null){ViewGroup group=(ViewGroup)playerHeader.getParent();if(group!=null)group.removeView(playerHeader);playerHeader=null;}
   if(rangeButton!=null){ViewGroup group=(ViewGroup)rangeButton.getParent();if(group!=null)group.removeView(rangeButton);rangeButton=null;}
   if(video!=null)video.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)null);
+ }
+ // Native selection: best supported group, with adaptive variants limited to the requested range.
+ void applyNativeRange(ExoPlayer p,Tracks tracks,String range){
+  TrackSelectionParameters old=p.getTrackSelectionParameters();
+  TrackSelectionParameters.Builder b=old.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO);
+  boolean wantHdr=range.equals("Prefer HDR"),wantSdr=range.equals("Prefer SDR");
+  if(wantHdr||wantSdr){
+   Tracks.Group best=null;List<Integer> bestIndices=null;int bestTier=-1;long bestPixels=-1;int bestBitrate=-1;
+   for(Tracks.Group group:tracks.getGroups()){
+    if(group.getType()!=C.TRACK_TYPE_VIDEO)continue;
+    List<Integer> indices=new ArrayList<>();int tier=-1;long pixels=-1;int bitrate=-1;
+    for(int n=0;n<group.length;n++){
+     if(!group.isTrackSupported(n))continue;
+     Format f=group.getTrackFormat(n);boolean hdr=isHdr(f);
+     int rank=wantHdr?(hdr?2:-1):(hdr?-1:(f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR?2:1));
+     if(rank<0||rank<tier)continue;
+     if(rank>tier){indices.clear();pixels=-1;bitrate=-1;tier=rank;}
+     indices.add(n);
+     long area=(long)Math.max(0,f.width)*Math.max(0,f.height);
+     if(area>pixels||(area==pixels&&f.bitrate>bitrate)){pixels=area;bitrate=f.bitrate;}
+    }
+    if(!indices.isEmpty()&&(tier>bestTier||(tier==bestTier&&(pixels>bestPixels||(pixels==bestPixels&&bitrate>bestBitrate))))){
+     best=group;bestIndices=indices;bestTier=tier;bestPixels=pixels;bestBitrate=bitrate;
+    }
+   }
+   if(best!=null)b.setOverrideForType(new TrackSelectionOverride(best.getMediaTrackGroup(),bestIndices));
+  }
+  TrackSelectionParameters next=b.build();
+  if(!next.equals(old)){if(playbackProbe!=null){playbackProbe.outputKnown=false;playbackProbe.outputTransfer=-1;}p.setTrackSelectionParameters(next);}
  }
  String rangeLabel(){return rangeName(rangeFor(page.equals("Live TV")));}
  TextView playerAction(LinearLayout bar,String label,Runnable action){
@@ -1320,6 +1314,7 @@ public class MainActivity extends Activity {
    dialog.dismiss();String range=values[n];if(range.equals(rangeFor(live)))return;
    prefs.edit().putString(live?"range_live":"range_vod",range).apply();
    if(!full||playbackItem!=item)return;
+    if(player!=null){applyNativeRange(player,player.getCurrentTracks(),range);if(premiumPlayer!=null)premiumPlayer.refreshInfo(true);return;}
    if(liveSurfaceHost!=null&&page.equals("Live TV")){
     if(!exitLiveFullscreen())return;
     attach(preview,item,false);if(player!=null&&liveSurfaceHost!=null)enterLiveFullscreen();
