@@ -91,7 +91,7 @@ public class MainActivity extends Activity {
   final long started;final boolean fast;final AtomicLong opening=new AtomicLong(-1),firstByte=new AtomicLong(-1),lastByte=new AtomicLong(-1),lastFrame=new AtomicLong(-1);
   final PlaybackHealth health=new PlaybackHealth(); String recoveryReason="None"; volatile int outputTransfer=-1; volatile boolean outputKnown=false;
   int rebuffers;long stallStart=-1,stallTotal;
-  PlaybackProbe(long start,boolean fast){started=start;this.fast=fast;}
+  final int startupBufferMs; PlaybackProbe(long start,boolean fast,int startupBufferMs){started=start;this.fast=fast;this.startupBufferMs=startupBufferMs;}
   @Override public void onTransferInitializing(DataSource source,DataSpec spec,boolean network){if(network)opening.compareAndSet(-1,SystemClock.elapsedRealtime()-started);}
   @Override public void onTransferStart(DataSource source,DataSpec spec,boolean network){}
   @Override public void onBytesTransferred(DataSource source,DataSpec spec,boolean network,int count){if(network&&count>0){long now=SystemClock.elapsedRealtime();firstByte.compareAndSet(-1,now-started);lastByte.set(now);}}
@@ -298,7 +298,7 @@ public class MainActivity extends Activity {
   PremiumVisuals.Tile tile=new PremiumVisuals.Tile(this,label,icon,false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(5),dp(5),dp(5),dp(5));r.addView(tile,lp);tile.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)v.requestFocus();return false;});tile.setOnClickListener(v->action.run());
  }
  void restorePlaybackDefaults(){
-  prefs.edit().remove("display_mode").remove("resize_mode").remove("audio_lang").remove("text_lang").remove("subtitles_on").remove("show_codec_info").remove("match_frame_rate").remove("range_live").remove("range_vod").remove("format").putBoolean("default_live_engine",false).apply();
+  prefs.edit().remove("display_mode").remove("resize_mode").remove("audio_lang").remove("text_lang").remove("subtitles_on").remove("show_codec_info").remove("match_frame_rate").remove("live_startup_buffer_ms").remove("range_live").remove("range_vod").remove("format").putBoolean("default_live_engine",false).apply();
   decoderPrefs().edit().clear().apply();liveExt="ts";
  }
  void resetVisualSettings(){
@@ -352,7 +352,7 @@ public class MainActivity extends Activity {
    +"\nLoad requested: "+timing(startupLoadMs)
    +"\nVideo decoder ready: "+timing(startupDecoderMs)+" (init "+timing(startupDecoderCostMs)+")"
    +"\nPlayer ready: "+timing(startupReadyMs)
-   +(playbackProbe==null?"":"\nStartup profile: "+(playbackProbe.fast?"Fast live (750 ms)":"Stock buffer")+"\nNetwork opening: "+timing(playbackProbe.opening.get())+"\nFirst network byte: "+timing(playbackProbe.firstByte.get())+"\nRebuffers: "+playbackProbe.rebuffers+" / "+timing(playbackProbe.stallTotal+(playbackProbe.stallStart<0?0:SystemClock.elapsedRealtime()-playbackProbe.stallStart)))
+   +(playbackProbe==null?"":"\nStartup profile: "+(playbackProbe.fast?"Custom live ("+playbackProbe.startupBufferMs+" ms)":"Stock buffer")+"\nNetwork opening: "+timing(playbackProbe.opening.get())+"\nFirst network byte: "+timing(playbackProbe.firstByte.get())+"\nRebuffers: "+playbackProbe.rebuffers+" / "+timing(playbackProbe.stallTotal+(playbackProbe.stallStart<0?0:SystemClock.elapsedRealtime()-playbackProbe.stallStart)))
    +"\nPlayback state: "+(p.getPlayerError()!=null?"Error "+p.getPlayerError().getErrorCodeName():p.getPlaybackState()==Player.STATE_BUFFERING?"Buffering":p.getPlaybackState()==Player.STATE_READY?(p.isPlaying()?"Playing":"Ready / paused"):p.getPlaybackState()==Player.STATE_ENDED?"Ended":"Idle")
    +(playbackProbe==null?"":"\nLast network data: "+age(playbackProbe.lastByte.get())+"\nLast scheduled video frame: "+age(playbackProbe.lastFrame.get())+"\nLive recovery attempts: "+playbackProbe.health.attempts+" / 2\nLast recovery: "+playbackProbe.recoveryReason)
    +"\nStartup times relative to player creation; not server-only timings.";
@@ -477,9 +477,15 @@ public class MainActivity extends Activity {
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
   TextView hint=text("SDR uses the decoder where supported, never OpenGL. Auto preserves native HDR/SDR. If SDR is unsupported, native output is used. Changes apply at next playback.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
-  LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Live FPS (custom): "+(prefs.getBoolean("match_frame_rate",true)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",true)).apply();playbackSettings();});body.addView(rate);
+  LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Live FPS (custom): "+(prefs.getBoolean("match_frame_rate",true)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",true)).apply();playbackSettings();});button(rate,"Live buffer: "+(defaultLiveEngine()?"Stock":liveStartupBufferMs()+" ms"),this::liveBufferSettings);body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
   LinearLayout back=row();button(back,"Reset playback defaults",this::resetVisualSettings);button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
+ }
+ int liveStartupBufferMs(){int value=prefs.getInt("live_startup_buffer_ms",250);return value==250||value==500||value==750?value:250;}
+ void liveBufferSettings(){
+  if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Stock buffer is unchanged. Select Custom to adjust Live TV startup buffer.").setPositiveButton("OK",null).show();return;}
+  int[] values={250,500,750};String[] labels={"Ultra Fast (250 ms)","Fast (500 ms)","Balanced (750 ms)"};int selected=liveStartupBufferMs()==750?2:liveStartupBufferMs()==500?1:0;
+  new AlertDialog.Builder(this).setTitle("Live TV startup buffer (TS / M3U8)").setSingleChoiceItems(labels,selected,(d,n)->{prefs.edit().putInt("live_startup_buffer_ms",values[n]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();
  }
  boolean defaultLiveEngine(){return prefs.getBoolean("default_live_engine",false);}
  String rangeFor(boolean live){return defaultLiveEngine()?"Auto":prefs.getString(live?"range_live":"range_vod",live?"Prefer SDR":"Auto");}
@@ -1018,12 +1024,12 @@ public class MainActivity extends Activity {
   }
   // Keep the stock engine a genuine comparison/fallback. Only the custom live path starts sooner.
   final boolean fast=!stock&&page.equals("Live TV");
-  final PlaybackProbe probe=new PlaybackProbe(started,fast);playbackProbe=probe;
+  final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?liveStartupBufferMs():-1);playbackProbe=probe;
   DefaultDataSource.Factory source=stock?new DefaultDataSource.Factory(this):new DefaultDataSource.Factory(this,new OkHttpDataSource.Factory(STREAM_HTTP));
   source.setTransferListener(probe);
   ExoPlayer.Builder builder=stock?new ExoPlayer.Builder(this):new ExoPlayer.Builder(this,factory);
   builder.setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(source));
-  if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,750,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
+  if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,probe.startupBufferMs,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
   ExoPlayer p=builder.build();
   if(!stock&&gpu)p.setVideoEffects(Collections.singletonList(new androidx.media3.effect.ScaleAndRotateTransformation.Builder().build()));
   video=v;player=p;playbackItem=i;activeStreamId=i.id;v.setPlayer(p);v.setResizeMode(!fullscreen&&page.equals("Live TV")?4:prefs.getInt("resize_mode",0));
@@ -1112,7 +1118,7 @@ public class MainActivity extends Activity {
    @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready){probe.closeStall();probe.health.reset();}}
    @Override public void onRenderedFirstFrame(){
     if(player!=p||playbackProbe!=probe||recovering)return;
-    firstFrame=true;if(startupFirstMs<0){startupFirstMs=SystemClock.elapsedRealtime()-startupBeginMs;android.util.Log.i("SharkPlayback","startup profile="+(fast?"fast-live":"stock-buffer")+" firstFrameMs="+startupFirstMs+" firstByteMs="+probe.firstByte.get()+" decoderMs="+startupDecoderMs);if(!stock&&full&&autoRefresh())scheduleRefreshMatch(p,sample,0);}ui.removeCallbacks(watch);
+    firstFrame=true;if(startupFirstMs<0){startupFirstMs=SystemClock.elapsedRealtime()-startupBeginMs;android.util.Log.i("SharkPlayback","startup profile="+(fast?"fast-live":"stock-buffer")+" firstFrameMs="+startupFirstMs+" firstByteMs="+probe.firstByte.get()+" decoderMs="+startupDecoderMs+" startupBufferMs="+probe.startupBufferMs);if(!stock&&full&&autoRefresh())scheduleRefreshMatch(p,sample,0);}ui.removeCallbacks(watch);
     if(!stock&&vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
     playbackDiagnostics=(activeDecoder.isEmpty()?"Decoder unavailable":activeDecoder)+(f==null?"":" · "+f.width+"×"+f.height+(f.bitrate>0?" · "+String.format(Locale.US,"%.1f Mb/s",f.bitrate/1000000.0):""))
