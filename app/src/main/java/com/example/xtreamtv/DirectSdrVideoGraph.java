@@ -42,7 +42,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final Listener listener;
  private final Executor callback;
  private final Runnable inputCounter,submitCounter,dropCounter;
- private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming,lateTiming,queueTiming;
+ private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming,lateTiming,queueTiming,targetTiming,submissionTiming;
+ private final java.util.function.Consumer<String> shaderName;
  private final AtomicBoolean pending=new AtomicBoolean();
  private final HandlerThread thread=new HandlerThread("SharkDirectSDR",android.os.Process.THREAD_PRIORITY_DISPLAY);
  private Handler gl;
@@ -64,8 +65,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private volatile boolean ready,released,failed,zero,configured;
  private volatile int generation;
  private SurfaceInfo output;
- DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming){
-  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;Matrix.setIdentityM(identity,0);
+ DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming,java.util.function.LongConsumer targetTiming,java.util.function.LongConsumer submissionTiming,java.util.function.Consumer<String> shaderName){
+  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;this.targetTiming=targetTiming;this.submissionTiming=submissionTiming;this.shaderName=shaderName;Matrix.setIdentityM(identity,0);
  }
  private interface Task{void run()throws Exception;}
  private void sync(Task task)throws Exception{
@@ -93,7 +94,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
    tex=GlUtil.createExternalTexture();texture=new SurfaceTexture(tex);input=new Surface(texture);
    texture.setOnFrameAvailableListener(t->onFrame(),gl);
    ready=true;
-  });}catch(Exception e){throw new VideoFrameProcessingException(e);}
+  });}catch(Exception e){release();throw new VideoFrameProcessingException(e);}
  }
  @Override public void registerInput(int index)throws VideoFrameProcessingException{
   if(index!=0||!ready)throw new VideoFrameProcessingException("Direct SDR input unavailable");
@@ -135,6 +136,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
     }
     if((transfer!=C.COLOR_TRANSFER_ST2084||pqProgram==null)&&hdrProgram==null){hdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.HDR);hdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
    }else if(sdrProgram==null){sdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.SDR);sdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
+   shaderName.accept(transfer==C.COLOR_TRANSFER_ST2084&&pqProgram!=null?"PQ specialized":hdr?"Standard HDR":"SDR pass-through");
    drawStateDirty=true;
    if(width<=0||height<=0)throw new IllegalArgumentException("Invalid dimensions");
    this.offset=offsetUs;texture.setDefaultBufferSize(width,height);ended=false;configured=true;
@@ -214,7 +216,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
     EGLExt.eglPresentationTimeANDROID(display,window,time);
     long swapStart=System.nanoTime();drawTiming.accept(swapStart-drawStart);
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
-    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0)lateTiming.accept(Math.max(0,finished-ns));submitCounter.run();
+    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){lateTiming.accept(Math.max(0,finished-ns));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();
    }
    latched=false;pending.set(false);
    if(ended)notifyEnded();

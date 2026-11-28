@@ -97,10 +97,38 @@ public class MainActivity extends Activity {
   void record(long ns){totalNs+=ns;maxNs=Math.max(maxNs,ns);if(ns>20_000_000L)over20ms++;count++;}
   String label(){long n=count;return n==0?"collecting":String.format(Locale.US,"%.2f ms avg / %.2f max",totalNs/1e6/n,maxNs/1e6);}
  }
+ // Single-writer counters; no frame-sized storage, allocations or locks in the hot path.
+ static final class IntervalProbe {
+  private long previous=Long.MIN_VALUE;
+  volatile long count,gaps,nonIncreasing,maxUs,totalUs;
+  void record(long stampUs,long expectedUs){
+   if(previous!=Long.MIN_VALUE){
+    long delta=stampUs-previous;
+    if(delta<=0)nonIncreasing++;
+    else{count++;totalUs+=delta;maxUs=Math.max(maxUs,delta);if(expectedUs>0&&delta>expectedUs*3/2)gaps++;}
+   }
+   previous=stampUs;
+  }
+  String label(){long n=count;return n==0?"collecting":String.format(Locale.US,"%.2f ms avg / %.2f max; gaps %d/%d; non-increasing %d",totalUs/1000.0/n,maxUs/1000.0,gaps,n,nonIncreasing);}
+ }
  static final class PlaybackProbe implements TransferListener {
   final StageTiming directLatch=new StageTiming(),directDraw=new StageTiming(),directSwap=new StageTiming(),directLate=new StageTiming(),directQueue=new StageTiming();
   final FrameCadence graphInput=new FrameCadence(), graphReady=new FrameCadence(), graphSubmitted=new FrameCadence();
   volatile long graphOutputDrops; volatile boolean directGraph;
+  volatile String directShader="Not initialized";
+  final IntervalProbe decodedPts=new IntervalProbe(),targetPts=new IntervalProbe(),submittedIntervals=new IntervalProbe();
+  volatile long audioUnderruns,videoOffsetSumUs,videoOffsetFrames;
+  long memorySampleAt=-1,heapStart=-1,heapCurrent,heapPeak,nativeCurrent;
+  long expectedFrameUs(){float f=sourceFps;return f>=10&&f<=240?Math.round(1_000_000.0/f):0;}
+  void sampleMemory(long now){
+   if(memorySampleAt>=0&&now-memorySampleAt<30_000)return;
+   memorySampleAt=now;Runtime rt=Runtime.getRuntime();heapCurrent=rt.totalMemory()-rt.freeMemory();
+   if(heapStart<0)heapStart=heapCurrent;heapPeak=Math.max(heapPeak,heapCurrent);
+   nativeCurrent=android.os.Debug.getNativeHeapAllocatedSize();
+  }
+  String memoryLabel(){return heapStart<0?"collecting":String.format(Locale.US,"Java %.1f MB (start %.1f / sampled peak %.1f); native heap %.1f MB",heapCurrent/1048576.0,heapStart/1048576.0,heapPeak/1048576.0,nativeCurrent/1048576.0);}
+  String videoOffsetLabel(){long n=videoOffsetFrames;return n==0?"Not reported":String.format(Locale.US,"%+.2f ms avg (%d frames; not A/V offset)",videoOffsetSumUs/1000.0/n,n);}
+
   final long started;final boolean fast;final AtomicLong opening=new AtomicLong(-1),firstByte=new AtomicLong(-1),lastByte=new AtomicLong(-1),lastFrame=new AtomicLong(-1);
   final PlaybackHealth health=new PlaybackHealth(); String recoveryReason="None"; volatile int outputTransfer=-1; volatile boolean outputKnown=false; boolean sdrRejected; boolean headroomRequested; volatile float sourceFps=-1; volatile long graphFrames,graphFirstNs,graphLastNs; volatile int sourceTransfer=-1; volatile int decodedTransfer=-1; Item sourceItem; boolean alternate;
   int rebuffers;long stallStart=-1,stallTotal;
@@ -382,11 +410,11 @@ public class MainActivity extends Activity {
   return playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
    +(playbackProbe!=null&&playbackProbe.alternate?"\nSDR alternative feed: "+playbackProbe.sourceItem.name:"")
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
-   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label():""):"")
+   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label()+"\nSDR shader: "+playbackProbe.directShader+"\nDecoded timestamp intervals: "+playbackProbe.decodedPts.label()+"\nRequested release intervals: "+playbackProbe.targetPts.label()+"\nSurface submission intervals (not panel): "+playbackProbe.submittedIntervals.label():""):"")
    +"\nDropped frames (reported): "+droppedVideoFrames+(activeSdrPath==0&&playbackProbe!=null?"\nGPU frame callbacks: "+playbackProbe.graphFrames+"; "+(playbackProbe.graphFrames>1&&playbackProbe.graphLastNs>playbackProbe.graphFirstNs?String.format(Locale.US,"%.2f callbacks/s",(playbackProbe.graphFrames-1)*1e9/(playbackProbe.graphLastNs-playbackProbe.graphFirstNs)):"collecting"):"")
    +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
    +"\nVideo codec: "+(f==null?"Unknown":String.valueOf(f.sampleMimeType))
-   +"\nAudio codec: "+(a==null?"Unknown":String.valueOf(a.sampleMimeType))
+   +"\nAudio codec: "+(a==null?"Unknown":String.valueOf(a.sampleMimeType))+(playbackProbe==null?"":"\nAudio underruns: "+playbackProbe.audioUnderruns+"\nRenderer video processing offset: "+playbackProbe.videoOffsetLabel()+"\nPlayback heap sample: "+playbackProbe.memoryLabel())
    +"\nStartup to first frame: "+timing(startupFirstMs)
    +"\nLoad requested: "+timing(startupLoadMs)
    +"\nVideo decoder ready: "+timing(startupDecoderMs)+" (init "+timing(startupDecoderCostMs)+")"
@@ -1039,7 +1067,7 @@ public class MainActivity extends Activity {
   }else host.addView(v,new FrameLayout.LayoutParams(-1,-1));
   final String range=rangeFor(page.equals("Live TV"));
   final boolean fast=!stock&&page.equals("Live TV");
-  final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?(sdrPath==0?Math.max(1000,liveStartupBufferMs()):liveStartupBufferMs()):-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);playbackProbe=probe;
+  final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?(sdrPath==0?Math.max(1000,liveStartupBufferMs()):liveStartupBufferMs()):-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);probe.sampleMemory(SystemClock.elapsedRealtime());playbackProbe=probe;
   final boolean gpu=sdrPath==0&&!stock;
   DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
    @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
@@ -1059,13 +1087,13 @@ public class MainActivity extends Activity {
          androidx.media3.common.VideoGraph.Listener monitored=new androidx.media3.common.VideoGraph.Listener(){
           @Override public void onOutputSizeChanged(int w,int h){downstream.onOutputSizeChanged(w,h);}
           @Override public void onOutputFrameRateChanged(float rate){downstream.onOutputFrameRateChanged(rate);}
-          @Override public void onOutputFrameAvailableForRendering(long pts,boolean redraw){if(!redraw)probe.graphReady.record();downstream.onOutputFrameAvailableForRendering(pts,redraw);}
+          @Override public void onOutputFrameAvailableForRendering(long pts,boolean redraw){if(!redraw){probe.graphReady.record();probe.decodedPts.record(pts,probe.expectedFrameUs());}downstream.onOutputFrameAvailableForRendering(pts,redraw);}
           @Override public void onEnded(long pts){downstream.onEnded(pts);}
           @Override public void onError(androidx.media3.common.VideoFrameProcessingException e){downstream.onError(e);}
          };
          if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
           probe.directGraph=true;
-          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record);
+          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name);
          }
          return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
           @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}
@@ -1130,6 +1158,8 @@ public class MainActivity extends Activity {
    boolean current(AnalyticsListener.EventTime time){return player==p&&playbackProbe==probe&&time.windowIndex>=0&&time.windowIndex<time.timeline.getWindowCount()&&mediaId.equals(time.timeline.getWindow(time.windowIndex,new Timeline.Window()).mediaItem.mediaId);}
    @Override public void onLoadStarted(AnalyticsListener.EventTime time,androidx.media3.exoplayer.source.LoadEventInfo info,androidx.media3.exoplayer.source.MediaLoadData data){if(current(time)&&startupLoadMs<0)startupLoadMs=Math.max(0,info.elapsedRealtimeMs-startupBeginMs);}
    @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(current(time))droppedVideoFrames+=count;}
+   @Override public void onAudioUnderrun(AnalyticsListener.EventTime time,int size,long sizeMs,long elapsedMs){if(current(time))probe.audioUnderruns++;}
+   @Override public void onVideoFrameProcessingOffset(AnalyticsListener.EventTime time,long offsetUs,int frameCount){if(current(time)){probe.videoOffsetSumUs+=offsetUs;probe.videoOffsetFrames+=frameCount;}}
    @Override public void onAudioDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){if(player==p)android.util.Log.i("SharkPlayback","audio decoder="+name);}
    @Override public void onVideoDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){
     if(!current(time))return;if(startupDecoderMs<0){startupDecoderMs=Math.max(0,ts-startupBeginMs);startupDecoderCostMs=duration;}activeDecoder=name;activeDecoderKind=videoDecoderKind(name);android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
@@ -1145,6 +1175,7 @@ public class MainActivity extends Activity {
    final Runnable liveWatch=new Runnable(){@Override public void run(){
     if(!liveEligible())return;
     long now=SystemClock.elapsedRealtime();
+    probe.sampleMemory(now);
     int state=p.getPlaybackState();
     boolean eligible=full&&p.getPlayWhenReady()&&p.getPlaybackSuppressionReason()==Player.PLAYBACK_SUPPRESSION_REASON_NONE;
     boolean networkFailure=networkErrorAt>=0&&p.getPlayerError()!=null;
