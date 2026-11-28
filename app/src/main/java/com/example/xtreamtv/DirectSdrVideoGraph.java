@@ -70,6 +70,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private int tex,width=1,height=1,transfer=C.COLOR_TRANSFER_SDR;
  private float pixelAspect=1;
  private boolean fullRange,latched,ended,windowFocused;
+ private String previewSwapPolicy="Not requested";
+ private int appliedSwapInterval=-1;
  // Pre-draw the latched HDR frame; only ExoPlayer's render command may swap/present it.
  private final java.util.function.BooleanSupplier preDrawEnabled;
  private long preparedDrawNs=-1;
@@ -99,7 +101,24 @@ final class DirectSdrVideoGraph implements VideoGraph {
   gl.post(()->{if(!released&&!failed)try{task.run();}catch(Exception e){error(e);}});
  }
  private void focusPlaceholder()throws Exception{GlUtil.focusEglSurface(display,context,placeholder,1,1);windowFocused=false;drawStateDirty=true;preparedDrawNs=-1;}
- private void focusWindow()throws Exception{if(!windowFocused){GlUtil.focusEglSurface(display,context,window,output.width,output.height);windowFocused=true;}}
+ private void focusWindow()throws Exception{
+  if(!windowFocused){GlUtil.focusEglSurface(display,context,window,output.width,output.height);windowFocused=true;}
+  // Media3 still controls frame release timestamps. Only the preview TextureView
+  // requests a non-vsync-blocking producer swap; Android may clamp or reject it.
+  // Leave newly created fullscreen EGL windows at their original default interval.
+  boolean preview=!preDrawEnabled.getAsBoolean();
+  if(preview&&appliedSwapInterval==-1){
+   boolean accepted=EGL14.eglSwapInterval(display,0);
+   appliedSwapInterval=accepted?0:1;
+   previewSwapPolicy=accepted?"Zero interval requested; compositor timing unverified":"Zero interval rejected; default retained";
+   if(!accepted)EGL14.eglGetError();
+   android.util.Log.i("SharkPlayback","SDR preview EGL swap: "+previewSwapPolicy);
+  }else if(!preview&&appliedSwapInterval==0){
+   // Same-window resize fallback: restore default before any fullscreen frame.
+   if(EGL14.eglSwapInterval(display,1))appliedSwapInterval=1;
+   else{EGL14.eglGetError();android.util.Log.w("SharkPlayback","EGL default interval restore rejected");appliedSwapInterval=1;}
+  }
+ }
  @Override public void initialize()throws VideoFrameProcessingException{
   thread.start();gl=new Handler(thread.getLooper());
   try{sync(()->{
@@ -133,7 +152,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
    focusPlaceholder();
    discardFence();
    if(window!=null)GlUtil.destroyEglSurface(display,window);
-   window=null;output=info;
+   window=null;output=info;appliedSwapInterval=-1;
    if(info!=null)window=GlUtil.createEglSurface(display,info.surface,C.COLOR_TRANSFER_SDR,false);
   });}catch(Exception e){error(e);}
  }
@@ -178,7 +197,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   long observed=fenceAtSwap+fenceAtNextFrame+fenceAtLaterFrame;
   graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, by later latch %d, pending after four latches %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6))
    +String.format(java.util.Locale.US,"\nGPU fence vs requested target: before %d, after %d, uncertain %d, no target %d\nSubmission lead (target minus swap end): %s; under 20 ms %d/%d; EGL timestamp rejects %d",fenceBeforeTarget,fenceAfterTarget,fenceTargetUncertain,fenceNoTarget,submissionLeadCount==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f min",submissionLeadTotal/1e6/submissionLeadCount,submissionLeadMin/1e6),submissionLeadUnder20,submissionLeadCount,eglTimestampRejected)
-   +String.format(java.util.Locale.US,"\nPre-draw used: %d/%d",preparedUsed,preparedFrames));
+   +String.format(java.util.Locale.US,"\nPre-draw used: %d/%d",preparedUsed,preparedFrames)+"\nPreview EGL: "+previewSwapPolicy);
  }
  private void disableFence(){
   fenceFailed++;fenceDisabled=true;discardFence();publishFence();
