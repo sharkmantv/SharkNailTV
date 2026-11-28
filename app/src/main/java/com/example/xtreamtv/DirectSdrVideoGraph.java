@@ -48,6 +48,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final java.util.function.LongConsumer drawCallTiming,presentationCallTiming;
  // Sparse, non-blocking fence observations: not a GPU execution timer or scanout timestamp.
  private long sampledFence,fenceIssuedNs,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,fenceUpperTotal,fenceUpperMax;
+ private long fenceTargetNs=-1,fenceLastPendingNs=-1,fenceBeforeTarget,fenceAfterTarget,fenceTargetUncertain,fenceNoTarget;
+ private long submissionLeadCount,submissionLeadTotal,submissionLeadMin=Long.MAX_VALUE,submissionLeadUnder20,eglTimestampRejected;
  private int sampleCounter,drawsUntilErrorCheck,fenceLatchPolls;
  private static final int MAX_FENCE_LATCH_POLLS=4;
  private static final int DRAW_ERROR_CHECK_INTERVAL=60;
@@ -165,16 +167,18 @@ final class DirectSdrVideoGraph implements VideoGraph {
  }
  private void publishFence(){
   long observed=fenceAtSwap+fenceAtNextFrame+fenceAtLaterFrame;
-  graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, by later latch %d, pending after four latches %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6)));
+  graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, by later latch %d, pending after four latches %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6))
+   +String.format(java.util.Locale.US,"\nGPU fence vs requested target: before %d, after %d, uncertain %d, no target %d\nSubmission lead (target minus swap end): %s; under 20 ms %d/%d; EGL timestamp rejects %d",fenceBeforeTarget,fenceAfterTarget,fenceTargetUncertain,fenceNoTarget,submissionLeadCount==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f min",submissionLeadTotal/1e6/submissionLeadCount,submissionLeadMin/1e6),submissionLeadUnder20,submissionLeadCount,eglTimestampRejected));
  }
  private void disableFence(){
   fenceFailed++;fenceDisabled=true;discardFence();publishFence();
  }
- private void startFenceSample(){
+ private void startFenceSample(long targetNs){
   if(fenceDisabled||sampledFence!=0||++sampleCounter%120!=0)return;
   fenceSamples++;
   try{
    fenceLatchPolls=0;
+   fenceTargetNs=targetNs;fenceLastPendingNs=-1;
    fenceIssuedNs=System.nanoTime();
    sampledFence=GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE,0);
    if(sampledFence==0){GLES20.glGetError();disableFence();}
@@ -185,16 +189,28 @@ final class DirectSdrVideoGraph implements VideoGraph {
   // Keep the sparse probe alive for up to four subsequent latches. Never wait for the GPU.
   if(!afterSwap)fenceLatchPolls++;
   try{
+   long pollStart=System.nanoTime();
    int status=GLES30.glClientWaitSync(sampledFence,0,0);
    if(status==GLES30.GL_ALREADY_SIGNALED||status==GLES30.GL_CONDITION_SATISFIED){
-    long elapsed=Math.max(0,System.nanoTime()-fenceIssuedNs);
+    long observedNs=System.nanoTime();
+    long elapsed=Math.max(0,observedNs-fenceIssuedNs);
+    classifyFence(observedNs);
     if(afterSwap)fenceAtSwap++;else if(fenceLatchPolls==1)fenceAtNextFrame++;else fenceAtLaterFrame++;
     fenceUpperTotal+=elapsed;fenceUpperMax=Math.max(fenceUpperMax,elapsed);
     discardFence();publishFence();
    }else if(status==GLES30.GL_TIMEOUT_EXPIRED){
-    if(!afterSwap&&fenceLatchPolls>=MAX_FENCE_LATCH_POLLS){fenceStillPending++;discardFence();publishFence();}
+    fenceLastPendingNs=pollStart;
+    if(!afterSwap&&fenceLatchPolls>=MAX_FENCE_LATCH_POLLS){fenceStillPending++;classifyFence(-1);discardFence();publishFence();}
    }else{GLES20.glGetError();disableFence();}
   }catch(RuntimeException e){disableFence();}
+ }
+ // A signalled poll gives an upper bound; a pending poll gives a lower bound.
+ // Neither observation is the actual display scanout time.
+ private void classifyFence(long observedNs){
+  if(fenceTargetNs<0)fenceNoTarget++;
+  else if(observedNs>=0&&observedNs<=fenceTargetNs)fenceBeforeTarget++;
+  else if(fenceLastPendingNs>=fenceTargetNs)fenceAfterTarget++;
+  else fenceTargetUncertain++;
  }
  private void onFrame(){
   if(released||failed)return;
@@ -266,13 +282,13 @@ final class DirectSdrVideoGraph implements VideoGraph {
     if(drawsUntilErrorCheck==0){GlUtil.checkGlError();drawsUntilErrorCheck=DRAW_ERROR_CHECK_INTERVAL;}
     drawsUntilErrorCheck--;
     drawCallTiming.accept(System.nanoTime()-commandStart);
-    startFenceSample();
+    startFenceSample(ns>=0?ns:-1);
     long time=ns>=0?ns:ns==VideoFrameProcessor.RENDER_OUTPUT_FRAME_WITH_PRESENTATION_TIME?pts*1000:System.nanoTime();
     long presentStart=System.nanoTime();
-    EGLExt.eglPresentationTimeANDROID(display,window,time);
+    if(!EGLExt.eglPresentationTimeANDROID(display,window,time)){eglTimestampRejected++;if(sampledFence!=0&&fenceLatchPolls==0)fenceTargetNs=-1;}
     long swapStart=System.nanoTime();presentationCallTiming.accept(swapStart-presentStart);drawTiming.accept(swapStart-drawStart);
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
-    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){lateTiming.accept(Math.max(0,finished-ns));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();pollFence(true);
+    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){long lead=ns-finished;submissionLeadCount++;submissionLeadTotal+=lead;submissionLeadMin=Math.min(submissionLeadMin,lead);if(lead<20_000_000L)submissionLeadUnder20++;lateTiming.accept(Math.max(0,-lead));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();pollFence(true);
    }
    latched=false;pending.set(false);
    if(ended)notifyEnded();
