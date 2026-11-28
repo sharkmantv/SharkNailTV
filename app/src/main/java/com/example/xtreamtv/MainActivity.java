@@ -130,7 +130,7 @@ public class MainActivity extends Activity {
  android.media.MediaPlayer nativeMedia;
  Runnable nativeWatch;
  boolean stopped;
- String activeDecoder="";
+ String activeDecoder="", activeDecoderKind="Unknown";
  String server="",user="",pass="",page="Home",cat="",seriesId="",liveExt="ts";
  int screenToken,loadToken,epgToken,catPos,itemPos;
  int returnAnchor=-1,returnOffset,returnCategory=-1,returnCategoryOffset;String returnCatalogue="";
@@ -233,7 +233,7 @@ public class MainActivity extends Activity {
  void release(){stopLiveHealth();liveHealthWatch=null;resumeExo=null;cancelDecoderTasks();detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeWatch!=null){ui.removeCallbacks(nativeWatch);nativeWatch=null;}nativeMedia=null;if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.setOnPreparedListener(null);n.setOnInfoListener(null);n.setOnErrorListener(null);n.setOnCompletionListener(null);n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
-  if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
+  if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";activeDecoderKind="Unknown";}
  void detachCatalogueViews(){if(left!=null){left.setAdapter(null);left=null;}if(right!=null){right.setAdapter(null);right=null;}posterIo.purge();rowGuideIo.purge();io.purge();epgIo.purge();}
  void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;io.purge();}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;full=false;if(regionalGuide!=null)regionalGuide.setBusy(stopped);applyDisplayMode();status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
  void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
@@ -329,6 +329,19 @@ public class MainActivity extends Activity {
   LinearLayout.LayoutParams sideEnd=new LinearLayout.LayoutParams(0,-1,.5f);sideEnd.width=dp(5);r3.addView(new View(this),sideEnd);
   r.getChildAt(0).requestFocus();
  }
+ String videoDecoderKind(String name){
+  if(name==null||name.isEmpty())return "Unknown";
+  if(Build.VERSION.SDK_INT>=29){
+   try{for(android.media.MediaCodecInfo codec:new android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS).getCodecInfos()){
+    if(name.equals(codec.getName())||name.equals(codec.getCanonicalName())){
+     if(codec.isSoftwareOnly())return "Software";
+     if(codec.isHardwareAccelerated())return "Hardware";
+     return "Unknown";
+    }
+   }}catch(RuntimeException ignored){}
+  }
+  return "Unknown";
+ }
  String transferName(int t){
   switch(t){case 3:return "SDR";case 6:return "HDR10 / PQ";case 7:return "HLG HDR";case 1:return "Linear";default:return "Unknown ("+t+")";}
  }
@@ -353,7 +366,7 @@ public class MainActivity extends Activity {
   String match="Unknown";
   if(rate>0)match=RefreshMatch.exact(hz,rate)?"Matched multiple":RefreshMatch.compatible(hz,rate)?"Nominal multiple":"Not an integer multiple";
   int bitrate=f==null?-1:f.bitrate;
-  return playbackDiagnostics+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
+  return playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
    +(playbackProbe!=null&&playbackProbe.alternate?"\nSDR alternative feed: "+playbackProbe.sourceItem.name:"")
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
    +"\nDropped frames (reported): "+droppedVideoFrames+(activeSdrPath==0&&playbackProbe!=null?"\nGPU frame callbacks: "+playbackProbe.graphFrames+"; "+(playbackProbe.graphFrames>1&&playbackProbe.graphLastNs>playbackProbe.graphFirstNs?String.format(Locale.US,"%.2f callbacks/s",(playbackProbe.graphFrames-1)*1e9/(playbackProbe.graphLastNs-playbackProbe.graphFirstNs)):"collecting"):"")
@@ -1017,8 +1030,9 @@ public class MainActivity extends Activity {
   DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
    @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
     if(!gpu){super.buildVideoRenderers(context,extensionRendererMode,selector,fallback,handler,listener,joining,out);return;}
+    MediaCodecSelector hardwareVideoSelector=(mime,secure,tunnel)->{List<MediaCodecInfo> candidates=new ArrayList<>(selector.getDecoderInfos(mime,secure,tunnel));candidates.removeIf(codec->!codec.hardwareAccelerated||codec.softwareOnly);return candidates;};
     androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder b=new androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder(context)
-     .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(selector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50).setEarlySchedulingThresholdUs(150_000);
+     .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(hardwareVideoSelector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50).setEarlySchedulingThresholdUs(150_000);
     out.add(new androidx.media3.exoplayer.video.MediaCodecVideoRenderer(b){
      @Override protected androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper createPlaybackVideoGraphWrapper(Context context,androidx.media3.exoplayer.video.VideoFrameReleaseControl control){
       androidx.media3.effect.DefaultVideoFrameProcessor.Factory processor=new androidx.media3.effect.DefaultVideoFrameProcessor.Factory.Builder()
@@ -1085,7 +1099,7 @@ public class MainActivity extends Activity {
    @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(current(time))droppedVideoFrames+=count;}
    @Override public void onAudioDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){if(player==p)android.util.Log.i("SharkPlayback","audio decoder="+name);}
    @Override public void onVideoDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){
-    if(!current(time))return;if(startupDecoderMs<0){startupDecoderMs=Math.max(0,ts-startupBeginMs);startupDecoderCostMs=duration;}activeDecoder=name;android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
+    if(!current(time))return;if(startupDecoderMs<0){startupDecoderMs=Math.max(0,ts-startupBeginMs);startupDecoderCostMs=duration;}activeDecoder=name;activeDecoderKind=videoDecoderKind(name);android.util.Log.i("SharkPlayback","decoder="+name+" attempt="+attempt+" initMs="+duration);
    }
   };p.addAnalyticsListener(streamAnalytics);
   MediaItem.Builder m=new MediaItem.Builder().setUri(stream(probe.sourceItem)).setMediaId(mediaId);
@@ -1158,7 +1172,7 @@ public class MainActivity extends Activity {
     recover(e.getErrorCodeName(),firstFrame?Math.max(0,p.getCurrentPosition()):position);
    }
    void recover(String reason,long resume){
-    if(sdrPath==0){prefs.edit().putString(page.equals("Live TV")?"range_live":"range_vod","Auto").apply();msg("SDR conversion failed; restoring native ExoPlayer");restart(reason,resume,-1,i);return;}
+    if(sdrPath==0){ui.removeCallbacks(watch);recovering=true;playbackDiagnostics="Forced SDR stopped: "+reason+" · Hardware video decoder required";msg("Forced SDR unavailable; select Auto to restore native playback");return;}
     if(probe.alternate){restart(reason,resume,-1,i);return;}
 
     if(player!=p||playbackProbe!=probe||recovering||stopped)return;
