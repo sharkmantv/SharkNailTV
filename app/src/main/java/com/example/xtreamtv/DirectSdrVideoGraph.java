@@ -51,7 +51,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private EGLSurface placeholder,window;
  private SurfaceTexture texture;
  private Surface input;
- private GlProgram hdrProgram,sdrProgram,boundProgram;
+ private GlProgram hdrProgram,pqProgram,sdrProgram,boundProgram;
+ private boolean pqSpecializationUnavailable;
  private boolean drawStateDirty=true,needsClear=true;
  private int textureMatrixLocation=-1;
  private final float[] boundTextureMatrix=new float[16];
@@ -122,7 +123,17 @@ final class DirectSdrVideoGraph implements VideoGraph {
    boolean hdr=transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG;
    if(hdr){
     if(ci.colorSpace!=C.COLOR_SPACE_BT2020)throw new IllegalArgumentException("Unsupported HDR gamut");
-    if(hdrProgram==null){hdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.HDR);hdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
+    if(transfer==C.COLOR_TRANSFER_ST2084&&pqProgram==null&&!pqSpecializationUnavailable){
+     try{
+      pqProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.pqToSdr());
+      pqProgram.setBufferAttribute("aFramePosition",QUAD,4);
+     }catch(Exception e){
+      if(pqProgram!=null){try{pqProgram.delete();}catch(Exception ignored){}pqProgram=null;}
+      pqSpecializationUnavailable=true;
+      android.util.Log.w("SharkPlayback","PQ specialization unavailable; using standard HDR shader",e);
+     }
+    }
+    if((transfer!=C.COLOR_TRANSFER_ST2084||pqProgram==null)&&hdrProgram==null){hdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.HDR);hdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
    }else if(sdrProgram==null){sdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.SDR);sdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
    drawStateDirty=true;
    if(width<=0||height<=0)throw new IllegalArgumentException("Invalid dimensions");
@@ -159,7 +170,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
    else if(window!=null&&output!=null){
     long drawStart=System.nanoTime();queueTiming.accept(drawStart-queuedAt);focusWindow();
     boolean hdr=transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG;
-    GlProgram p=hdr?hdrProgram:sdrProgram;
+    boolean specialized=transfer==C.COLOR_TRANSFER_ST2084&&pqProgram!=null;
+    GlProgram p=hdr?(specialized?pqProgram:hdrProgram):sdrProgram;
     if(drawStateDirty||boundProgram!=p){
      Matrix.setIdentityM(position,0);
      float src=width*pixelAspect/height,dst=(float)output.width/output.height;
@@ -175,9 +187,11 @@ final class DirectSdrVideoGraph implements VideoGraph {
      if(hdr){
       p.setFloatsUniform("uRgbMatrix",identity);
       p.setFloatsUniform("uYuvToRgbColorTransform",fullRange?FULL:LIMITED);
-      p.setIntUniform("uInputColorTransfer",transfer);
-      p.setIntUniform("uApplyHdrToSdrToneMapping",1);
-      p.setIntUniform("uOutputColorTransfer",C.COLOR_TRANSFER_GAMMA_2_2);
+      if(!specialized){
+       p.setIntUniform("uInputColorTransfer",transfer);
+       p.setIntUniform("uApplyHdrToSdrToneMapping",1);
+       p.setIntUniform("uOutputColorTransfer",C.COLOR_TRANSFER_GAMMA_2_2);
+      }
      }
      p.bindAttributesAndUniforms();
      textureMatrixLocation=p.getUniformLocation("uTexTransformationMatrix");
@@ -222,7 +236,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   if(gl!=null)try{sync(()->{
    if(display!=null&&context!=null&&placeholder!=null)focusPlaceholder();
    if(input!=null)input.release();if(texture!=null){texture.setOnFrameAvailableListener(null);texture.release();}
-   if(hdrProgram!=null)hdrProgram.delete();if(sdrProgram!=null)sdrProgram.delete();
+   if(hdrProgram!=null)hdrProgram.delete();if(pqProgram!=null)pqProgram.delete();if(sdrProgram!=null)sdrProgram.delete();
    if(tex!=0)GlUtil.deleteTexture(tex);
    if(window!=null)GlUtil.destroyEglSurface(display,window);
    if(placeholder!=null)GlUtil.destroyEglSurface(display,placeholder);
