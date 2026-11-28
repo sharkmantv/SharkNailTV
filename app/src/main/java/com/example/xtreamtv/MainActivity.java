@@ -87,7 +87,14 @@ public class MainActivity extends Activity {
  float requestedFps=-1,requestedHz=-1;
  long refreshRequestedAt=-1;
  String refreshRequest="Not requested";
+ static final class FrameCadence {
+  volatile long count,firstNs,lastNs;
+  void record(){long now=System.nanoTime();if(count==0)firstNs=now;lastNs=now;count++;}
+  String label(){long n=count,a=firstNs,b=lastNs;return n>1&&b>a?String.format(Locale.US,"%.2f/s (%d)",(n-1)*1e9/(b-a),n):"collecting ("+n+")";}
+ }
  static final class PlaybackProbe implements TransferListener {
+  final FrameCadence graphInput=new FrameCadence(), graphReady=new FrameCadence(), graphSubmitted=new FrameCadence();
+  volatile long graphOutputDrops;
   final long started;final boolean fast;final AtomicLong opening=new AtomicLong(-1),firstByte=new AtomicLong(-1),lastByte=new AtomicLong(-1),lastFrame=new AtomicLong(-1);
   final PlaybackHealth health=new PlaybackHealth(); String recoveryReason="None"; volatile int outputTransfer=-1; volatile boolean outputKnown=false; boolean sdrRejected; boolean headroomRequested; volatile float sourceFps=-1; volatile long graphFrames,graphFirstNs,graphLastNs; volatile int sourceTransfer=-1; volatile int decodedTransfer=-1; Item sourceItem; boolean alternate;
   int rebuffers;long stallStart=-1,stallTotal;
@@ -348,7 +355,7 @@ public class MainActivity extends Activity {
  String sdrStatus(Format f){
   PlaybackProbe probe=playbackProbe;
 
-  if(activeSdrPath==0&&probe!=null)return "ExoPlayer BT.709 SDR requested; packed texture test (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
+  if(activeSdrPath==0&&probe!=null)return "ExoPlayer BT.709 SDR requested; packed texture + frame lookahead (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
   if(probe!=null&&probe.outputKnown)return "Decoder output "+transferName(probe.outputTransfer)+" (native surface)";
   if(f!=null&&f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR&&!isHdr(f))return "SDR source; output unverified";
 
@@ -369,6 +376,7 @@ public class MainActivity extends Activity {
   return playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
    +(playbackProbe!=null&&playbackProbe.alternate?"\nSDR alternative feed: "+playbackProbe.sourceItem.name:"")
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
+   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops:"")
    +"\nDropped frames (reported): "+droppedVideoFrames+(activeSdrPath==0&&playbackProbe!=null?"\nGPU frame callbacks: "+playbackProbe.graphFrames+"; "+(playbackProbe.graphFrames>1&&playbackProbe.graphLastNs>playbackProbe.graphFirstNs?String.format(Locale.US,"%.2f callbacks/s",(playbackProbe.graphFrames-1)*1e9/(playbackProbe.graphLastNs-playbackProbe.graphFirstNs)):"collecting"):"")
    +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
    +"\nVideo codec: "+(f==null?"Unknown":String.valueOf(f.sampleMimeType))
@@ -1037,9 +1045,24 @@ public class MainActivity extends Activity {
      @Override protected androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper createPlaybackVideoGraphWrapper(Context context,androidx.media3.exoplayer.video.VideoFrameReleaseControl control){
       androidx.media3.effect.DefaultVideoFrameProcessor.Factory processor=new androidx.media3.effect.DefaultVideoFrameProcessor.Factory.Builder()
        .setSdrWorkingColorSpace(androidx.media3.effect.DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_ORIGINAL)
-       .setGlObjectsProvider(new SdrPackedGlProvider()).build();
+       .setGlObjectsProvider(new SdrPackedGlProvider()).setEnableReplayableCache(true).build();
       androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper graph=new androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper.Builder(context,control)
-       .setVideoGraphFactory(new androidx.media3.effect.SingleInputVideoGraph.Factory(processor))
+       .setVideoGraphFactory(new androidx.media3.common.VideoGraph.Factory(){
+        @Override public boolean supportsMultipleInputs(){return false;}
+        @Override public androidx.media3.common.VideoGraph create(Context ctx,androidx.media3.common.ColorInfo color,androidx.media3.common.DebugViewProvider debug,androidx.media3.common.VideoGraph.Listener downstream,java.util.concurrent.Executor executor,long offset,boolean automatic){
+         androidx.media3.common.VideoGraph.Listener monitored=new androidx.media3.common.VideoGraph.Listener(){
+          @Override public void onOutputSizeChanged(int w,int h){downstream.onOutputSizeChanged(w,h);}
+          @Override public void onOutputFrameRateChanged(float rate){downstream.onOutputFrameRateChanged(rate);}
+          @Override public void onOutputFrameAvailableForRendering(long pts,boolean redraw){if(!redraw)probe.graphReady.record();downstream.onOutputFrameAvailableForRendering(pts,redraw);}
+          @Override public void onEnded(long pts){downstream.onEnded(pts);}
+          @Override public void onError(androidx.media3.common.VideoFrameProcessingException e){downstream.onError(e);}
+         };
+         return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
+          @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}
+          @Override public void renderOutputFrame(long timeNs){super.renderOutputFrame(timeNs);if(timeNs==androidx.media3.common.VideoFrameProcessor.DROP_OUTPUT_FRAME)probe.graphOutputDrops++;else probe.graphSubmitted.record();}
+         };
+        }
+       })
        .setEnablePlaylistMode(true).setClock(getClock()).experimentalSetLateThresholdToDropInputUs(40_000).build();
       graph.setRequestOpenGlToneMapping(true);return graph;
      }
