@@ -42,7 +42,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final Listener listener;
  private final Executor callback;
  private final Runnable inputCounter,submitCounter,dropCounter;
- private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming;
+ private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming,lateTiming;
  private final AtomicBoolean pending=new AtomicBoolean();
  private final HandlerThread thread=new HandlerThread("SharkDirectSDR",android.os.Process.THREAD_PRIORITY_DISPLAY);
  private Handler gl;
@@ -51,7 +51,10 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private EGLSurface placeholder,window;
  private SurfaceTexture texture;
  private Surface input;
- private GlProgram hdrProgram,sdrProgram;
+ private GlProgram hdrProgram,sdrProgram,boundProgram;
+ private boolean drawStateDirty=true,needsClear=true;
+ private int textureMatrixLocation=-1;
+ private final float[] boundTextureMatrix=new float[16];
  private int tex,width=1,height=1,transfer=C.COLOR_TRANSFER_SDR;
  private float pixelAspect=1;
  private boolean fullRange,latched,ended,windowFocused;
@@ -60,8 +63,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private volatile boolean ready,released,failed,zero,configured;
  private volatile int generation;
  private SurfaceInfo output;
- DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming){
-  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;Matrix.setIdentityM(identity,0);
+ DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming){
+  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;Matrix.setIdentityM(identity,0);
  }
  private interface Task{void run()throws Exception;}
  private void sync(Task task)throws Exception{
@@ -78,7 +81,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   if(gl==null||released||failed)return;
   gl.post(()->{if(!released&&!failed)try{task.run();}catch(Exception e){error(e);}});
  }
- private void focusPlaceholder()throws Exception{GlUtil.focusEglSurface(display,context,placeholder,1,1);windowFocused=false;}
+ private void focusPlaceholder()throws Exception{GlUtil.focusEglSurface(display,context,placeholder,1,1);windowFocused=false;drawStateDirty=true;}
  private void focusWindow()throws Exception{if(!windowFocused){GlUtil.focusEglSurface(display,context,window,output.width,output.height);windowFocused=true;}}
  @Override public void initialize()throws VideoFrameProcessingException{
   thread.start();gl=new Handler(thread.getLooper());
@@ -119,8 +122,9 @@ final class DirectSdrVideoGraph implements VideoGraph {
    boolean hdr=transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG;
    if(hdr){
     if(ci.colorSpace!=C.COLOR_SPACE_BT2020)throw new IllegalArgumentException("Unsupported HDR gamut");
-    if(hdrProgram==null)hdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.HDR);
-   }else if(sdrProgram==null)sdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.SDR);
+    if(hdrProgram==null){hdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.HDR);hdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
+   }else if(sdrProgram==null){sdrProgram=new GlProgram(DirectSdrShaders.VERTEX,DirectSdrShaders.SDR);sdrProgram.setBufferAttribute("aFramePosition",QUAD,4);}
+   drawStateDirty=true;
    if(width<=0||height<=0)throw new IllegalArgumentException("Invalid dimensions");
    this.offset=offsetUs;texture.setDefaultBufferSize(width,height);ended=false;configured=true;
   });callback.execute(()->{if(!released){listener.onOutputSizeChanged(f.width,f.height);listener.onOutputFrameRateChanged(f.frameRate);}});
@@ -153,33 +157,49 @@ final class DirectSdrVideoGraph implements VideoGraph {
    if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();}
    else if(window!=null&&output!=null){
     long drawStart=System.nanoTime();focusWindow();
-    GLES20.glClearColor(0,0,0,1);GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-    Matrix.setIdentityM(position,0);
-    float src=width*pixelAspect/height,dst=(float)output.width/output.height;
-    if(output.orientationDegrees==90||output.orientationDegrees==270)src=1/src;
-    Matrix.scaleM(position,0,Math.min(1,src/dst),Math.min(1,dst/src),1);
-    Matrix.rotateM(position,0,output.orientationDegrees,0,0,1);
     boolean hdr=transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG;
-    GlProgram p=hdr?hdrProgram:sdrProgram;p.use();
-    p.setSamplerTexIdUniform("uTexSampler",tex,0);
-    p.setFloatsUniform("uTexTransformationMatrix",texMatrix);
-    p.setFloatsUniform("uTransformationMatrix",position);
-    p.setBufferAttribute("aFramePosition",QUAD,4);
-    if(hdr){
-     p.setFloatsUniform("uRgbMatrix",identity);
-     p.setFloatsUniform("uYuvToRgbColorTransform",fullRange?FULL:LIMITED);
-     p.setIntUniform("uInputColorTransfer",transfer);
-     p.setIntUniform("uApplyHdrToSdrToneMapping",1);
-     p.setIntUniform("uOutputColorTransfer",C.COLOR_TRANSFER_GAMMA_2_2);
+    GlProgram p=hdr?hdrProgram:sdrProgram;
+    if(drawStateDirty||boundProgram!=p){
+     Matrix.setIdentityM(position,0);
+     float src=width*pixelAspect/height,dst=(float)output.width/output.height;
+     if(output.orientationDegrees==90||output.orientationDegrees==270)src=1/src;
+     float sx=Math.min(1,src/dst),sy=Math.min(1,dst/src);
+     Matrix.scaleM(position,0,sx,sy,1);
+     Matrix.rotateM(position,0,output.orientationDegrees,0,0,1);
+     needsClear=sx<1f||sy<1f||output.orientationDegrees!=0;
+     p.use();
+     p.setSamplerTexIdUniform("uTexSampler",tex,0);
+     p.setFloatsUniform("uTexTransformationMatrix",texMatrix);
+     p.setFloatsUniform("uTransformationMatrix",position);
+     if(hdr){
+      p.setFloatsUniform("uRgbMatrix",identity);
+      p.setFloatsUniform("uYuvToRgbColorTransform",fullRange?FULL:LIMITED);
+      p.setIntUniform("uInputColorTransfer",transfer);
+      p.setIntUniform("uApplyHdrToSdrToneMapping",1);
+      p.setIntUniform("uOutputColorTransfer",C.COLOR_TRANSFER_GAMMA_2_2);
+     }
+     p.bindAttributesAndUniforms();
+     textureMatrixLocation=p.getUniformLocation("uTexTransformationMatrix");
+     System.arraycopy(texMatrix,0,boundTextureMatrix,0,16);
+     boundProgram=p;drawStateDirty=false;
+    }else{
+     // updateTexImage retains the external texture in this same GL context.
+     // Rebind explicitly; static vertex/uniform state is already configured.
+     GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+     GLES20.glBindTexture(android.opengl.GLES11Ext.GL_TEXTURE_EXTERNAL_OES,tex);
+     if(!java.util.Arrays.equals(texMatrix,boundTextureMatrix)){
+      GLES20.glUniformMatrix4fv(textureMatrixLocation,1,false,texMatrix,0);
+      System.arraycopy(texMatrix,0,boundTextureMatrix,0,16);
+     }
     }
-    p.bindAttributesAndUniforms();
+    if(needsClear){GLES20.glClearColor(0,0,0,1);GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);}
     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
     GlUtil.checkGlError();
     long time=ns>=0?ns:ns==VideoFrameProcessor.RENDER_OUTPUT_FRAME_WITH_PRESENTATION_TIME?pts*1000:System.nanoTime();
     EGLExt.eglPresentationTimeANDROID(display,window,time);
     long swapStart=System.nanoTime();drawTiming.accept(swapStart-drawStart);
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
-    swapTiming.accept(System.nanoTime()-swapStart);submitCounter.run();
+    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0)lateTiming.accept(Math.max(0,finished-ns));submitCounter.run();
    }
    latched=false;pending.set(false);
    if(ended)notifyEnded();
