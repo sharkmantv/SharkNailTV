@@ -15,21 +15,23 @@ final class RegionalGuide {
  static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(10,TimeUnit.SECONDS).readTimeout(25,TimeUnit.SECONDS).callTimeout(120,TimeUnit.SECONDS).followSslRedirects(false).build();
  final File dir;final ExecutorService worker=Executors.newSingleThreadExecutor();
  final Set<String> pending=new HashSet<>();final Map<String,Long> retry=new HashMap<>();
- final Runnable changed;volatile boolean closed;volatile Call active;
+ final Runnable changed;volatile boolean closed,busy;volatile Call active;
  RegionalGuide(Context context,Runnable changed){dir=new File(context.getCacheDir(),"regional-epg-v1");this.changed=changed;}
  File file(String region){return new File(dir,region+".db");}
  synchronized void ensure(String region){
-  if(closed||RegionalGuideNames.file(region).isEmpty()||pending.contains(region))return;
+  if(closed||busy||RegionalGuideNames.file(region).isEmpty()||pending.contains(region))return;
   long now=System.currentTimeMillis();File f=file(region);
   if(f.isFile()&&now-f.lastModified()<DAY)return;
   if(now<retry.getOrDefault(region,0L))return;
   pending.add(region);
-  try{worker.execute(()->{boolean ok=false;try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);download(region);ok=true;}
-   catch(Exception e){android.util.Log.w("SharkEPG","Regional "+region+" unavailable: "+e.getClass().getSimpleName());}
-   finally{synchronized(this){pending.remove(region);retry.put(region,System.currentTimeMillis()+(ok?DAY:3600000L));}if(ok&&!closed)changed.run();}
+  try{worker.execute(()->{boolean ok=false,cancelled=false;try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);download(region);ok=true;}
+   catch(InterruptedException e){cancelled=true;}
+    catch(Exception e){android.util.Log.w("SharkEPG","Regional "+region+" unavailable: "+e.getClass().getSimpleName());}
+   finally{synchronized(this){pending.remove(region);if(!cancelled)retry.put(region,System.currentTimeMillis()+(ok?DAY:3600000L));}if(ok&&!closed)changed.run();}
   });}catch(RejectedExecutionException ignored){pending.remove(region);}
  }
- void close(){closed=true;Call call=active;if(call!=null)call.cancel();worker.shutdownNow();}
+ synchronized void setBusy(boolean value){busy=value;if(value&&active!=null)active.cancel();}
+ synchronized void close(){closed=true;Call call=active;if(call!=null)call.cancel();worker.shutdownNow();}
  static String attr(XmlPullParser p,String k){String v=p.getAttributeValue(null,k);return v==null?"":v;}
  static String limit(String s,int n){return s.length()>n?s.substring(0,n):s;}
  static final class Bounded extends FilterInputStream{
@@ -38,19 +40,19 @@ final class RegionalGuide {
   @Override public int read(byte[] b,int off,int len)throws IOException{if(len==0)return 0;if(left<=0)throw new IOException("EPG size limit");int n=super.read(b,off,(int)Math.min(len,left));if(n>0)left-=n;return n;}
  }
  void download(String region)throws Exception{
-  if(closed)throw new InterruptedException();
+  if(closed||busy)throw new InterruptedException();
   if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("EPG cache");
   File tmp=File.createTempFile(region+"-", ".tmp",dir);
   String url="https://epgshare01.online/epgshare01/epg_ripper_"+RegionalGuideNames.file(region)+".xml.gz";
-  Call call=HTTP.newCall(new Request.Builder().url(url).header("User-Agent","SkyShark-EPG/1.0").build());active=call;
+  Call call=HTTP.newCall(new Request.Builder().url(url).header("User-Agent","SkyShark-EPG/1.0").build());synchronized(this){if(closed||busy){tmp.delete();throw new InterruptedException();}active=call;}
   try(Response res=call.execute()){
    if(!res.isSuccessful()||res.body()==null)throw new IOException("HTTP "+res.code());
    try(InputStream input=new Bounded(new GZIPInputStream(new Bounded(res.body().byteStream(),24L*1024*1024)),200L*1024*1024)){importXml(input,tmp);}
-   if(closed||Thread.currentThread().isInterrupted())throw new InterruptedException();
+   if(closed||busy||call.isCanceled()||Thread.currentThread().isInterrupted())throw new InterruptedException();
    android.system.Os.rename(tmp.getAbsolutePath(),file(region).getAbsolutePath());
    file(region).setLastModified(System.currentTimeMillis());
    android.util.Log.i("SharkEPG","Regional "+region+" cache ready");
-  }finally{active=null;tmp.delete();new File(tmp.getPath()+"-journal").delete();}
+  }catch(IOException e){if(call.isCanceled())throw new InterruptedException();throw e;}finally{active=null;tmp.delete();new File(tmp.getPath()+"-journal").delete();}
  }
  static void importXml(InputStream in,File tmp)throws Exception{
   long now=System.currentTimeMillis();int count=0,channels=0;

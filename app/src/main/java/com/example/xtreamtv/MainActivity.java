@@ -66,7 +66,8 @@ public class MainActivity extends Activity {
  LinearLayout playerHeader,playerDetails;
  PremiumPlayerOverlay premiumPlayer;
  Future<?> catalogueJob;
- Runnable decoderWatch, decoderRetry;
+ Runnable decoderWatch, decoderRetry, liveHealthWatch;
+ ExoPlayer resumeExo;
  ProgressBar programmeProgress;
  String playbackDiagnostics="No video information yet";
  long startupBeginMs, startupFirstMs=-1, startupLoadMs=-1, startupDecoderMs=-1, startupDecoderCostMs=-1, startupReadyMs=-1; int droppedVideoFrames;
@@ -86,12 +87,13 @@ public class MainActivity extends Activity {
  long refreshRequestedAt=-1;
  String refreshRequest="Not requested";
  static final class PlaybackProbe implements TransferListener {
-  final long started;final boolean fast;final AtomicLong opening=new AtomicLong(-1),firstByte=new AtomicLong(-1);
+  final long started;final boolean fast;final AtomicLong opening=new AtomicLong(-1),firstByte=new AtomicLong(-1),lastByte=new AtomicLong(-1),lastFrame=new AtomicLong(-1);
+  final PlaybackHealth health=new PlaybackHealth(); String recoveryReason="None";
   int rebuffers;long stallStart=-1,stallTotal;
   PlaybackProbe(long start,boolean fast){started=start;this.fast=fast;}
   @Override public void onTransferInitializing(DataSource source,DataSpec spec,boolean network){if(network)opening.compareAndSet(-1,SystemClock.elapsedRealtime()-started);}
   @Override public void onTransferStart(DataSource source,DataSpec spec,boolean network){}
-  @Override public void onBytesTransferred(DataSource source,DataSpec spec,boolean network,int count){if(network&&count>0)firstByte.compareAndSet(-1,SystemClock.elapsedRealtime()-started);}
+  @Override public void onBytesTransferred(DataSource source,DataSpec spec,boolean network,int count){if(network&&count>0){long now=SystemClock.elapsedRealtime();firstByte.compareAndSet(-1,now-started);lastByte.set(now);}}
   @Override public void onTransferEnd(DataSource source,DataSpec spec,boolean network){}
   void closeStall(){if(stallStart>=0){stallTotal+=SystemClock.elapsedRealtime()-stallStart;stallStart=-1;}}
  }
@@ -113,6 +115,7 @@ public class MainActivity extends Activity {
    return near>=count*.7? (float)(1000000.0*near/sum):-1;
   }
  }
+ static String age(long stamp){return stamp<0?"Not available":String.format(Locale.US,"%.1f s ago",Math.max(0,SystemClock.elapsedRealtime()-stamp)/1000.0);}
  static String timing(long ms){return ms<0?"Not available":ms+" ms";}
  int activeSdrPath=-1;
  Item playbackItem;
@@ -225,12 +228,13 @@ public class MainActivity extends Activity {
  void button(LinearLayout r,String s,Runnable action){TextView t=text(s,15);t.setTypeface(uiMedium);t.setGravity(Gravity.CENTER);t.setFocusable(true);t.setClickable(true);t.setBackground(focus());premiumHomeFocus(t);t.setPadding(dp(6),0,dp(6),0);t.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1);p.setMargins(dp(3),dp(3),dp(3),dp(3));r.addView(t,p);}
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
  void cancelDecoderTasks(){if(decoderWatch!=null){ui.removeCallbacks(decoderWatch);decoderWatch=null;}if(decoderRetry!=null){ui.removeCallbacks(decoderRetry);decoderRetry=null;}}
- void release(){cancelDecoderTasks();detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
+ void stopLiveHealth(){if(liveHealthWatch!=null)ui.removeCallbacks(liveHealthWatch);}
+ void release(){stopLiveHealth();liveHealthWatch=null;resumeExo=null;cancelDecoderTasks();detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeWatch!=null){ui.removeCallbacks(nativeWatch);nativeWatch=null;}nativeMedia=null;if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.setOnPreparedListener(null);n.setOnInfoListener(null);n.setOnErrorListener(null);n.setOnCompletionListener(null);n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
  void detachCatalogueViews(){if(left!=null){left.setAdapter(null);left=null;}if(right!=null){right.setAdapter(null);right=null;}posterIo.purge();rowGuideIo.purge();io.purge();epgIo.purge();}
- void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;io.purge();}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;full=false;applyDisplayMode();status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
+ void screen(String title){displayStatus=null;if(catalogueJob!=null){catalogueJob.cancel(true);catalogueJob=null;io.purge();}clearGuideFocus();ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;}release();screenToken++;loadToken++;epgToken++;detachCatalogueViews();updateText=null;updateBar=null;full=false;if(regionalGuide!=null)regionalGuide.setBusy(stopped);applyDisplayMode();status=null;epg=null;programmeProgress=null;preview=null;body=col();body.setPadding(dp(16),dp(10),dp(16),dp(10));body.setBackground(screenBackground());setContentView(body);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();immersive();LinearLayout head=row();LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(dp(136),dp(43));brandParams.rightMargin=dp(12);head.addView(PremiumVisuals.brand(this),brandParams);TextView t=text(title,22);t.setTextColor(UI_TEXT);t.setLetterSpacing(0.005f);head.addView(t,new LinearLayout.LayoutParams(0,dp(43),1));TextClock clock=new TextClock(this);clock.setFormat24Hour("HH:mm");clock.setFormat12Hour("h:mm a");clock.setTextColor(UI_TEXT);clock.setTextSize(18);clock.setTypeface(uiRegular);clock.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);head.addView(clock,new LinearLayout.LayoutParams(dp(100),dp(43)));body.addView(head);View divider=new View(this);divider.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x003d85ff,0xff4c9eff,0x003d85ff}));body.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
  void navigateHome(String dest){if(dest.equals("Home")){home();return;}if(dest.equals("Settings"))settings();else if(server.isEmpty())login(dest);else open(dest);}
  void home(){
   page="Home";screen("SHARK SKY");
@@ -347,6 +351,8 @@ public class MainActivity extends Activity {
    +"\nVideo decoder ready: "+timing(startupDecoderMs)+" (init "+timing(startupDecoderCostMs)+")"
    +"\nPlayer ready: "+timing(startupReadyMs)
    +(playbackProbe==null?"":"\nStartup profile: "+(playbackProbe.fast?"Fast live (750 ms)":"Stock buffer")+"\nNetwork opening: "+timing(playbackProbe.opening.get())+"\nFirst network byte: "+timing(playbackProbe.firstByte.get())+"\nRebuffers: "+playbackProbe.rebuffers+" / "+timing(playbackProbe.stallTotal+(playbackProbe.stallStart<0?0:SystemClock.elapsedRealtime()-playbackProbe.stallStart)))
+   +"\nPlayback state: "+(p.getPlayerError()!=null?"Error "+p.getPlayerError().getErrorCodeName():p.getPlaybackState()==Player.STATE_BUFFERING?"Buffering":p.getPlaybackState()==Player.STATE_READY?(p.isPlaying()?"Playing":"Ready / paused"):p.getPlaybackState()==Player.STATE_ENDED?"Ended":"Idle")
+   +(playbackProbe==null?"":"\nLast network data: "+age(playbackProbe.lastByte.get())+"\nLast scheduled video frame: "+age(playbackProbe.lastFrame.get())+"\nLive recovery attempts: "+playbackProbe.health.attempts+" / 2\nLast recovery: "+playbackProbe.recoveryReason)
    +"\nStartup times relative to player creation; not server-only timings.";
  }
  void connectionTest(){
@@ -1025,7 +1031,7 @@ public class MainActivity extends Activity {
   final boolean vod=fullscreen&&!page.equals("Live TV");final int token=screenToken;
   clearRefreshMatch(false);
   if(fast)epgQuietUntil=started+1500;
-  FrameRateSample sample=new FrameRateSample();frameRateSample=sample;p.setVideoFrameMetadataListener((pts,releaseNs,format,mediaFormat)->sample.accept(pts));
+  FrameRateSample sample=new FrameRateSample();frameRateSample=sample;p.setVideoFrameMetadataListener((pts,releaseNs,format,mediaFormat)->{sample.accept(pts);probe.lastFrame.set(SystemClock.elapsedRealtime());});
   final String mediaId="stream-"+started+"-"+i.id;
   streamAnalytics=new AnalyticsListener(){
    boolean current(AnalyticsListener.EventTime time){return player==p&&playbackProbe==probe&&time.windowIndex>=0&&time.windowIndex<time.timeline.getWindowCount()&&mediaId.equals(time.timeline.getWindow(time.windowIndex,new Timeline.Window()).mediaItem.mediaId);}
@@ -1040,6 +1046,25 @@ public class MainActivity extends Activity {
   if(!stock&&page.equals("Live TV"))m.setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build());
   class RecoveryListener implements Player.Listener {
    boolean recovering,firstFrame,rangeSelected;
+   long networkErrorAt=-1;
+   String networkError="";
+   boolean liveEligible(){return player==p&&playbackProbe==probe&&!recovering&&!stopped&&token==screenToken&&page.equals("Live TV");}
+   final Runnable liveWatch=new Runnable(){@Override public void run(){
+    if(!liveEligible())return;
+    long now=SystemClock.elapsedRealtime();
+    int state=p.getPlaybackState();
+    boolean eligible=full&&p.getPlayWhenReady()&&p.getPlaybackSuppressionReason()==Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+    boolean networkFailure=networkErrorAt>=0&&p.getPlayerError()!=null;
+    boolean stalled=probe.health.observe(now,p.getCurrentPosition(),eligible&&!networkFailure&&p.getPlayerError()==null&&(state==Player.STATE_READY||state==Player.STATE_BUFFERING||state==Player.STATE_ENDED));
+    if(eligible&&((networkFailure&&now-networkErrorAt>=3000)||stalled)&&probe.health.takeRetry(now)){
+     probe.recoveryReason=networkFailure?networkError:"Live position stalled for 30s";
+     android.util.Log.w("SharkPlayback","Live reconnect "+probe.health.attempts+"/2: "+probe.recoveryReason);
+     networkErrorAt=-1;probe.closeStall();probe.lastByte.set(-1);probe.lastFrame.set(-1);
+     MediaItem current=p.getCurrentMediaItem();
+     if(current!=null){p.stop();p.setMediaItem(current);p.prepare();p.play();}
+    }
+    if(liveEligible())ui.postDelayed(this,2000);
+   }};
    long audioStartedAt=-1;
    final Runnable watch=new Runnable(){@Override public void run(){
     if(player!=p||playbackProbe!=probe||recovering||firstFrame||stopped||token!=screenToken)return;
@@ -1054,7 +1079,7 @@ public class MainActivity extends Activity {
     }else audioStartedAt=-1;
     ui.postDelayed(this,750);
    }};
-   void startWatch(){if(vod&&!stock){decoderWatch=watch;ui.postDelayed(watch,750);}}
+   void startWatch(){if(vod&&!stock){decoderWatch=watch;ui.postDelayed(watch,750);}if(page.equals("Live TV")){stopLiveHealth();liveHealthWatch=liveWatch;ui.postDelayed(liveWatch,2000);}}
    @Override public void onTracksChanged(Tracks tracks){
     if(player!=p||playbackProbe!=probe||recovering||rangeSelected||!range.equals("Prefer HDR"))return;
     boolean selectedDesired=false;Tracks.Group candidate=null;int index=-1;long score=-1;
@@ -1071,9 +1096,9 @@ public class MainActivity extends Activity {
     if(candidate!=null){rangeSelected=true;p.setTrackSelectionParameters(p.getTrackSelectionParameters().buildUpon().setOverrideForType(new TrackSelectionOverride(candidate.getMediaTrackGroup(),index)).build());}
    }
 
-   @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK)probe.closeStall();}
+   @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK){probe.closeStall();probe.health.reset();}}
    @Override public void onPlaybackStateChanged(int state){if(player!=p||playbackProbe!=probe)return;if(state==Player.STATE_READY&&startupReadyMs<0)startupReadyMs=SystemClock.elapsedRealtime()-startupBeginMs;if(state==Player.STATE_BUFFERING&&firstFrame&&p.getPlayWhenReady()&&!vod&&probe.stallStart<0){probe.rebuffers++;probe.stallStart=SystemClock.elapsedRealtime();}else if(state!=Player.STATE_BUFFERING)probe.closeStall();}
-   @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready)probe.closeStall();}
+   @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready){probe.closeStall();probe.health.reset();}}
    @Override public void onRenderedFirstFrame(){
     if(player!=p||playbackProbe!=probe||recovering)return;
     firstFrame=true;if(startupFirstMs<0){startupFirstMs=SystemClock.elapsedRealtime()-startupBeginMs;android.util.Log.i("SharkPlayback","startup profile="+(fast?"fast-live":"stock-buffer")+" firstFrameMs="+startupFirstMs+" firstByteMs="+probe.firstByte.get()+" decoderMs="+startupDecoderMs);if(!stock&&full&&autoRefresh())scheduleRefreshMatch(p,sample,0);}ui.removeCallbacks(watch);
@@ -1094,6 +1119,8 @@ public class MainActivity extends Activity {
     }
     boolean decoderError=e.errorCode==PlaybackException.ERROR_CODE_DECODER_INIT_FAILED||e.errorCode==PlaybackException.ERROR_CODE_DECODING_FAILED||e.errorCode==PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED;
     playbackDiagnostics="Playback error: "+e.getErrorCodeName()+" · "+activeDecoder;
+    boolean transientNetwork=e.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED||e.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT;
+    if(transientNetwork&&liveEligible()&&full&&p.getPlayWhenReady()&&probe.health.attempts<2){networkErrorAt=SystemClock.elapsedRealtime();networkError=e.getErrorCodeName();return;}
     if(stock||stopped||!decoderError||(!vod&&sdrPath!=0)){ui.removeCallbacks(watch);msg("Playback failed: "+e.getErrorCodeName());return;}
     recover(e.getErrorCodeName(),firstFrame?Math.max(0,p.getCurrentPosition()):position);
    }
@@ -1287,7 +1314,7 @@ public class MainActivity extends Activity {
  void playFull(Item i){
   if(!full&&(page.equals("Movies")||page.equals("Series")))rememberCataloguePosition();
   if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
-  release();screenToken++;loadToken++;epgToken++;full=true;status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null&&premiumPlayer==null)video.requestFocus();
+  release();screenToken++;loadToken++;epgToken++;full=true;if(regionalGuide!=null)regionalGuide.setBusy(true);status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null&&premiumPlayer==null)video.requestFocus();
  }
  void positionLiveSurface(){
   if(liveSurfaceHost==null||preview==null||full||preview.getWidth()<=0||preview.getHeight()<=0)return;
@@ -1300,7 +1327,7 @@ public class MainActivity extends Activity {
  boolean enterLiveFullscreen(){
   if(liveSurfaceHost==null||video==null||player==null)return false;
   liveReturnFocus=getCurrentFocus();liveReturnStatus=status;
-  full=true;status=null;
+  full=true;if(regionalGuide!=null)regionalGuide.setBusy(true);if(playbackProbe!=null)playbackProbe.health.reset();status=null;
   if(body!=null){liveBodyFocusMode=body.getDescendantFocusability();liveBodyAccessibility=body.getImportantForAccessibility();body.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);}
   // Do not detach the video surface or create a second PlayerView.
   liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));liveSurfaceHost.setPadding(0,0,0,0);video.setResizeMode(prefs.getInt("resize_mode",0));liveSurfaceHost.setForeground(null);
@@ -1314,15 +1341,15 @@ public class MainActivity extends Activity {
   if(liveSurfaceHost==null||player==null||video==null||preview==null)return false;
   clearRefreshMatch(true);removeRangeButton();video.hideController();video.setUseController(false);video.setFocusable(false);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
-  player.setVolume(0f);full=false;status=liveReturnStatus;liveReturnStatus=null;
+  player.setVolume(0f);full=false;if(regionalGuide!=null)regionalGuide.setBusy(stopped);if(playbackProbe!=null)playbackProbe.health.reset();status=liveReturnStatus;liveReturnStatus=null;
   positionLiveSurface();if(highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(selected!=null&&epg!=null)loadEpg(selected);
   if(body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   View focus=liveReturnFocus;liveReturnFocus=null;if(focus!=null&&focus.isAttachedToWindow())focus.requestFocus();else if(right!=null)focusAt(right,itemPos);
   android.util.Log.i("SharkPlayback","Live preview: same player and surface resized");return true;
  }
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;release();browser(true);return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
- @Override protected void onStart(){super.onStart();stopped=false;ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
- @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;cancelDecoderTasks();clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null){nativeVideo.pause();if(premiumPlayer!=null)premiumPlayer.nativeEnded();}}
+ @Override protected void onStart(){super.onStart();stopped=false;if(regionalGuide!=null)regionalGuide.setBusy(full);if(resumeExo!=null&&resumeExo==player){resumeExo=null;applyDisplayMode();player.play();if(autoRefresh()&&full)scheduleRefreshMatch(player,frameRateSample,0);}if(liveHealthWatch!=null){if(playbackProbe!=null)playbackProbe.health.reset();stopLiveHealth();ui.postDelayed(liveHealthWatch,2000);}ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
+ @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;if(regionalGuide!=null)regionalGuide.setBusy(true);resumeExo=player!=null&&player.getPlayWhenReady()&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_ENDED?player:null;stopLiveHealth();if(playbackProbe!=null)playbackProbe.health.reset();cancelDecoderTasks();clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null){nativeVideo.pause();if(premiumPlayer!=null)premiumPlayer.nativeEnded();}}
  @Override protected void onDestroy(){if(regionalGuide!=null)regionalGuide.close();screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);if(previewGuideJob!=null)previewGuideJob.cancel(true);if(fullGuideJob!=null)fullGuideJob.cancel(true);io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
  boolean updateBusy=false;

@@ -177,7 +177,7 @@ final class PremiumPlayerOverlay extends FrameLayout {
   scroll.setId(View.generateViewId());scroll.setFillViewport(false);
   scroll.setFocusable(true);scroll.setFocusableInTouchMode(true);
   scroll.setContentDescription("Full playback diagnostics");
-  scroll.setForeground(new Ring(false));
+  android.graphics.drawable.StateListDrawable scrollFocus=new android.graphics.drawable.StateListDrawable();android.graphics.drawable.GradientDrawable outline=new android.graphics.drawable.GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setStroke(d(2),0xffffdf65);scrollFocus.addState(new int[]{android.R.attr.state_focused},outline);scrollFocus.addState(new int[]{},new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));scroll.setForeground(scrollFocus);
   TextView details=new TextView(a);infoDetails=details;lastInfoRefresh=SystemClock.uptimeMillis();
   details.setTextColor(WHITE);details.setTypeface(a.uiRegular);details.setTextSize(compact?13:15);
   details.setSingleLine(false);details.setMaxLines(Integer.MAX_VALUE);details.setEllipsize(null);
