@@ -42,6 +42,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final Listener listener;
  private final Executor callback;
  private final Runnable inputCounter,submitCounter,dropCounter;
+ private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming;
  private final AtomicBoolean pending=new AtomicBoolean();
  private final HandlerThread thread=new HandlerThread("SharkDirectSDR",android.os.Process.THREAD_PRIORITY_DISPLAY);
  private Handler gl;
@@ -53,14 +54,14 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private GlProgram hdrProgram,sdrProgram;
  private int tex,width=1,height=1,transfer=C.COLOR_TRANSFER_SDR;
  private float pixelAspect=1;
- private boolean fullRange,latched,ended;
+ private boolean fullRange,latched,ended,windowFocused;
  private long pts,offset,lastPts=C.TIME_UNSET;
  private final float[] texMatrix=new float[16],position=new float[16],identity=new float[16];
  private volatile boolean ready,released,failed,zero,configured;
  private volatile int generation;
  private SurfaceInfo output;
- DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop){
-  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;Matrix.setIdentityM(identity,0);
+ DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming){
+  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;Matrix.setIdentityM(identity,0);
  }
  private interface Task{void run()throws Exception;}
  private void sync(Task task)throws Exception{
@@ -77,7 +78,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
   if(gl==null||released||failed)return;
   gl.post(()->{if(!released&&!failed)try{task.run();}catch(Exception e){error(e);}});
  }
- private void focusPlaceholder()throws Exception{GlUtil.focusEglSurface(display,context,placeholder,1,1);}
+ private void focusPlaceholder()throws Exception{GlUtil.focusEglSurface(display,context,placeholder,1,1);windowFocused=false;}
+ private void focusWindow()throws Exception{if(!windowFocused){GlUtil.focusEglSurface(display,context,window,output.width,output.height);windowFocused=true;}}
  @Override public void initialize()throws VideoFrameProcessingException{
   thread.start();gl=new Handler(thread.getLooper());
   try{sync(()->{
@@ -132,9 +134,10 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private void onFrame(){
   if(released||failed)return;
   try{
-   focusPlaceholder();
+   // The decoder texture and window share this GL context. Keep the current
+   // draw surface instead of rebinding EGL twice per video frame.
    if(latched)throw new IllegalStateException("Unexpected extra decoder frame");
-   texture.updateTexImage();
+   long begin=System.nanoTime();texture.updateTexImage();latchTiming.accept(System.nanoTime()-begin);
    if(!pending.get())return;
    texture.getTransformMatrix(texMatrix);pts=texture.getTimestamp()/1000+offset;
    latched=true;if(pts==0)zero=true;lastPts=pts;
@@ -149,7 +152,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
    if(!latched){throw new IllegalStateException("No latched decoder frame");}
    if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();}
    else if(window!=null&&output!=null){
-    GlUtil.focusEglSurface(display,context,window,output.width,output.height);
+    long drawStart=System.nanoTime();focusWindow();
     GLES20.glClearColor(0,0,0,1);GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
     Matrix.setIdentityM(position,0);
     float src=width*pixelAspect/height,dst=(float)output.width/output.height;
@@ -174,8 +177,9 @@ final class DirectSdrVideoGraph implements VideoGraph {
     GlUtil.checkGlError();
     long time=ns>=0?ns:ns==VideoFrameProcessor.RENDER_OUTPUT_FRAME_WITH_PRESENTATION_TIME?pts*1000:System.nanoTime();
     EGLExt.eglPresentationTimeANDROID(display,window,time);
+    long swapStart=System.nanoTime();drawTiming.accept(swapStart-drawStart);
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
-    submitCounter.run();
+    swapTiming.accept(System.nanoTime()-swapStart);submitCounter.run();
    }
    latched=false;pending.set(false);
    if(ended)notifyEnded();
