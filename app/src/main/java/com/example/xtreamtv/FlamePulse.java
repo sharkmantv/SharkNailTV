@@ -6,13 +6,15 @@ import android.animation.ValueAnimator;
 /** Red shoulders, yellow core, continuous soft falloff and pronounced breathing. */
 final class FlamePulse {
  private FlamePulse(){}
+ private static final float[] FALLOFF=new float[21];
+ static{for(int i=1;i<=20;i++){float ratio=3f*i/20f;FALLOFF[i]=(float)Math.exp(-.5f*ratio*ratio);}}
  static boolean animates(){return Build.VERSION.SDK_INT<26||ValueAnimator.areAnimatorsEnabled();}
  static float phase(){return animates()?(float)(.5+.5*Math.cos(SystemClock.uptimeMillis()%1350*Math.PI*2/1350.0)):1f;}
  static void layer(Canvas c,Paint glow,RectF rim,float radius,float sigma,float peak,int red,int green,int blue){
   float previous=0;
   for(int i=20;i>=1;i--){
    float distance=3f*sigma*i/20f;
-   float target=peak*(float)Math.exp(-.5f*distance*distance/(sigma*sigma));
+   float target=peak*FALLOFF[i];
    float alpha=(target-previous)/(1f-previous);
    glow.setStrokeWidth(2f*distance);
    glow.setColor(Color.argb(Math.round(255*Math.max(0,Math.min(1,alpha))),red,green,blue));

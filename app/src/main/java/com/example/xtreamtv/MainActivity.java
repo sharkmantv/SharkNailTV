@@ -40,10 +40,16 @@ public class MainActivity extends Activity {
  final ThreadPoolExecutor io=(ThreadPoolExecutor)Executors.newFixedThreadPool(2);
  final Handler ui=new Handler(Looper.getMainLooper());
  final ThreadPoolExecutor epgIo=(ThreadPoolExecutor)Executors.newFixedThreadPool(2);
- final ThreadPoolExecutor rowGuideIo=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(24),new ThreadPoolExecutor.AbortPolicy());
+ static ThreadFactory backgroundWorkers(String name){return work->new Thread(()->{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);work.run();},name);}
+ final ThreadPoolExecutor rowGuideIo=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(24),backgroundWorkers("SharkGuideRows"),new ThreadPoolExecutor.AbortPolicy());
  final Runnable tickRows=new Runnable(){public void run(){if(stopped||!page.equals("Live TV"))return;if(!full&&right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);ui.postDelayed(this,60000);}};
  final android.util.LruCache<String,GuideData> guideCache=new android.util.LruCache<String,GuideData>(4800){@Override protected int sizeOf(String key,GuideData value){return Math.max(60,value.shows.size());}};
- Future<?> previewGuideJob,fullGuideJob;
+ Future<?> previewGuideJob,fullGuideJob,playerGuideJob,nearbyGuideJob;
+ Runnable nearbyGuideTask;
+ final java.util.concurrent.locks.ReentrantLock[] guideLocks=guideLocks();
+ volatile long guideEpoch;
+ static java.util.concurrent.locks.ReentrantLock[] guideLocks(){java.util.concurrent.locks.ReentrantLock[] locks=new java.util.concurrent.locks.ReentrantLock[32];for(int n=0;n<locks.length;n++)locks[n]=new java.util.concurrent.locks.ReentrantLock();return locks;}
+ void invalidateGuideCache(){synchronized(guideCache){guideEpoch++;guideCache.evictAll();}}
  RegionalGuide regionalGuide;
  Item highlightedGuideItem;
  Runnable pendingGuideFocus;
@@ -53,7 +59,7 @@ public class MainActivity extends Activity {
  final Runnable refreshEpg=new Runnable(){public void run(){if(!stopped&&!full&&page.equals("Live TV")&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(!stopped&&page.equals("Live TV"))ui.postDelayed(this,60000);}};
  static class Programme{String title,description,rawStart,rawEnd;long start,end;}
  static class GuideData{final List<Programme> shows;final long fetched=System.currentTimeMillis();final boolean extended;GuideData(List<Programme>s,boolean x){shows=s;extended=x;}}
- final ThreadPoolExecutor posterIo=new ThreadPoolExecutor(3,3,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(64),new ThreadPoolExecutor.AbortPolicy());
+ final ThreadPoolExecutor posterIo=new ThreadPoolExecutor(3,3,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(64),backgroundWorkers("SharkPosters"),new ThreadPoolExecutor.AbortPolicy());
  final android.util.LruCache<String,String> posterUrls=new android.util.LruCache<>(500);
  final android.util.LruCache<String,android.graphics.Bitmap> posterCache=new android.util.LruCache<String,android.graphics.Bitmap>(24*1024*1024){@Override protected int sizeOf(String k,android.graphics.Bitmap b){return b.getAllocationByteCount();}};
  android.content.SharedPreferences prefs;
@@ -79,6 +85,7 @@ public class MainActivity extends Activity {
  long epgQuietUntil;
  static final OkHttpClient API_HTTP=new OkHttpClient.Builder().connectionPool(new ConnectionPool(5,3,TimeUnit.MINUTES)).connectTimeout(10,TimeUnit.SECONDS).readTimeout(25,TimeUnit.SECONDS).followSslRedirects(false).build();
  static final OkHttpClient GUIDE_HTTP=API_HTTP.newBuilder().connectTimeout(5,TimeUnit.SECONDS).readTimeout(8,TimeUnit.SECONDS).build();
+ static final OkHttpClient POSTER_HTTP=API_HTTP.newBuilder().connectTimeout(3500,TimeUnit.MILLISECONDS).readTimeout(5000,TimeUnit.MILLISECONDS).followSslRedirects(true).build();
  static final OkHttpClient STREAM_HTTP=API_HTTP.newBuilder().connectTimeout(8,TimeUnit.SECONDS).readTimeout(15,TimeUnit.SECONDS).build();
  Runnable matchTask;
  boolean matchedWindow;
@@ -235,14 +242,14 @@ public class MainActivity extends Activity {
  }
  @Override public void onTrimMemory(int level){
   super.onTrimMemory(level);
-  if(level==android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN){posterCache.trimToSize(8*1024*1024);if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
-  if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW&&level<android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN){clearCatalogue();posterCache.trimToSize(8*1024*1024);}
-  if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND){clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
+  if(level==android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN){posterCache.trimToSize(8*1024*1024);guideCache.trimToSize(2400);posterIo.purge();rowGuideIo.purge();epgIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
+  if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW&&level<android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN){clearCatalogue();posterCache.trimToSize(8*1024*1024);guideCache.trimToSize(2400);}
+  if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND){clearCatalogue();posterCache.evictAll();posterUrls.evictAll();invalidateGuideCache();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  }
- @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
+ @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();invalidateGuideCache();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  static class Item { String id,name,ext,art="",year="",tmdb="",epgId="",epgRegion=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);regionalGuide=new RegionalGuide(this,()->ui.post(()->{if(isFinishing()||isDestroyed())return;guideCache.evictAll();if(!full&&!stopped&&page.equals("Live TV")){if(right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);if(highlightedGuideItem!=null)loadEpg(highlightedGuideItem);if(regionalGuideRefresh!=null)regionalGuideRefresh.run();}}));if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_policy_50060",false)){prefs.edit().putBoolean("match_frame_rate",true).putBoolean("refresh_policy_50060",true).apply();}if(!prefs.getBoolean("native_range_50068",false)){android.content.SharedPreferences.Editor migration=prefs.edit().putBoolean("native_range_50068",true);if("Prefer SDR".equals(prefs.getString("range_live","Auto")))migration.putString("range_live","Auto");if("Prefer SDR".equals(prefs.getString("range_vod","Auto")))migration.putString("range_vod","Auto");migration.apply();}if(!prefs.getBoolean("decoder_sdr_50069",false)){prefs.edit().putBoolean("decoder_sdr_50069",true).putString("range_live","Prefer SDR").apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);if(((android.app.ActivityManager)getSystemService(ACTIVITY_SERVICE)).isLowRamDevice()){posterCache.resize(16*1024*1024);guideCache.resize(2400);}getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);regionalGuide=new RegionalGuide(this,()->ui.post(()->{if(isFinishing()||isDestroyed())return;invalidateGuideCache();if(!full&&!stopped&&page.equals("Live TV")){if(right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);if(highlightedGuideItem!=null)loadEpg(highlightedGuideItem);if(regionalGuideRefresh!=null)regionalGuideRefresh.run();}}));if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_policy_50060",false)){prefs.edit().putBoolean("match_frame_rate",true).putBoolean("refresh_policy_50060",true).apply();}if(!prefs.getBoolean("native_range_50068",false)){android.content.SharedPreferences.Editor migration=prefs.edit().putBoolean("native_range_50068",true);if("Prefer SDR".equals(prefs.getString("range_live","Auto")))migration.putString("range_live","Auto");if("Prefer SDR".equals(prefs.getString("range_vod","Auto")))migration.putString("range_vod","Auto");migration.apply();}if(!prefs.getBoolean("decoder_sdr_50069",false)){prefs.edit().putBoolean("decoder_sdr_50069",true).putString("range_live","Prefer SDR").apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
@@ -259,7 +266,7 @@ public class MainActivity extends Activity {
  // Draw-only pulse; only focused controls and the visible preview animate.
  static final class PulseFrame extends Drawable {
   final android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-  final boolean always;final float width;boolean focused;
+  final boolean always;final float width;boolean focused;final android.graphics.RectF rim=new android.graphics.RectF();
   final Runnable tick=()->invalidateSelf();
   PulseFrame(boolean always,float width){this.always=always;this.width=width;paint.setStyle(android.graphics.Paint.Style.STROKE);paint.setStrokeWidth(width);}
   @Override public boolean isStateful(){return !always;}
@@ -271,7 +278,7 @@ public class MainActivity extends Activity {
    float scale=Math.max(1f,width*1.35f)/25f;
    scale=Math.min(scale,shortSide*.14f/30f);
    float inset=scale*17;
-   android.graphics.RectF rim=new android.graphics.RectF(bounds);rim.inset(inset,inset);
+   rim.set(bounds);rim.inset(inset,inset);
    FlamePulse.draw(canvas,paint,rim,0,scale,FlamePulse.phase());
    if(FlamePulse.animates()){unscheduleSelf(tick);scheduleSelf(tick,android.os.SystemClock.uptimeMillis()+40);}
   }
@@ -355,7 +362,7 @@ public class MainActivity extends Activity {
  String api(String action,String args){return server+"/player_api.php?username="+enc(user)+"&password="+enc(pass)+(action.isEmpty()?"":"&action="+action)+args;}
  <T> void task(Work<T> w,Done<T> done){int token=screenToken;io.execute(()->{try{T data=w.run();ui.post(()->{if(token==screenToken&&!isFinishing())done.run(data);});}catch(Exception e){ui.post(()->{if(token==screenToken&&!isFinishing())msg("Request failed. Check connection or retry.");});}});}
  EditText field(String label,String value,int type){EditText e=new EditText(this);e.setHint(label);e.setText(value);e.setSingleLine();e.setInputType(type);styleInput(e);body.addView(e);return e;}
- void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;clearCatalogue();guideCache.evictAll();JSONObject serverInfo=j.optJSONObject("server_info");String zone=serverInfo==null?"":serverInfo.optString("timezone","");prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).putString("epg_zone",zone).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
+ void login(String next){page="Settings";screen("Xtream Codes");EditText h=field("Server URL",server,17),u=field("Username",user,1),p=field("Password",pass,129);status=text("Enter your provider details",14);body.addView(status);LinearLayout r=row();button(r,"Connect",()->{String host=h.getText().toString().trim().replaceAll("/+$",""),name=u.getText().toString().trim(),pw=p.getText().toString();Uri uri=Uri.parse(host);if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getQuery()!=null||uri.getUserInfo()!=null||uri.getFragment()!=null||name.isEmpty()||pw.isEmpty()){msg("Invalid login details.");return;}msg("Connecting…");task(()->new JSONObject(get(host+"/player_api.php?username="+enc(name)+"&password="+enc(pw))),j->{JSONObject info=j.optJSONObject("user_info");if(info==null||info.optInt("auth",0)!=1){msg("Login rejected.");return;}server=host;user=name;pass=pw;clearCatalogue();invalidateGuideCache();JSONObject serverInfo=j.optJSONObject("server_info");String zone=serverInfo==null?"":serverInfo.optString("timezone","");prefs.edit().putString("server",host).putString("user",name).putString("pass",pw).putString("epg_zone",zone).apply();if(next.equals("Settings"))settings();else open(next);});});button(r,"Back",this::home);body.addView(r);}
  void settingsTile(LinearLayout r,String label,int icon,Runnable action){
   PremiumVisuals.Tile tile=new PremiumVisuals.Tile(this,label,icon,false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(5),dp(5),dp(5),dp(5));r.addView(tile,lp);tile.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)v.requestFocus();return false;});tile.setOnClickListener(v->action.run());
  }
@@ -562,7 +569,7 @@ public class MainActivity extends Activity {
   if(left!=null)left.setAdapter(null);
   if(right!=null)right.setAdapter(null);
   posterIo.getQueue().clear();rowGuideIo.getQueue().clear();
-  posterUrls.evictAll();posterCache.evictAll();guideCache.evictAll();clearCatalogue();
+  posterUrls.evictAll();posterCache.evictAll();invalidateGuideCache();clearCatalogue();
   final Dialog progress=new AlertDialog.Builder(this).setTitle("Clearing cache").setMessage("Removing temporary files…").setCancelable(false).create();
   progress.show();
   final File internal=getCacheDir();
@@ -773,8 +780,7 @@ public class MainActivity extends Activity {
  android.graphics.Bitmap posterBitmap(String url)throws Exception{
   if(url==null||!(url.startsWith("https://")||url.startsWith("http://")))return null;
   android.graphics.Bitmap cached=posterCache.get(url);if(cached!=null)return cached;
-  HttpURLConnection conn=(HttpURLConnection)new URL(url).openConnection();conn.setConnectTimeout(3500);conn.setReadTimeout(5000);
-  try{if(conn.getResponseCode()!=200)return null;try(InputStream in=conn.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted()||out.size()+n>8*1024*1024)return null;out.write(buf,0,n);}byte[] data=out.toByteArray();android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,bounds);if(bounds.outWidth<=0||bounds.outHeight<=0)return null;android.graphics.BitmapFactory.Options opt=new android.graphics.BitmapFactory.Options();opt.inSampleSize=1;while(bounds.outWidth/opt.inSampleSize>1000||bounds.outHeight/opt.inSampleSize>1500)opt.inSampleSize*=2;android.graphics.Bitmap b=android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,opt);if(Thread.currentThread().isInterrupted())return null;if(b!=null)posterCache.put(url,b);return b;}}finally{conn.disconnect();}
+  try(Response response=POSTER_HTTP.newCall(new Request.Builder().url(url).build()).execute()){if(!response.isSuccessful()||response.body()==null)return null;try(InputStream in=response.body().byteStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[16384];int n;while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted()||out.size()+n>8*1024*1024)return null;out.write(buf,0,n);}byte[] data=out.toByteArray();android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,bounds);if(bounds.outWidth<=0||bounds.outHeight<=0)return null;android.graphics.BitmapFactory.Options opt=new android.graphics.BitmapFactory.Options();opt.inSampleSize=1;while(bounds.outWidth/opt.inSampleSize>1000||bounds.outHeight/opt.inSampleSize>1500)opt.inSampleSize*=2;android.graphics.Bitmap b=android.graphics.BitmapFactory.decodeByteArray(data,0,data.length,opt);if(Thread.currentThread().isInterrupted())return null;if(b!=null)posterCache.put(url,b);return b;}}
  }
  boolean showPosters(){return page.equals("Movies")||(page.equals("Series")&&seriesId.isEmpty());}
  void setItemsAdapter(List<Item> data,Pick pick){
@@ -825,6 +831,7 @@ public class MainActivity extends Activity {
   }
   void cancelPoster(H h){if(h.retryTask!=null){h.itemView.removeCallbacks(h.retryTask);h.retryTask=null;}if(h.job!=null){h.job.cancel(true);h.job=null;posterIo.purge();}}
   @Override public void onBindViewHolder(H h,int pos){ViewGroup.LayoutParams lp=h.itemView.getLayoutParams();if(lp!=null&&lp.height!=cardHeight){lp.height=cardHeight;h.itemView.setLayoutParams(lp);}cancelPoster(h);Item i=data.get(pos);h.bound=i;h.title.setText(i.name);h.title.setVisibility(View.VISIBLE);h.itemView.setContentDescription(i.name);h.art.setImageDrawable(null);if(h.itemView.hasFocus()&&status!=null)status.setText(i.name);int token=screenToken;String key=tmdbKey();
+   String known=posterUrls.get(key+"|"+type+"|"+i.tmdb+"|"+i.name+"|"+yearOf(i));android.graphics.Bitmap hit=posterCache.get(known==null||known.isEmpty()?i.art:known);if(hit!=null){h.art.setImageBitmap(hit);h.title.setVisibility(View.GONE);if(known!=null||key.isEmpty())return;}
    loadPoster(h,i,token,key,0);
   }
   void paintPoster(H h,Item i,int token,android.graphics.Bitmap b){if(b!=null&&!Thread.currentThread().isInterrupted())ui.post(()->{if(h.bound==i&&token==screenToken&&!isFinishing()){h.art.setImageBitmap(b);h.title.setVisibility(View.GONE);}});}
@@ -832,7 +839,7 @@ public class MainActivity extends Activity {
     if(h.bound!=i||token!=screenToken||isFinishing())return;
     try{h.job=posterIo.submit(()->{
      String cacheKey=key+"|"+type+"|"+i.tmdb+"|"+i.name+"|"+yearOf(i);
-     String known=posterUrls.get(cacheKey);android.graphics.Bitmap cached=known==null?null:posterCache.get(known);
+     String known=posterUrls.get(cacheKey);android.graphics.Bitmap cached=known==null?null:posterCache.get(known.isEmpty()?i.art:known);
      if(cached!=null){paintPoster(h,i,token,cached);return;}
      try{paintPoster(h,i,token,posterBitmap(i.art));}catch(Exception ignored){}
      if(!key.isEmpty()&&!Thread.currentThread().isInterrupted())try{String best=artwork(i,type,key);if(!best.equals(i.art))paintPoster(h,i,token,posterBitmap(best));}catch(Exception ignored){}
@@ -926,6 +933,14 @@ public class MainActivity extends Activity {
  }
  static Future<?> submitGuide(ThreadPoolExecutor pool,Runnable work){GuideTask task=new GuideTask(work);pool.execute(task);return task;}
  static String getGuide(String url)throws Exception{return readProvider(GUIDE_HTTP,url,"SharkSky/5",4*1024*1024);}
+ static boolean freshGuide(GuideData d,boolean extended){return d!=null&&System.currentTimeMillis()-d.fetched<180000&&(!extended||d.extended);}
+ GuideData cachedGuide(String key,Item item,String fullUrl,String shortUrl,String zone,boolean extended,boolean force)throws Exception{
+  long epoch=guideEpoch;java.util.concurrent.locks.ReentrantLock lock=guideLocks[(key.hashCode()&Integer.MAX_VALUE)%guideLocks.length];lock.lockInterruptibly();try{
+   GuideData cached=guideCache.get(key);if(!force&&freshGuide(cached,extended))return cached;
+   GuideData result=fetchGuide(item,fullUrl,shortUrl,zone,extended);if(Thread.currentThread().isInterrupted())throw new InterruptedException();
+   synchronized(guideCache){if(epoch==guideEpoch)guideCache.put(key,result);}return result;
+  }finally{lock.unlock();}
+ }
  GuideData fetchGuide(Item item,String fullUrl,String shortUrl,String zone,boolean extended)throws Exception{
   List<Programme> shows=new ArrayList<>();long now=System.currentTimeMillis();boolean fullLoaded=false;
   try{shows=parseGuide(getGuide(extended?fullUrl:shortUrl),zone);fullLoaded=extended&&!shows.isEmpty();}catch(Exception ignored){}
@@ -945,12 +960,14 @@ public class MainActivity extends Activity {
   Collections.sort(out,(a,b)->Long.compare(a.start,b.start));return out;
  }
  // Remove cancelled FutureTasks from the executor immediately, rather than retaining stale channel work.
+ void cancelNearbyGuide(){if(nearbyGuideTask!=null){ui.removeCallbacks(nearbyGuideTask);nearbyGuideTask=null;}if(nearbyGuideJob!=null){nearbyGuideJob.cancel(true);nearbyGuideJob=null;rowGuideIo.purge();}}
  void cancelPreviewGuideJob(){if(previewGuideJob!=null){previewGuideJob.cancel(true);previewGuideJob=null;epgIo.purge();}}
  void cancelFullGuideJob(){if(fullGuideJob!=null){fullGuideJob.cancel(true);fullGuideJob=null;epgIo.purge();}}
- void suspendPreviewGuide(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(refreshEpg);epgToken++;cancelPreviewGuideJob();}
- void clearGuideFocus(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;highlightedGuideItem=null;}
+ void suspendPreviewGuide(){cancelNearbyGuide();if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(refreshEpg);epgToken++;cancelPreviewGuideJob();}
+ void clearGuideFocus(){cancelNearbyGuide();if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;highlightedGuideItem=null;}
  void highlightGuide(Item i,GuideData cached){
   if(i==null||epg==null||full||!page.equals("Live TV"))return;
+  cancelNearbyGuide();
   if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);
   cancelPreviewGuideJob();epgToken++;
   highlightedGuideItem=i;if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);
@@ -958,6 +975,7 @@ public class MainActivity extends Activity {
   if(data!=null)paintPreviewGuide(i,data);else epg.setText(i.name+"\nLoading programme information…");
   int token=screenToken;pendingGuideFocus=()->{pendingGuideFocus=null;if(token==screenToken&&!full&&highlightedGuideItem==i&&epg!=null)loadEpg(i);};
   ui.postDelayed(pendingGuideFocus,80);
+  nearbyGuideTask=()->{nearbyGuideTask=null;if(token==screenToken&&!stopped&&!full&&highlightedGuideItem==i&&SystemClock.elapsedRealtime()>=epgQuietUntil&&rowGuideIo.getActiveCount()==0&&rowGuideIo.getQueue().isEmpty()&&freshGuide(guideCache.get(guideKey(i,false)),false)&&right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).preloadNearby(i);};ui.postDelayed(nearbyGuideTask,600);
  }
  void paintPreviewGuide(Item i,GuideData data){
   if(epg==null||i==null||data==null)return;long now=System.currentTimeMillis();Programme current=null,next=null;
@@ -973,7 +991,7 @@ public class MainActivity extends Activity {
   int req=++epgToken,token=screenToken;String key=guideKey(i,false),fullUrl=api("get_simple_data_table","&stream_id="+enc(i.id)),shortUrl=api("get_short_epg","&stream_id="+enc(i.id)+"&limit=12"),zone=prefs.getString("epg_zone","");
   cancelPreviewGuideJob();
   if(programmeProgress!=null)programmeProgress.setVisibility(View.INVISIBLE);GuideData cached=guideCache.get(key);if(cached!=null){paintPreviewGuide(i,cached);if(System.currentTimeMillis()-cached.fetched<180000)return;}else epg.setText(i.name+"\nLoading programme information…");
-  previewGuideJob=submitGuide(epgIo,()->{try{GuideData data=fetchGuide(i,fullUrl,shortUrl,zone,false);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(token!=screenToken||req!=epgToken||stopped||full||isFinishing())return;guideCache.put(key,data);paintPreviewGuide(i,data);});}
+  previewGuideJob=submitGuide(epgIo,()->{try{GuideData data=cachedGuide(key,i,fullUrl,shortUrl,zone,false,false);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(token!=screenToken||req!=epgToken||stopped||full||isFinishing())return;paintPreviewGuide(i,data);});}
    catch(Exception e){ui.post(()->{if(token==screenToken&&req==epgToken&&!stopped&&!full&&epg!=null&&cached==null)epg.setText(i.name+"\nProgramme information unavailable");});}});
  }
  static final long GUIDE_SLOT=30*60*1000L;
@@ -1017,8 +1035,8 @@ public class MainActivity extends Activity {
    GuideData d=guideCache.get(key);if(timeline){GuideData ext=guideCache.get(guideKey(i,true));if(ext!=null)d=ext;}
    final boolean extended=timeline&&(from>System.currentTimeMillis()+2*GUIDE_SLOT||from+6*GUIDE_SLOT<System.currentTimeMillis());
    if(!force&&d!=null&&System.currentTimeMillis()-d.fetched<180000&&(!extended||d.extended)){paint(h,d,false);return;}
-   paint(h,d,d==null);if(!requestNetwork)return;int token=screenToken;final GuideData previous=d;
-   try{h.job=submitGuide(rowGuideIo,()->{try{GuideData recent=guideCache.get(extended?guideKey(i,true):key);GuideData result=!force&&recent!=null&&System.currentTimeMillis()-recent.fetched<180000&&(!extended||recent.extended)?recent:fetchGuide(i,fullUrl,shortUrl,zone,extended);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(disposed||token!=screenToken||h.item!=i||h.request!=request||isFinishing())return;guideCache.put(extended?guideKey(i,true):key,result);paint(h,result,false);});}
+   paint(h,d,d==null);if(!requestNetwork)return;int token=screenToken;final GuideData previous=d;final String requestKey=extended?guideKey(i,true):key;
+   try{h.job=submitGuide(rowGuideIo,()->{try{GuideData result=cachedGuide(requestKey,i,fullUrl,shortUrl,zone,extended,force);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(disposed||token!=screenToken||h.item!=i||h.request!=request||isFinishing())return;paint(h,result,false);});}
    catch(Exception e){ui.post(()->{if(!disposed&&token==screenToken&&h.item==i&&h.request==request&&!isFinishing())paint(h,previous,false);});}});}catch(RejectedExecutionException e){h.job=null;paint(h,previous,false);}
   }
   @Override public void onBindViewHolder(H h,int position){bindGuide(h,data.get(position),false,h.root.isAttachedToWindow());}
@@ -1027,7 +1045,8 @@ public class MainActivity extends Activity {
   @Override public void onViewAttachedToWindow(H h){super.onViewAttachedToWindow(h);if(h.item!=null&&(h.job==null||h.job.isCancelled())){boolean extended=timeline&&(from>System.currentTimeMillis()+2*GUIDE_SLOT||from+6*GUIDE_SLOT<System.currentTimeMillis());if(h.guide==null||System.currentTimeMillis()-h.guide.fetched>=180000||(extended&&!h.guide.extended))bindGuide(h,h.item,false);}}
   @Override public void onDetachedFromRecyclerView(RecyclerView list){disposed=true;super.onDetachedFromRecyclerView(list);}
   @Override public int getItemCount(){return data.size();}
-  void refreshVisible(RecyclerView list){for(int n=0;n<list.getChildCount();n++){RecyclerView.ViewHolder holder=list.getChildViewHolder(list.getChildAt(n));if(holder instanceof LiveGuideRows.H){H h=(H)holder;if(h.item!=null)bindGuide(h,h.item,false);}}}
+  void refreshVisible(RecyclerView list){ArrayList<H> visible=new ArrayList<>();for(int n=0;n<list.getChildCount();n++){RecyclerView.ViewHolder holder=list.getChildViewHolder(list.getChildAt(n));if(holder instanceof LiveGuideRows.H){H h=(H)holder;if(h.item!=null)visible.add(h);}}visible.sort((a,b)->Boolean.compare(b.root.hasFocus(),a.root.hasFocus()));for(H h:visible)bindGuide(h,h.item,false);}
+  void preloadNearby(Item focused){if(timeline||disposed||right==null)return;RecyclerView.LayoutManager lm=right.getLayoutManager();if(!(lm instanceof LinearLayoutManager))return;LinearLayoutManager linear=(LinearLayoutManager)lm;int first=linear.findFirstVisibleItemPosition(),last=linear.findLastVisibleItemPosition();if(first<0||last<0)return;int at=data.indexOf(focused);if(at<first||at>last)return;int pos=at-first<last-at?first-1:last+1;if(pos<0||pos>=data.size())pos=pos<0?last+1:first-1;if(pos<0||pos>=data.size())return;Item next=data.get(pos);String key=guideKey(next,false);if(freshGuide(guideCache.get(key),false))return;String a=api("get_simple_data_table","&stream_id="+enc(next.id)),b=api("get_short_epg","&stream_id="+enc(next.id)+"&limit=16"),zone=prefs.getString("epg_zone","");try{nearbyGuideJob=submitGuide(rowGuideIo,()->{try{cachedGuide(key,next,a,b,zone,false,false);}catch(Exception ignored){}});}catch(RejectedExecutionException ignored){}}
  }
  void openGuide(){
   if(!page.equals("Live TV")||items.isEmpty()){msg("Select a Live TV category first.");return;}
@@ -1092,7 +1111,7 @@ public class MainActivity extends Activity {
   String key=guideKey(item,true),fullUrl=api("get_simple_data_table","&stream_id="+enc(item.id)),shortUrl=api("get_short_epg","&stream_id="+enc(item.id)+"&limit=24"),zone=prefs.getString("epg_zone","");
   GuideData cached=guideCache.get(key);if(!force&&cached!=null&&System.currentTimeMillis()-cached.fetched<180000){showFullGuide(item,cached,label,entries,scroll);return;}
   label.setText(item.name+"  •  Loading schedule…");entries.removeAllViews();
-  fullGuideJob=submitGuide(epgIo,()->{try{GuideData data=fetchGuide(item,fullUrl,shortUrl,zone,true);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(req!=guideRequest||!dialog.isShowing()||isFinishing())return;guideCache.put(key,data);showFullGuide(item,data,label,entries,scroll);});}
+  fullGuideJob=submitGuide(epgIo,()->{try{GuideData data=cachedGuide(key,item,fullUrl,shortUrl,zone,true,force);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(req!=guideRequest||!dialog.isShowing()||isFinishing())return;showFullGuide(item,data,label,entries,scroll);});}
    catch(Exception e){ui.post(()->{if(req!=guideRequest||!dialog.isShowing())return;if(cached!=null)showFullGuide(item,cached,label,entries,scroll);else label.setText(item.name+"  •  Schedule unavailable. Try Refresh guide.");});}});
  }
 
@@ -1387,6 +1406,7 @@ public class MainActivity extends Activity {
   n.setVideoURI(Uri.parse(stream(i)));n.start();addRangeButton(host,i,null);
  }
  void removeRangeButton(){
+  if(playerGuideJob!=null){playerGuideJob.cancel(true);playerGuideJob=null;epgIo.purge();}
   if(premiumPlayer!=null){premiumPlayer.dispose();premiumPlayer=null;}
   if(playerDetails!=null){ViewGroup group=(ViewGroup)playerDetails.getParent();if(group!=null)group.removeView(playerDetails);playerDetails=null;}
   if(playerHeader!=null){ViewGroup group=(ViewGroup)playerHeader.getParent();if(group!=null)group.removeView(playerHeader);playerHeader=null;}
@@ -1441,7 +1461,7 @@ public class MainActivity extends Activity {
   GuideData cached=guideCache.get(guideKey(item,false));paintPlayerDetails(panel,item,cached);panel.setVisibility(pv.isControllerFullyVisible()?View.VISIBLE:View.GONE);
   if(cached==null||System.currentTimeMillis()-cached.fetched>180000){
    final String a=api("get_simple_data_table","&stream_id="+enc(item.id)),b=api("get_short_epg","&stream_id="+enc(item.id)+"&limit=12"),zone=prefs.getString("epg_zone",""),key=guideKey(item,false);
-   submitGuide(epgIo,()->{try{GuideData result=fetchGuide(item,a,b,zone,false);ui.post(()->{if(playerDetails==panel&&video==pv&&full){guideCache.put(key,result);paintPlayerDetails(panel,item,result);}});}catch(Exception ignored){}});
+   playerGuideJob=submitGuide(epgIo,()->{try{GuideData result=cachedGuide(key,item,a,b,zone,false,false);if(Thread.currentThread().isInterrupted())return;ui.post(()->{if(playerDetails==panel&&video==pv&&full){paintPlayerDetails(panel,item,result);}});}catch(Exception ignored){}});
   }
  }
  void stylePlayer(PlayerView pv){
@@ -1601,7 +1621,7 @@ public class MainActivity extends Activity {
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;Item resumePreview=page.equals("Live TV")?playbackItem:null;release();browser(true);if(resumePreview!=null&&preview!=null){selected=resumePreview;attach(preview,resumePreview,false);loadEpg(resumePreview);}return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;if(regionalGuide!=null)regionalGuide.setBusy(full);if(resumeExo!=null&&resumeExo==player){resumeExo=null;applyDisplayMode();player.play();if(autoRefresh()&&refreshInCurrentView())scheduleRefreshMatch(player,frameRateSample,0);}if(liveHealthWatch!=null){if(playbackProbe!=null)playbackProbe.health.reset();stopLiveHealth();ui.postDelayed(liveHealthWatch,2000);}ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
  @Override protected void onStop(){suspendPreviewGuide();ui.removeCallbacks(tickRows);stopped=true;if(regionalGuide!=null)regionalGuide.setBusy(true);resumeExo=player!=null&&player.getPlayWhenReady()&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_ENDED?player:null;stopLiveHealth();if(playbackProbe!=null)playbackProbe.health.reset();cancelDecoderTasks();clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null){nativeVideo.pause();if(premiumPlayer!=null)premiumPlayer.nativeEnded();}}
- @Override protected void onDestroy(){if(regionalGuide!=null)regionalGuide.close();screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);cancelPreviewGuideJob();cancelFullGuideJob();io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
+ @Override protected void onDestroy(){if(regionalGuide!=null)regionalGuide.close();screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);cancelPreviewGuideJob();cancelFullGuideJob();io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();invalidateGuideCache();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
  boolean updateBusy=false;
  volatile int updateProgress=0;
