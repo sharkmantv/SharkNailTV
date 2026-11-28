@@ -403,6 +403,23 @@ public class MainActivity extends Activity {
 
   return "Decoder output unknown; SDR not verified";
  }
+ String directPlaybackSummary(PlaybackProbe q,Format f,float rate,float hz){
+  if(q==null||!q.directGraph)return "";
+  String[] lines=q.directGraphics.split("\\n");
+  String fence="GPU fence: collecting",lead="Lead: collecting",pre="Pre-draw: collecting";
+  for(String line:lines){
+   if(line.startsWith("GPU fence vs requested target:"))fence=line.replace("GPU fence vs requested target:","Fence:").replace("uncertain","uncert.").replace("no target","no tgt");
+   else if(line.startsWith("Submission lead (target minus swap end):"))lead=line.replace("Submission lead (target minus swap end):","Lead:").replace("EGL timestamp rejects","EGL rejects");
+   else if(line.startsWith("Pre-draw used:"))pre=line;
+  }
+  return "SDR performance • "+BuildConfig.VERSION_NAME+"\n"
+   +String.format(Locale.US,"%s | %.2f fps / %.2f Hz\n",f==null?"Unknown size":f.width+"x"+f.height,rate,hz)
+   +"Surface: "+q.graphSubmitted.label()+" | drops "+q.graphOutputDrops+"/"+droppedVideoFrames+"\n"
+   +"Steady gaps: "+q.submittedIntervals.steadyGaps+"/"+q.submittedIntervals.steadyCount+" | late >20ms "+q.directLate.steadyOver20ms+"/"+q.directLate.steadyCount+"\n"
+   +fence+"\n"+lead+"\n"+pre+"\n"
+   +"Draw: "+q.directDraw.label()+"\n"
+   +"Panel timing unverified • Details below\n\n";
+ }
  String currentPlaybackDiagnostics(){
   ExoPlayer p=player;
   if(p==null){android.media.MediaPlayer mp=nativeMedia;return playbackDiagnostics+"\nEngine: Android native fallback\nSource picture mode: "+rangeLabel()+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",getWindowManager().getDefaultDisplay().getMode().getRefreshRate())+(movieDisplayPolicy()?"\nDisplay policy: Movies / Series 60 Hz preference":"")+(mp!=null?"\nVideo resolution: "+mp.getVideoWidth()+"x"+mp.getVideoHeight():"");}
@@ -415,7 +432,7 @@ public class MainActivity extends Activity {
   String match="Unknown";
   if(rate>0)match=RefreshMatch.exact(hz,rate)?"Matched multiple":RefreshMatch.compatible(hz,rate)?"Nominal multiple":"Not an integer multiple";
   int bitrate=f==null?-1:f.bitrate;
-  return playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
+  return directPlaybackSummary(playbackProbe,f,rate,hz)+playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
    +(playbackProbe!=null&&playbackProbe.alternate?"\nSDR alternative feed: "+playbackProbe.sourceItem.name:"")
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
    +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label()+"\nSDR shader: "+playbackProbe.directShader+"\nGL draw API CPU: "+playbackProbe.directDrawCall.steadyLabel()+"\nEGL timestamp API CPU: "+playbackProbe.directPresentCall.steadyLabel()+"\n"+playbackProbe.directGraphics+"\nDecoded timestamp intervals: "+playbackProbe.decodedPts.label()+"\nRequested release intervals: "+playbackProbe.targetPts.label()+"\nSurface submission intervals (not panel): "+playbackProbe.submittedIntervals.label()+"\nAfter first 5 s — draw: "+playbackProbe.directDraw.steadyLabel()+"\nSteady lateness: "+playbackProbe.directLate.steadyLabel()+"\nSteady decoded intervals: "+playbackProbe.decodedPts.steadyLabel()+"\nSteady release intervals: "+playbackProbe.targetPts.steadyLabel()+"\nSteady submission intervals: "+playbackProbe.submittedIntervals.steadyLabel():""):"")
