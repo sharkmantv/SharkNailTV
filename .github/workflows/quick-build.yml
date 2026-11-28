@@ -35,7 +35,7 @@ jobs:
           from pathlib import Path
           base=os.environ['KIT_BASE']
           changed=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
-          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts'
+          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts' or p=='ci/SdrStreamMatchTest.java'
           assert all(map(allowed,changed)), 'Quick build only supports Java and version changes; use full workflow for other files: '+str([p for p in changed if not allowed(p)])
           gradle=Path('app/build.gradle.kts').read_text()
           old=subprocess.check_output(['git','show',base+':app/build.gradle.kts'],text=True)
@@ -46,6 +46,11 @@ jobs:
           assert code>=50071
           with open(os.environ['GITHUB_ENV'],'a') as f:f.write(f'VERSION_CODE={code}\nVERSION_NAME={name}\n')
           PY
+      - name: Test SDR feed matching
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdr-tests"
+          javac -d "$RUNNER_TEMP/sdr-tests" app/src/main/java/com/example/xtreamtv/SdrStreamMatch.java ci/SdrStreamMatchTest.java
+          java -cp "$RUNNER_TEMP/sdr-tests" com.example.xtreamtv.SdrStreamMatchTest
       - name: Reuse verified FFmpeg and prepared UHD artwork
         env:
           GH_TOKEN: ${{ github.token }}
