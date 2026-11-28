@@ -35,7 +35,7 @@ jobs:
           from pathlib import Path
           base=os.environ['KIT_BASE']
           changed=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
-          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts' or p in ('ci/SdrStreamMatchTest.java','ci/SdrFrameSlotTest.java','ci/PqPreviewLutTest.java')
+          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts' or p in ('ci/SdrStreamMatchTest.java','ci/SdrFrameSlotTest.java','ci/PqPreviewLutTest.java','ci/prepare_wave_login.py','ci/artwork/wave_login_source.b64')
           assert all(map(allowed,changed)), 'Quick build only supports Java and version changes; use full workflow for other files: '+str([p for p in changed if not allowed(p)])
           gradle=Path('app/build.gradle.kts').read_text()
           old=subprocess.check_output(['git','show',base+':app/build.gradle.kts'],text=True)
@@ -75,6 +75,27 @@ jobs:
           rm -rf app
           cp -a "$kit/app" app
           rm -rf app/build app/.gradle
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Enhance approved Wave login artwork with Real-ESRGAN x2plus
+        run: |
+          set -euo pipefail
+          python -m pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'numpy==1.26.4' 'opencv-python==4.10.0.84' 'Pillow==10.4.0' 'basicsr==1.4.2' 'realesrgan==0.3.0'
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          f=Path(importlib.util.find_spec("basicsr").origin).parent/"data"/"degradations.py"
+          s=f.read_text()
+          old="from torchvision.transforms.functional_tensor import rgb_to_grayscale"
+          new="from torchvision.transforms.functional import rgb_to_grayscale"
+          assert old in s or new in s
+          f.write_text(s.replace(old,new))
+          PY
+          python -c 'from realesrgan import RealESRGANer'
+          curl --fail --location --retry 3 --output RealESRGAN_x2plus.pth https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth
+          python -u ci/prepare_wave_login.py
       - name: SDK
         run: |
           set -euo pipefail
@@ -163,6 +184,18 @@ jobs:
             adb shell pidof com.example.xtreamtv
             adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/quick-crash.log"
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/quick-crash.log"; then exit 1; fi
+            adb shell uiautomator dump /sdcard/shark-login.xml
+            adb pull /sdcard/shark-login.xml "$RUNNER_TEMP/shark-login.xml"
+            python - <<'PY'
+            import os, xml.etree.ElementTree as ET
+            root=ET.parse(os.path.join(os.environ["RUNNER_TEMP"],"shark-login.xml"))
+            nodes=list(root.iter("node"))
+            inputs=[n for n in nodes if n.get("class")=="android.widget.EditText"]
+            assert len(inputs)==3, "Three native editable login fields required"
+            assert any(n.get("text")=="Load playlist" and n.get("clickable")=="true" for n in nodes)
+            assert any(n.get("password")=="true" for n in inputs), "Password must start masked"
+            PY
+            adb exec-out screencap -p > login-preview.png
             sha256sum SharkNailTV.apk > quick-install-verified.sha256
       - name: Upload quick upgrade-verified test APK
         uses: actions/upload-artifact@v4
@@ -171,4 +204,10 @@ jobs:
           path: |
             SharkNailTV.apk
             quick-install-verified.sha256
+          if-no-files-found: error
+      - name: Upload actual Android login screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sky-Shark-${{ env.VERSION_NAME }}-login-preview
+          path: login-preview.png
           if-no-files-found: error
