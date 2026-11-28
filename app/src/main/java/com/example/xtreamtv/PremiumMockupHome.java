@@ -15,16 +15,33 @@ final class PremiumMockupHome {
  static Bitmap backdrop;
  static final Bitmap[] cards=new Bitmap[4];
  static void trimArtwork(){backdrop=null;java.util.Arrays.fill(cards,null);}
+ static int artworkSample(MainActivity a){
+  android.app.ActivityManager am=(android.app.ActivityManager)a.getSystemService(Context.ACTIVITY_SERVICE);
+  android.view.Display.Mode mode=a.getWindowManager().getDefaultDisplay().getMode();
+  boolean constrained=am!=null&&(am.isLowRamDevice()||am.getMemoryClass()<=128);
+  // Retain the approved UHD layers on full-size 4K outputs. Reduce decode RAM only
+  // on constrained devices with HD output; the original artwork stays packaged.
+  return constrained&&Math.max(mode.getPhysicalWidth(),mode.getPhysicalHeight())<=1920?2:1;
+ }
  static void prepare(MainActivity a){
   if(backdrop!=null)return;
-  // Always decode the full prepared UHD layers; the device compositor chooses output resolution.
-  BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;o.inSampleSize=1;
-  backdrop=BitmapFactory.decodeResource(a.getResources(),R.drawable.design34_backdrop,o);
+  int sample=artworkSample(a);
+  try{decodeArtwork(a,sample);}
+  catch(OutOfMemoryError first){trimArtwork();if(sample==2)throw first;decodeArtwork(a,2);}
+ }
+ static void decodeArtwork(MainActivity a,int sample){
+  BitmapFactory.Options o=new BitmapFactory.Options();o.inScaled=false;o.inSampleSize=sample;
+  Bitmap background=BitmapFactory.decodeResource(a.getResources(),R.drawable.design34_backdrop,o);
   int[] ids={R.drawable.design34_card_0,R.drawable.design34_card_1,R.drawable.design34_card_2,R.drawable.design34_card_3};
-  for(int i=0;i<4;i++)cards[i]=BitmapFactory.decodeResource(a.getResources(),ids[i],o);
-  if(backdrop==null||backdrop.getWidth()!=3840||backdrop.getHeight()!=2160)throw new IllegalStateException("Full UHD home artwork required");
-  for(int i=0;i<4;i++){int[] area=AREAS[i];int expectedW=Math.round((area[0]+area[2])*3840f/1648)-Math.round(area[0]*3840f/1648);int expectedH=Math.round((area[1]+area[3])*2160f/928)-Math.round(area[1]*2160f/928);if(cards[i]==null||cards[i].getWidth()!=expectedW||cards[i].getHeight()!=expectedH)throw new IllegalStateException("Full resolution card "+i+" required");}
-  android.util.Log.i("SharkUHD","Full resolution 3840x2160 artwork and all four card layers decoded");
+  Bitmap[] decoded=new Bitmap[4];
+  if(background==null||Math.abs(background.getWidth()-3840/sample)>1||Math.abs(background.getHeight()-2160/sample)>1)throw new IllegalStateException("Home artwork dimensions invalid");
+  for(int i=0;i<4;i++){
+   decoded[i]=BitmapFactory.decodeResource(a.getResources(),ids[i],o);
+   int[] area=AREAS[i];int expectedW=Math.round((area[0]+area[2])*3840f/1648)-Math.round(area[0]*3840f/1648);int expectedH=Math.round((area[1]+area[3])*2160f/928)-Math.round(area[1]*2160f/928);
+   if(decoded[i]==null||Math.abs(decoded[i].getWidth()-expectedW/sample)>1||Math.abs(decoded[i].getHeight()-expectedH/sample)>1)throw new IllegalStateException("Card artwork dimensions invalid "+i);
+  }
+  System.arraycopy(decoded,0,cards,0,4);backdrop=background;
+  android.util.Log.i("SharkUHD","Artwork sample="+sample+" dimensions="+backdrop.getWidth()+"x"+backdrop.getHeight());
  }
  static void show(MainActivity a){
   prepare(a);a.body.removeAllViews();a.body.setPadding(0,0,0,0);
