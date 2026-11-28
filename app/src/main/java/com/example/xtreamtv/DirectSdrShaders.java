@@ -8,6 +8,9 @@ final class DirectSdrShaders {
  static String pqToSdr(){return HDR
   .replace("uniform int uInputColorTransfer;", "const int uInputColorTransfer = 6;")
   .replace("uniform int uApplyHdrToSdrToneMapping;", "const int uApplyHdrToSdrToneMapping = 1;")
-  .replace("uniform int uOutputColorTransfer;", "const int uOutputColorTransfer = 10;");}
+  .replace("uniform int uOutputColorTransfer;", "const int uOutputColorTransfer = 10;")
+  // Same fixed Hermite curves in Horner form: fewer per-pixel arithmetic operations.
+  .replace("nits = (y1 * (1.0 + 2.0 * t) + h12 * m1 * t) * (1.0 - t) * (1.0 - t) +\n           (y2 * (3.0 - 2.0 * t) + h12 * m2 * (t - 1.0)) * t * t;", "nits = 375.0 + t * (93.75 + t * (31.25 - 31.25 * t));")
+  .replace("nits =\n        (y2 * (1.0 + 2.0 * t) + h23 * m2 * t) * (1.0 - t) * (1.0 - t) +\n        (maxOutputLuminance * (3.0 - 2.0 * t) + h23 * m3 * (t - 1.0)) * t * t;", "nits = 468.75 + t * (62.5 + t * (-62.5 + 31.25 * t));");}
  static final String SDR="#version 300 es\n#extension GL_OES_EGL_image_external_essl3 : require\nprecision mediump float;\nuniform samplerExternalOES uTexSampler;\nin vec2 vTexSamplingCoord;\nout vec4 outColor;\nvoid main(){outColor=texture(uTexSampler,vTexSamplingCoord);}";
 }
