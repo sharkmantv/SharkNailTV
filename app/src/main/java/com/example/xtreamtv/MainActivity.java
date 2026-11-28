@@ -1019,7 +1019,7 @@ public class MainActivity extends Activity {
     androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder builder=new androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder(context)
      .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(selector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50);
     out.add(new androidx.media3.exoplayer.video.MediaCodecVideoRenderer(builder){
-     @Override protected void onOutputFormatChanged(Format format,android.media.MediaFormat mediaFormat) throws androidx.media3.exoplayer.ExoPlaybackException {
+     @Override protected void onOutputFormatChanged(Format format,android.media.MediaFormat mediaFormat) {
       probe.outputTransfer=mediaFormat==null?-1:mediaFormat.getInteger(android.media.MediaFormat.KEY_COLOR_TRANSFER,-1);probe.outputKnown=probe.outputTransfer>0;android.util.Log.i("SharkPlayback","Actual codec output transfer="+probe.outputTransfer);super.onOutputFormatChanged(format,mediaFormat);
      }
      @Override protected android.media.MediaFormat getMediaFormat(Format format,String codecMimeType,CodecMaxValues codecMaxValues,float codecOperatingRate,boolean deviceNeedsNoPostProcessWorkaround,int tunnelingAudioSessionId){
