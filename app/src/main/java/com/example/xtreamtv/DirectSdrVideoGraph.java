@@ -8,6 +8,7 @@ import android.opengl.EGLDisplay;
 import android.opengl.EGLSurface;
 import android.opengl.EGLExt;
 import android.opengl.GLES20;
+import android.opengl.GLES30;
 import android.opengl.Matrix;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -43,7 +44,13 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final Executor callback;
  private final Runnable inputCounter,submitCounter,dropCounter,slotAvailable;
  private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming,lateTiming,queueTiming,targetTiming,submissionTiming;
- private final java.util.function.Consumer<String> shaderName;
+ private final java.util.function.Consumer<String> shaderName,graphicsInfo;
+ private final java.util.function.LongConsumer drawCallTiming,presentationCallTiming;
+ // Sparse, non-blocking fence observations: not a GPU execution timer or scanout timestamp.
+ private long sampledFence,fenceIssuedNs,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceStillPending,fenceFailed,fenceUpperTotal,fenceUpperMax;
+ private int sampleCounter;
+ private boolean fenceDisabled;
+ private String gpuDescription="Not initialized";
  private final AtomicBoolean pending=new AtomicBoolean();
  private final HandlerThread thread=new HandlerThread("SharkDirectSDR",android.os.Process.THREAD_PRIORITY_DISPLAY);
  private Handler gl;
@@ -65,8 +72,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private volatile boolean ready,released,failed,zero,configured;
  private volatile int generation;
  private SurfaceInfo output;
- DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming,java.util.function.LongConsumer targetTiming,java.util.function.LongConsumer submissionTiming,java.util.function.Consumer<String> shaderName,Runnable slotAvailable){
-  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;this.targetTiming=targetTiming;this.submissionTiming=submissionTiming;this.shaderName=shaderName;this.slotAvailable=slotAvailable;Matrix.setIdentityM(identity,0);
+ DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming,java.util.function.LongConsumer targetTiming,java.util.function.LongConsumer submissionTiming,java.util.function.Consumer<String> shaderName,Runnable slotAvailable,java.util.function.LongConsumer drawCallTiming,java.util.function.LongConsumer presentationCallTiming,java.util.function.Consumer<String> graphicsInfo){
+  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;this.targetTiming=targetTiming;this.submissionTiming=submissionTiming;this.shaderName=shaderName;this.slotAvailable=slotAvailable;this.drawCallTiming=drawCallTiming;this.presentationCallTiming=presentationCallTiming;this.graphicsInfo=graphicsInfo;Matrix.setIdentityM(identity,0);
  }
  private interface Task{void run()throws Exception;}
  private void sync(Task task)throws Exception{
@@ -93,6 +100,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
    placeholder=GlUtil.createFocusedPlaceholderEglSurface(context,display);
    tex=GlUtil.createExternalTexture();texture=new SurfaceTexture(tex);input=new Surface(texture);
    texture.setOnFrameAvailableListener(t->onFrame(),gl);
+   gpuDescription=GLES20.glGetString(GLES20.GL_RENDERER);
+   graphicsInfo.accept("GPU: "+gpuDescription+"; fence sampling pending; panel timing unavailable");
    ready=true;
   });}catch(Exception e){release();throw new VideoFrameProcessingException(e);}
  }
@@ -109,6 +118,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   try{sync(()->{
    if(info!=null&&info.equals(output))return;
    focusPlaceholder();
+   discardFence();
    if(window!=null)GlUtil.destroyEglSurface(display,window);
    window=null;output=info;
    if(info!=null)window=GlUtil.createEglSurface(display,info.surface,C.COLOR_TRANSFER_SDR,false);
@@ -148,12 +158,46 @@ final class DirectSdrVideoGraph implements VideoGraph {
   inputCounter.run();return true;
  }
  @Override public int getPendingInputFrameCount(int index){return pending.get()?1:0;}
+ private void discardFence(){
+  if(sampledFence!=0){GLES30.glDeleteSync(sampledFence);sampledFence=0;}
+ }
+ private void publishFence(){
+  long observed=fenceAtSwap+fenceAtNextFrame;
+  graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, still pending %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6)));
+ }
+ private void disableFence(){
+  fenceFailed++;fenceDisabled=true;discardFence();publishFence();
+ }
+ private void startFenceSample(){
+  if(fenceDisabled||sampledFence!=0||++sampleCounter%120!=0)return;
+  fenceSamples++;
+  try{
+   fenceIssuedNs=System.nanoTime();
+   sampledFence=GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+   if(sampledFence==0){GLES20.glGetError();disableFence();}
+  }catch(RuntimeException e){disableFence();}
+ }
+ private void pollFence(boolean afterSwap){
+  if(sampledFence==0)return;
+  try{
+   int status=GLES30.glClientWaitSync(sampledFence,0,0);
+   if(status==GLES30.GL_ALREADY_SIGNALED||status==GLES30.GL_CONDITION_SATISFIED){
+    long elapsed=Math.max(0,System.nanoTime()-fenceIssuedNs);
+    if(afterSwap)fenceAtSwap++;else fenceAtNextFrame++;
+    fenceUpperTotal+=elapsed;fenceUpperMax=Math.max(fenceUpperMax,elapsed);
+    discardFence();publishFence();
+   }else if(status==GLES30.GL_TIMEOUT_EXPIRED){
+    if(!afterSwap){fenceStillPending++;discardFence();publishFence();}
+   }else{GLES20.glGetError();disableFence();}
+  }catch(RuntimeException e){disableFence();}
+ }
  private void onFrame(){
   if(released||failed)return;
   try{
    // The decoder texture and window share this GL context. Keep the current
    // draw surface instead of rebinding EGL twice per video frame.
    if(latched)throw new IllegalStateException("Unexpected extra decoder frame");
+   pollFence(false);
    long begin=System.nanoTime();texture.updateTexImage();latchTiming.accept(System.nanoTime()-begin);
    if(!pending.get())return;
    texture.getTransformMatrix(texMatrix);pts=texture.getTimestamp()/1000+offset;
@@ -210,13 +254,17 @@ final class DirectSdrVideoGraph implements VideoGraph {
      }
     }
     if(needsClear){GLES20.glClearColor(0,0,0,1);GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);}
+    long commandStart=System.nanoTime();
     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
     GlUtil.checkGlError();
+    drawCallTiming.accept(System.nanoTime()-commandStart);
+    startFenceSample();
     long time=ns>=0?ns:ns==VideoFrameProcessor.RENDER_OUTPUT_FRAME_WITH_PRESENTATION_TIME?pts*1000:System.nanoTime();
+    long presentStart=System.nanoTime();
     EGLExt.eglPresentationTimeANDROID(display,window,time);
-    long swapStart=System.nanoTime();drawTiming.accept(swapStart-drawStart);
+    long swapStart=System.nanoTime();presentationCallTiming.accept(swapStart-presentStart);drawTiming.accept(swapStart-drawStart);
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
-    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){lateTiming.accept(Math.max(0,finished-ns));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();
+    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){lateTiming.accept(Math.max(0,finished-ns));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();pollFence(true);
    }
    latched=false;pending.set(false);
    if(ended)notifyEnded();
@@ -231,13 +279,14 @@ final class DirectSdrVideoGraph implements VideoGraph {
  @Override public void flush(){
   if(released||failed)return;
   generation++;
-  try{sync(()->{latched=false;pending.set(false);ended=false;lastPts=C.TIME_UNSET;});}catch(Exception e){error(e);}
+  try{sync(()->{discardFence();latched=false;pending.set(false);ended=false;lastPts=C.TIME_UNSET;});}catch(Exception e){error(e);}
  }
  @Override public void signalEndOfInput(int i){post(()->{ended=true;if(!pending.get())notifyEnded();});}
  @Override public void release(){
   if(released)return;released=true;ready=false;pending.set(false);
   if(gl!=null)try{sync(()->{
    if(display!=null&&context!=null&&placeholder!=null)focusPlaceholder();
+   discardFence();
    if(input!=null)input.release();if(texture!=null){texture.setOnFrameAvailableListener(null);texture.release();}
    if(hdrProgram!=null)hdrProgram.delete();if(pqProgram!=null)pqProgram.delete();if(sdrProgram!=null)sdrProgram.delete();
    if(tex!=0)GlUtil.deleteTexture(tex);
