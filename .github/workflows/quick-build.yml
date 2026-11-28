@@ -184,8 +184,14 @@ jobs:
             adb shell pidof com.example.xtreamtv
             adb logcat -d -s AndroidRuntime:E > "$RUNNER_TEMP/quick-crash.log"
             if grep -F 'Process: com.example.xtreamtv,' "$RUNNER_TEMP/quick-crash.log"; then exit 1; fi
+            adb shell dumpsys input_method > login-ime.txt
+            if grep -Eq 'mInputShown=true|mIsInputViewShown=true' login-ime.txt; then adb shell input keyevent KEYCODE_BACK; sleep 2; fi
+            adb shell dumpsys window > login-window.txt
             adb shell uiautomator dump /sdcard/shark-login.xml
             adb pull /sdcard/shark-login.xml "$RUNNER_TEMP/shark-login.xml"
+            cp "$RUNNER_TEMP/shark-login.xml" login-hierarchy.xml
+            adb exec-out screencap -p > login-preview.png
+            python -c 'import xml.etree.ElementTree as E; print([(n.get("package"),n.get("class"),n.get("text"),n.get("bounds")) for n in E.parse("login-hierarchy.xml").iter("node")])'
             python -c 'import os, xml.etree.ElementTree as ET; root=ET.parse(os.path.join(os.environ["RUNNER_TEMP"],"shark-login.xml")); nodes=list(root.iter("node")); inputs=[n for n in nodes if n.get("class")=="android.widget.EditText"]; assert len(inputs)==3, "Three native editable login fields required"; assert any(n.get("text")=="Load playlist" and n.get("clickable")=="true" for n in nodes); assert any(n.get("password")=="true" for n in inputs), "Password must start masked"'
             adb exec-out screencap -p > login-preview.png
             sha256sum SharkNailTV.apk > quick-install-verified.sha256
@@ -197,9 +203,14 @@ jobs:
             SharkNailTV.apk
             quick-install-verified.sha256
           if-no-files-found: error
-      - name: Upload actual Android login screenshot
+      - name: Upload actual Android login screenshot and diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Sky-Shark-${{ env.VERSION_NAME }}-login-preview
-          path: login-preview.png
-          if-no-files-found: error
+          path: |
+            login-preview.png
+            login-hierarchy.xml
+            login-window.txt
+            login-ime.txt
+          if-no-files-found: warn
