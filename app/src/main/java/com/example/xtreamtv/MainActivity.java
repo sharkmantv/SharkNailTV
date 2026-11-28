@@ -583,10 +583,10 @@ public class MainActivity extends Activity {
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
   LinearLayout back=row();button(back,"Reset playback defaults",this::resetVisualSettings);button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
  }
- int liveStartupBufferMs(){int value=prefs.getInt("live_startup_buffer_ms",250);return value==250||value==500||value==750?value:250;}
+ int liveStartupBufferMs(){int value=prefs.getInt("live_startup_buffer_ms",250);return value==250||value==500||value==750||value==2500?value:250;}
  void liveBufferSettings(){
   if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Stock buffer is unchanged. Select Custom to adjust Live TV startup buffer.").setPositiveButton("OK",null).show();return;}
-  int[] values={250,500,750};String[] labels={"Ultra Fast (250 ms)","Fast (500 ms)","Balanced (750 ms)"};int selected=liveStartupBufferMs()==750?2:liveStartupBufferMs()==500?1:0;
+  int[] values={250,500,750,2500};String[] labels={"Ultra Fast (250 ms)","Fast (500 ms)","Balanced (750 ms)","IBO 4.3 buffer profile (2500 ms / 5 s recovery)"};int selected=liveStartupBufferMs()==2500?3:liveStartupBufferMs()==750?2:liveStartupBufferMs()==500?1:0;
   new AlertDialog.Builder(this).setTitle("Live TV startup buffer (TS / M3U8)").setSingleChoiceItems(labels,selected,(d,n)->{prefs.edit().putInt("live_startup_buffer_ms",values[n]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();
  }
  boolean defaultLiveEngine(){return prefs.getBoolean("default_live_engine",false);}
@@ -1171,7 +1171,13 @@ public class MainActivity extends Activity {
   source.setTransferListener(probe);
   ExoPlayer.Builder builder=stock?new ExoPlayer.Builder(this):new ExoPlayer.Builder(this,factory);
   builder.setMediaSourceFactory(new DefaultMediaSourceFactory(this).setDataSourceFactory(source));
-  if(fast)builder.setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,gpu?Math.max(1000,probe.startupBufferMs):probe.startupBufferMs,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS).build());
+  if(fast){
+   DefaultLoadControl.Builder load=new DefaultLoadControl.Builder();
+   // Optional reference profile: explicit buffer values observed in IBO 4.3; all existing options remain unchanged.
+   if(probe.startupBufferMs==2500)load.setBufferDurationsMs(50_000,50_000,2_500,5_000).setBackBuffer(0,false).setTargetBufferBytes(C.LENGTH_UNSET);
+   else load.setBufferDurationsMs(DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,gpu?Math.max(1000,probe.startupBufferMs):probe.startupBufferMs,DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS);
+   builder.setLoadControl(load.build());
+  }
   ExoPlayer p=builder.build();
   if(gpu)p.setVideoEffects(Collections.emptyList());
 
