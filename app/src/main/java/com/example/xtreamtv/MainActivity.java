@@ -230,7 +230,7 @@ public class MainActivity extends Activity {
  ImageView art(int res){ImageView v=new ImageView(this);v.setImageResource(res);v.setScaleType(ImageView.ScaleType.FIT_CENTER);return v;}
  void cancelDecoderTasks(){if(decoderWatch!=null){ui.removeCallbacks(decoderWatch);decoderWatch=null;}if(decoderRetry!=null){ui.removeCallbacks(decoderRetry);decoderRetry=null;}}
  void stopLiveHealth(){if(liveHealthWatch!=null)ui.removeCallbacks(liveHealthWatch);}
- void release(){stopLiveHealth();liveHealthWatch=null;resumeExo=null;cancelDecoderTasks();detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
+ void release(){mpvReturnPlayer=null;mpvLeftScreen=false;stopLiveHealth();liveHealthWatch=null;resumeExo=null;cancelDecoderTasks();detachStreamListeners();epgQuietUntil=0;clearRefreshMatch(true);playbackProbe=null;removeRangeButton();playbackItem=null;if(preview!=null&&livePreviewLayout!=null)preview.removeOnLayoutChangeListener(livePreviewLayout);livePreviewLayout=null;
   if(liveSurfaceHost!=null&&full&&body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   liveReturnFocus=null;liveReturnStatus=null;activeStreamId="";if(nativeWatch!=null){ui.removeCallbacks(nativeWatch);nativeWatch=null;}nativeMedia=null;if(nativeVideo!=null){VideoView n=nativeVideo;nativeVideo=null;n.setOnPreparedListener(null);n.setOnInfoListener(null);n.setOnErrorListener(null);n.setOnCompletionListener(null);n.stopPlayback();}if(video!=null){video.setPlayer(null);video=null;}if(player!=null){ExoPlayer p=player;player=null;p.release();}
   if(liveSurfaceHost!=null){ViewGroup parent=(ViewGroup)liveSurfaceHost.getParent();if(parent!=null)parent.removeView(liveSurfaceHost);liveSurfaceHost=null;}activeDecoder="";}
@@ -486,7 +486,7 @@ public class MainActivity extends Activity {
   LinearLayout r2=row();int mode=prefs.getInt("resize_mode",0);button(r2,"Picture: "+(mode==3?"Stretch":mode==4?"Zoom":"Fit"),()->{prefs.edit().putInt("resize_mode",mode==0?3:mode==3?4:0).apply();playbackSettings();});
   button(r2,"Audio: "+prefs.getString("audio_lang","Automatic"),()->languageDialog("audio_lang","Preferred audio language"));button(r2,"Text: "+prefs.getString("text_lang","Automatic"),()->languageDialog("text_lang","Preferred subtitle language"));body.addView(r2);
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
-  TextView hint=text("Native playback preserves source resolution and dynamic range. Experimental SDR conversion is disabled.",13);body.addView(hint);
+  TextView hint=text("Native playback preserves source resolution and dynamic range. The fullscreen Picture menu offers an optional external mpv SDR test.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
   LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Live FPS (custom): "+(prefs.getBoolean("match_frame_rate",true)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",true)).apply();playbackSettings();});button(rate,"Live buffer: "+(defaultLiveEngine()?"Stock":liveStartupBufferMs()+" ms"),this::liveBufferSettings);body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
@@ -516,8 +516,8 @@ public class MainActivity extends Activity {
   @Override public void onDisplayRemoved(int id){}
   @Override public void onDisplayChanged(int id){if(id==getWindowManager().getDefaultDisplay().getDisplayId()){updateDisplayStatus();if(premiumPlayer!=null)premiumPlayer.refreshInfo(true);if(requestedFps>0)android.util.Log.i("SharkDisplay","Android display changed: "+getWindowManager().getDefaultDisplay().getMode().getRefreshRate()+" Hz");}}
  };
- @Override protected void onResume(){super.onResume();displayManager=(android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE);if(displayManager!=null)displayManager.registerDisplayListener(displayListener,ui);updateDisplayStatus();}
- @Override protected void onPause(){if(displayManager!=null){displayManager.unregisterDisplayListener(displayListener);displayManager=null;}super.onPause();}
+ @Override protected void onResume(){super.onResume();if(mpvLeftScreen)resumeAfterMpv();displayManager=(android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE);if(displayManager!=null)displayManager.registerDisplayListener(displayListener,ui);updateDisplayStatus();}
+ @Override protected void onPause(){if(mpvReturnPlayer!=null)mpvLeftScreen=true;if(displayManager!=null){displayManager.unregisterDisplayListener(displayListener);displayManager=null;}super.onPause();}
  static int chooseDisplayMode(android.view.Display.Mode current,android.view.Display.Mode[] modes,int request){
   if(request==0)return 0;
   int chosen=0;float best=Float.MAX_VALUE;
@@ -1275,27 +1275,41 @@ public class MainActivity extends Activity {
    if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&video!=null&&getCurrentFocus()!=null&&(getCurrentFocus()==rangeButton||getCurrentFocus().getParent()==rangeButton.getParent())){video.requestFocus();video.showController();return true;}
   }return super.dispatchKeyEvent(event);
  }
+ // Independent engine pilot: official mpv-android remains a separate application.
+ ExoPlayer mpvReturnPlayer;
+ boolean mpvLeftScreen,mpvWasPlaying,mpvLive;
+ long mpvReturnPosition;
+ void resumeAfterMpv(){
+  ExoPlayer p=mpvReturnPlayer;
+  mpvReturnPlayer=null;mpvLeftScreen=false;
+  if(p==null||p!=player||isFinishing()||isDestroyed())return;
+  if(mpvLive)p.seekToDefaultPosition();else p.seekTo(mpvReturnPosition);
+  p.prepare();p.setPlayWhenReady(mpvWasPlaying);
+ }
+ void openMpvTest(Item item){
+  if(item==null||item!=playbackItem||player==null||!full){msg("Start a channel in ExoPlayer first.");return;}
+  new AlertDialog.Builder(this).setTitle("External mpv SDR test")
+   .setMessage("Requires official mpv-android (is.xyz.mpv). In its advanced settings, enable gpu-next and set mpv.conf to request SDR. This opens the selected stream in the separate app, including its provider login URL. Only continue if you trust the installed app. Press Back to return to Sky Shark. SDR conversion is not guaranteed.")
+   .setPositiveButton("Open mpv",(d,w)->{
+    ExoPlayer p=player;if(p==null||item!=playbackItem||!full)return;
+    boolean live=page.equals("Live TV");
+    android.net.Uri uri=android.net.Uri.parse(stream(item));
+    String scheme=uri.getScheme();
+    if(!"http".equalsIgnoreCase(scheme)&&!"https".equalsIgnoreCase(scheme)){msg("Unsupported stream scheme for external test");return;}
+    android.content.Intent intent=new android.content.Intent(android.content.Intent.ACTION_VIEW);
+    intent.setDataAndType(uri,"video/any");intent.setPackage("is.xyz.mpv");
+    intent.putExtra("title",item.name);
+    if(!live)intent.putExtra("position",(int)Math.min(Integer.MAX_VALUE,Math.max(0,p.getCurrentPosition())));
+    mpvReturnPlayer=p;mpvLeftScreen=false;mpvWasPlaying=p.getPlayWhenReady();mpvLive=live;mpvReturnPosition=Math.max(0,p.getCurrentPosition());
+    p.pause();p.stop();
+    try{startActivity(intent);}
+    catch(android.content.ActivityNotFoundException|SecurityException e){resumeAfterMpv();msg("Install the official mpv-android app to use this test.");}
+   }).setNegativeButton("Cancel",null).show();
+ }
  void choosePlayerRange(Item item){
-  String[] choices={"Auto / native (full resolution)"};
-  String[] values={"Auto"};
-  boolean live=page.equals("Live TV");if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Native picture output. To change SDR/HDR, select Custom in Playback settings.").setPositiveButton("Close",null).show();return;}int current=Arrays.asList(values).indexOf(rangeFor(live));
-  new AlertDialog.Builder(this).setTitle("Video dynamic range").setSingleChoiceItems(choices,current,(dialog,n)->{
-   dialog.dismiss();String range=values[n];if(range.equals(rangeFor(live)))return;
-   prefs.edit().putString(live?"range_live":"range_vod",range).apply();
-   if(!full||playbackItem!=item)return;
-   if(liveSurfaceHost!=null&&page.equals("Live TV")){
-    if(!exitLiveFullscreen())return;
-    attach(preview,item,false);if(player!=null&&liveSurfaceHost!=null)enterLiveFullscreen();
-   }else{
-    long pos=player!=null?Math.max(0,player.getCurrentPosition()):nativeVideo!=null?Math.max(0,nativeVideo.getCurrentPosition()):0;
-    View content=findViewById(android.R.id.content);
-    if(content instanceof FrameLayout&&((FrameLayout)content).getChildCount()>0&&((FrameLayout)content).getChildAt(0) instanceof FrameLayout){
-     FrameLayout host=(FrameLayout)((FrameLayout)content).getChildAt(0);
-     boolean cached=!page.equals("Live TV")&&rememberedDecoder(item);
-     attachExo(host,item,true,cached?1:0,pos,cached);
-    }
-   }
-  }).setNeutralButton("Video info",(d,w)->new AlertDialog.Builder(this).setTitle("Video information").setMessage(currentPlaybackDiagnostics()).setPositiveButton("Close",null).show()).setNegativeButton("Cancel",null).show();
+  String[] choices={"Auto / native (full resolution)","External mpv SDR test"};
+  new AlertDialog.Builder(this).setTitle("Picture / playback engine").setSingleChoiceItems(choices,0,(dialog,n)->{dialog.dismiss();if(n==1)openMpvTest(item);})
+   .setNeutralButton("Video info",(d,w)->new AlertDialog.Builder(this).setTitle("Video information").setMessage(currentPlaybackDiagnostics()).setPositiveButton("Close",null).show()).setNegativeButton("Cancel",null).show();
  }
  void rememberCataloguePosition(){
   returnCatalogue=page;returnAnchor=returnCategory=-1;
