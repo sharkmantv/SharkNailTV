@@ -48,7 +48,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private final java.util.function.LongConsumer drawCallTiming,presentationCallTiming;
  // Sparse, non-blocking fence observations: not a GPU execution timer or scanout timestamp.
  private long sampledFence,fenceIssuedNs,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceStillPending,fenceFailed,fenceUpperTotal,fenceUpperMax;
- private int sampleCounter;
+ private int sampleCounter,drawsUntilErrorCheck;
+ private static final int DRAW_ERROR_CHECK_INTERVAL=60;
  private boolean fenceDisabled;
  private String gpuDescription="Not initialized";
  private final AtomicBoolean pending=new AtomicBoolean();
@@ -219,6 +220,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
     boolean specialized=transfer==C.COLOR_TRANSFER_ST2084&&pqProgram!=null;
     GlProgram p=hdr?(specialized?pqProgram:hdrProgram):sdrProgram;
     if(drawStateDirty||boundProgram!=p){
+     drawsUntilErrorCheck=0;
      Matrix.setIdentityM(position,0);
      float src=width*pixelAspect/height,dst=(float)output.width/output.height;
      if(output.orientationDegrees==90||output.orientationDegrees==270)src=1/src;
@@ -244,10 +246,9 @@ final class DirectSdrVideoGraph implements VideoGraph {
      System.arraycopy(texMatrix,0,boundTextureMatrix,0,16);
      boundProgram=p;drawStateDirty=false;
     }else{
-     // updateTexImage retains the external texture in this same GL context.
-     // Rebind explicitly; static vertex/uniform state is already configured.
-     GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-     GLES20.glBindTexture(android.opengl.GLES11Ext.GL_TEXTURE_EXTERNAL_OES,tex);
+     // updateTexImage implicitly binds the external texture in this private
+     // context. The only sampler is unit zero, set during program binding.
+     // No intervening operation changes the active texture or its binding.
      if(!java.util.Arrays.equals(texMatrix,boundTextureMatrix)){
       GLES20.glUniformMatrix4fv(textureMatrixLocation,1,false,texMatrix,0);
       System.arraycopy(texMatrix,0,boundTextureMatrix,0,16);
@@ -256,7 +257,10 @@ final class DirectSdrVideoGraph implements VideoGraph {
     if(needsClear){GLES20.glClearColor(0,0,0,1);GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);}
     long commandStart=System.nanoTime();
     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
-    GlUtil.checkGlError();
+    // Keep immediate validation after state changes and periodic validation
+    // during steady playback, avoiding a driver error query on every draw.
+    if(drawsUntilErrorCheck==0){GlUtil.checkGlError();drawsUntilErrorCheck=DRAW_ERROR_CHECK_INTERVAL;}
+    drawsUntilErrorCheck--;
     drawCallTiming.accept(System.nanoTime()-commandStart);
     startFenceSample();
     long time=ns>=0?ns:ns==VideoFrameProcessor.RENDER_OUTPUT_FRAME_WITH_PRESENTATION_TIME?pts*1000:System.nanoTime();
