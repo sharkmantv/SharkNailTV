@@ -74,6 +74,10 @@ final class DirectSdrVideoGraph implements VideoGraph {
  // Pre-draw the latched HDR frame; only ExoPlayer's render command may swap/present it.
  private long preparedDrawNs=-1;
  private long preparedFrames,preparedUsed;
+ private long firstLatchedNs=-1,steadyGraphDrops,steadyGraphSubmits,steadyLeadTotal;
+ private long preFlushCount,preFlushTotal,preFlushMax;
+ private int slowFlushes;
+ private boolean preFlushDisabled;
  private long pts,offset,lastPts=C.TIME_UNSET;
  private final float[] texMatrix=new float[16],position=new float[16],identity=new float[16];
  private volatile boolean ready,released,failed,zero,configured;
@@ -172,7 +176,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   long observed=fenceAtSwap+fenceAtNextFrame+fenceAtLaterFrame;
   graphicsInfo.accept(String.format(java.util.Locale.US,"GPU: %s; fence samples %d; signaled at swap %d, by next latch %d, by later latch %d, pending after four latches %d, failed %d; observed completion upper bound %s; panel timing unavailable",gpuDescription,fenceSamples,fenceAtSwap,fenceAtNextFrame,fenceAtLaterFrame,fenceStillPending,fenceFailed,observed==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f max",fenceUpperTotal/1e6/observed,fenceUpperMax/1e6))
    +String.format(java.util.Locale.US,"\nGPU fence vs requested target: before %d, after %d, uncertain %d, no target %d\nSubmission lead (target minus swap end): %s; under 20 ms %d/%d; EGL timestamp rejects %d",fenceBeforeTarget,fenceAfterTarget,fenceTargetUncertain,fenceNoTarget,submissionLeadCount==0?"n/a":String.format(java.util.Locale.US,"%.2f ms avg / %.2f min",submissionLeadTotal/1e6/submissionLeadCount,submissionLeadMin/1e6),submissionLeadUnder20,submissionLeadCount,eglTimestampRejected)
-   +String.format(java.util.Locale.US,"\nPre-draw used: %d/%d",preparedUsed,preparedFrames));
+   +String.format(java.util.Locale.US,"\nPre-draw used: %d/%d\nSteady graph drops: %d/%d; lead %s\nEarly GPU flush: %s (%d calls, %.2f ms avg / %.2f max)",preparedUsed,preparedFrames,steadyGraphDrops,steadyGraphSubmits+steadyGraphDrops,steadyGraphSubmits==0?"n/a":String.format(java.util.Locale.US,"%.2f ms",steadyLeadTotal/1e6/steadyGraphSubmits),preFlushDisabled?"disabled":"on",preFlushCount,preFlushCount==0?0.0:preFlushTotal/1e6/preFlushCount,preFlushMax/1e6));
  }
  private void disableFence(){
   fenceFailed++;fenceDisabled=true;discardFence();publishFence();
@@ -276,12 +280,21 @@ final class DirectSdrVideoGraph implements VideoGraph {
    if(!pending.get())return;
    texture.getTransformMatrix(texMatrix);pts=texture.getTimestamp()/1000+offset;
    latched=true;preparedDrawNs=-1;if(pts==0)zero=true;lastPts=pts;
+   if(firstLatchedNs<0)firstLatchedNs=System.nanoTime();
    final long timestamp=pts;final int token=generation;
    callback.execute(()->{if(!released&&!failed&&token==generation)listener.onOutputFrameAvailableForRendering(timestamp,false);});
    // Notify the scheduler first, then overlap its work with the draw on this GL thread.
    // A queued render/drop cannot run until this callback returns. Surface changes invalidate the pre-draw.
    if(window!=null&&output!=null&&(transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG)){
-    long drawBegin=System.nanoTime();drawLatchedFrame();preparedDrawNs=System.nanoTime()-drawBegin;preparedFrames++;
+    long drawBegin=System.nanoTime();drawLatchedFrame();
+    // Request earlier command dispatch, without glFinish or a fence wait.
+    // Some tiled GPU drivers can make flush expensive; back off on repeated slow calls.
+    if(!preFlushDisabled){
+     long flushStart=System.nanoTime();GLES20.glFlush();long cost=System.nanoTime()-flushStart;
+     preFlushCount++;preFlushTotal+=cost;preFlushMax=Math.max(preFlushMax,cost);
+     if(cost>3_000_000L){if(++slowFlushes>=3)preFlushDisabled=true;}else if(slowFlushes>0)slowFlushes--;
+    }
+    preparedDrawNs=System.nanoTime()-drawBegin;preparedFrames++;
    }
   }catch(Exception e){error(e);}
  }
@@ -291,7 +304,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
   post(()->{
    if(token!=generation)return;
    if(!latched){throw new IllegalStateException("No latched decoder frame");}
-   if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();}
+   boolean steady=firstLatchedNs>=0&&System.nanoTime()-firstLatchedNs>=5_000_000_000L;
+   if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();if(steady)steadyGraphDrops++;}
    else if(window!=null&&output!=null){
     long drawStart=System.nanoTime();queueTiming.accept(drawStart-queuedAt);
     long preDrawNs=preparedDrawNs;
@@ -303,7 +317,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
     if(!EGLExt.eglPresentationTimeANDROID(display,window,time)){eglTimestampRejected++;if(sampledFence!=0&&fenceLatchPolls==0)fenceTargetNs=-1;}
     long swapStart=System.nanoTime();presentationCallTiming.accept(swapStart-presentStart);drawTiming.accept(swapStart-drawStart+Math.max(0,preDrawNs));
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
-    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){long lead=ns-finished;submissionLeadCount++;submissionLeadTotal+=lead;submissionLeadMin=Math.min(submissionLeadMin,lead);if(lead<20_000_000L)submissionLeadUnder20++;lateTiming.accept(Math.max(0,-lead));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();pollFence(true);
+    long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){long lead=ns-finished;if(steady){steadyGraphSubmits++;steadyLeadTotal+=lead;}submissionLeadCount++;submissionLeadTotal+=lead;submissionLeadMin=Math.min(submissionLeadMin,lead);if(lead<20_000_000L)submissionLeadUnder20++;lateTiming.accept(Math.max(0,-lead));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();pollFence(true);
    }
    preparedDrawNs=-1;latched=false;pending.set(false);
    if(ended)notifyEnded();
@@ -318,7 +332,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  @Override public void flush(){
   if(released||failed)return;
   generation++;
-  try{sync(()->{discardFence();preparedDrawNs=-1;latched=false;pending.set(false);ended=false;lastPts=C.TIME_UNSET;});}catch(Exception e){error(e);}
+  try{sync(()->{discardFence();preparedDrawNs=-1;firstLatchedNs=-1;latched=false;pending.set(false);ended=false;lastPts=C.TIME_UNSET;});}catch(Exception e){error(e);}
  }
  @Override public void signalEndOfInput(int i){post(()->{ended=true;if(!pending.get())notifyEnded();});}
  @Override public void release(){

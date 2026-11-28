@@ -406,18 +406,19 @@ public class MainActivity extends Activity {
  String directPlaybackSummary(PlaybackProbe q,Format f,float rate,float hz){
   if(q==null||!q.directGraph)return "";
   String[] lines=q.directGraphics.split("\\n");
-  String fence="GPU fence: collecting",lead="Lead: collecting",pre="Pre-draw: collecting";
+  String fence="GPU fence: collecting",lead="Lead: collecting",pre="Pre-draw: collecting",steady="Steady drops: collecting",flush="Early flush: collecting";
   for(String line:lines){
    if(line.startsWith("GPU fence vs requested target:"))fence=line.replace("GPU fence vs requested target:","Fence:").replace("uncertain","uncert.").replace("no target","no tgt");
    else if(line.startsWith("Submission lead (target minus swap end):"))lead=line.replace("Submission lead (target minus swap end):","Lead:").replace("EGL timestamp rejects","EGL rejects");
    else if(line.startsWith("Pre-draw used:"))pre=line;
+   else if(line.startsWith("Steady graph drops:"))steady=line.replace("Steady graph drops:","Steady drops:");
+   else if(line.startsWith("Early GPU flush:"))flush=line.replace("Early GPU flush:","Flush:");
   }
   return "SDR performance • "+BuildConfig.VERSION_NAME+"\n"
    +String.format(Locale.US,"%s | %.2f fps / %.2f Hz\n",f==null?"Unknown size":f.width+"x"+f.height,rate,hz)
    +"Surface: "+q.graphSubmitted.label()+" | drops "+q.graphOutputDrops+"/"+droppedVideoFrames+"\n"
    +"Steady gaps: "+q.submittedIntervals.steadyGaps+"/"+q.submittedIntervals.steadyCount+" | late >20ms "+q.directLate.steadyOver20ms+"/"+q.directLate.steadyCount+"\n"
-   +fence+"\n"+lead+"\n"+pre+"\n"
-   +"Draw: "+q.directDraw.label()+"\n"
+   +fence+"\n"+lead+"\n"+steady+"\n"+flush+"\n"
    +"Panel timing unverified • Details below\n\n";
  }
  String currentPlaybackDiagnostics(){
