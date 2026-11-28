@@ -33,9 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Experimental surface-only, single-input graph. No intermediate RGBA frame or second draw.
  * ExoPlayer retains codec, audio clock, demuxing and frame release scheduling.
- * A decoder frame remains latched until its draw/drop command. Once draw is issued,
- * permit one next decoder frame to queue while EGL swaps. The same GL handler
- * serializes updateTexImage after swap and preserves texture ownership.
+ * A decoder frame remains latched until the corresponding release/drop command arrives.
  */
 final class DirectSdrVideoGraph implements VideoGraph {
  private static final float[] QUAD={-1,-1,0,1, 1,-1,0,1, -1,1,0,1, 1,1,0,1};
@@ -156,7 +154,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   post(()->{
    if(token!=generation)return;
    if(!latched){throw new IllegalStateException("No latched decoder frame");}
-   if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();latched=false;pending.set(false);}
+   if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();}
    else if(window!=null&&output!=null){
     long drawStart=System.nanoTime();focusWindow();
     boolean hdr=transfer==C.COLOR_TRANSFER_ST2084||transfer==C.COLOR_TRANSFER_HLG;
@@ -200,14 +198,11 @@ final class DirectSdrVideoGraph implements VideoGraph {
     long time=ns>=0?ns:ns==VideoFrameProcessor.RENDER_OUTPUT_FRAME_WITH_PRESENTATION_TIME?pts*1000:System.nanoTime();
     EGLExt.eglPresentationTimeANDROID(display,window,time);
     long swapStart=System.nanoTime();drawTiming.accept(swapStart-drawStart);
-    // Allow exactly one next codec output to queue during the potentially blocking swap.
-    // Its callback cannot latch a new texture until this GL handler returns.
-    latched=false;pending.set(false);
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
     long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0)lateTiming.accept(Math.max(0,finished-ns));submitCounter.run();
-   }else{latched=false;pending.set(false);}
-   // Never clear pending here: it may already belong to the next frame.
-   if(ended&&!pending.get())notifyEnded();
+   }
+   latched=false;pending.set(false);
+   if(ended)notifyEnded();
   });
  }
  private void notifyEnded(){long timestamp=lastPts;int token=generation;callback.execute(()->{if(!released&&token==generation)listener.onEnded(timestamp);});}
