@@ -335,7 +335,7 @@ public class MainActivity extends Activity {
  String sdrStatus(Format f){
   PlaybackProbe probe=playbackProbe;
 
-  if(activeSdrPath==0&&probe!=null)return "ExoPlayer BT.709 SDR requested; 150 ms scheduling (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
+  if(activeSdrPath==0&&probe!=null)return "ExoPlayer BT.709 SDR requested; packed texture test (panel unverified)\nDecoder output before GPU: "+transferName(probe.decodedTransfer);
   if(probe!=null&&probe.outputKnown)return "Decoder output "+transferName(probe.outputTransfer)+" (native surface)";
   if(f!=null&&f.colorInfo!=null&&f.colorInfo.colorTransfer==C.COLOR_TRANSFER_SDR&&!isHdr(f))return "SDR source; output unverified";
 
@@ -1021,7 +1021,12 @@ public class MainActivity extends Activity {
      .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(selector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50).setEarlySchedulingThresholdUs(150_000);
     out.add(new androidx.media3.exoplayer.video.MediaCodecVideoRenderer(b){
      @Override protected androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper createPlaybackVideoGraphWrapper(Context context,androidx.media3.exoplayer.video.VideoFrameReleaseControl control){
-      androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper graph=new androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper.Builder(context,control).setEnablePlaylistMode(true).setClock(getClock()).experimentalSetLateThresholdToDropInputUs(40_000).build();
+      androidx.media3.effect.DefaultVideoFrameProcessor.Factory processor=new androidx.media3.effect.DefaultVideoFrameProcessor.Factory.Builder()
+       .setSdrWorkingColorSpace(androidx.media3.effect.DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_ORIGINAL)
+       .setGlObjectsProvider(new SdrPackedGlProvider()).build();
+      androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper graph=new androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper.Builder(context,control)
+       .setVideoGraphFactory(new androidx.media3.effect.SingleInputVideoGraph.Factory(processor))
+       .setEnablePlaylistMode(true).setClock(getClock()).experimentalSetLateThresholdToDropInputUs(40_000).build();
       graph.setRequestOpenGlToneMapping(true);return graph;
      }
      @Override protected void onOutputFormatChanged(Format format,android.media.MediaFormat media){
