@@ -1,0 +1,228 @@
+name: Sky Shark Android Studio local build kit
+on:
+  push:
+    branches: ['tools/android-studio-kit-5.0.71']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: shark-sky-local-kit-5071
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          cache-read-only: false
+      - name: Test automatic refresh-rate policy
+        run: |
+          mkdir -p "$RUNNER_TEMP/refresh-tests"
+          javac -d "$RUNNER_TEMP/refresh-tests" app/src/main/java/com/example/xtreamtv/RefreshMatch.java ci/RefreshMatchTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests" com.example.xtreamtv.RefreshMatchTest
+          javac -d "$RUNNER_TEMP/refresh-tests" app/src/main/java/com/example/xtreamtv/RegionalGuideNames.java ci/RegionalGuideNamesTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests" com.example.xtreamtv.RegionalGuideNamesTest
+          javac -d "$RUNNER_TEMP/refresh-tests" app/src/main/java/com/example/xtreamtv/PlaybackHealth.java ci/PlaybackHealthTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests" com.example.xtreamtv.PlaybackHealthTest
+          javac -d "$RUNNER_TEMP/refresh-tests" app/src/main/java/com/example/xtreamtv/SdrCadence.java ci/SdrCadenceTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests" com.example.xtreamtv.SdrCadenceTest
+      - name: SDK
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f -print -quit)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" 'platforms;android-37.0' 'build-tools;36.0.0'
+      - name: Verify selected design artwork
+        run: |
+          python3 - <<'PY'
+          import struct, hashlib
+          p='app/src/main/res/drawable-nodpi/premium_mockup3.png'
+          b=open(p,'rb').read()
+          assert b[:8]==b'\x89PNG\r\n\x1a\n'
+          assert struct.unpack('>II',b[16:24])==(1400,1000)
+          assert hashlib.sha1(('blob '+str(len(b))+'\0').encode()+b).hexdigest()=='87bbc44733b971a95a8937faee04f2b55876ff43'
+          print('PASS: exact approved artwork')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore exact pinned FFmpeg outputs
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/libs/media3-ffmpeg-1.12.0-rc01.aar
+            app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt
+            app/src/main/assets/licenses/Media3-Apache-2.0.txt
+            app/src/main/assets/licenses/FFmpeg-NOTICE.txt
+            ffmpeg-source.tar.gz
+            ffmpeg-cache.sha256
+          key: ffmpeg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/build_ffmpeg_beta.sh') }}
+      - name: Build matching Media3 RC FFmpeg audio extension on cache miss
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          bash ci/build_ffmpeg_beta.sh
+          sha256sum app/libs/media3-ffmpeg-1.12.0-rc01.aar app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt app/src/main/assets/licenses/Media3-Apache-2.0.txt app/src/main/assets/licenses/FFmpeg-NOTICE.txt ffmpeg-source.tar.gz > ffmpeg-cache.sha256
+      - name: Verify FFmpeg integrity and all native ABIs
+        run: |
+          set -euo pipefail
+          sha256sum -c ffmpeg-cache.sha256
+          tar -tzf ffmpeg-source.tar.gz > /dev/null
+          aar=app/libs/media3-ffmpeg-1.12.0-rc01.aar
+          unzip -tq "$aar"
+          tmp=$(mktemp -d)
+          unzip -q "$aar" -d "$tmp"
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            test -s "$tmp/jni/$abi/libffmpegJNI.so"
+          done
+          for abi in arm64-v8a x86_64; do
+            align=$(readelf -lW "$tmp/jni/$abi/libffmpegJNI.so" | awk '$1=="LOAD"{print $NF}')
+            test -n "$align"
+            if grep -qv '^0x4000$' <<<"$align"; then exit 1; fi
+          done
+          rm -rf "$tmp"
+      - name: Save verified FFmpeg outputs
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/libs/media3-ffmpeg-1.12.0-rc01.aar
+            app/src/main/assets/licenses/FFmpeg-LGPL-2.1.txt
+            app/src/main/assets/licenses/Media3-Apache-2.0.txt
+            app/src/main/assets/licenses/FFmpeg-NOTICE.txt
+            ffmpeg-source.tar.gz
+            ffmpeg-cache.sha256
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+      - name: Retrieve verified open-source UHD artwork
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=45769076206
+          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json headSha,headBranch | jq -e '.headSha=="d79b2bc6497e5d380f718826e1977f36fb2bc91c" and .headBranch=="artwork/realesrgan-4k"'
+          timeout 95m gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30
+          gh run view "$run" --repo "$GITHUB_REPOSITORY" --json conclusion | jq -e '.conclusion=="success"'
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name Sky-Shark-AI-enhanced-4K --dir enhanced-artwork
+          test -s enhanced-artwork/verification.json
+          test -s enhanced-artwork/comparison.png
+      - name: Restore exact enhanced player artwork
+        id: artwork-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/res/drawable-nodpi/design4_player_header.png
+            app/src/main/res/drawable-nodpi/design4_player_dock.png
+            app/src/main/res/drawable-nodpi/design4_player_key.png
+            app/src/main/res/drawable-nodpi/design4_player_options.png
+            design4-artwork-verification.json
+            player-skin-qhd.png
+            player-skin-uhd.png
+          key: design4-qhd-ai-x2-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/prepare_design4_player.py') }}
+      - name: Enhance exact approved player artwork using official Real-ESRGAN on cache miss
+        if: steps.artwork-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/player-art-ai"
+          source "$RUNNER_TEMP/player-art-ai/bin/activate"
+          python -m pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'numpy==1.26.4' 'opencv-python==4.10.0.84' 'Pillow==10.4.0' 'basicsr==1.4.2' 'realesrgan==0.3.0' 'CairoSVG==2.7.1'
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec=importlib.util.find_spec("basicsr")
+          f=Path(spec.origin).parent/"data"/"degradations.py"
+          text=f.read_text()
+          old="from torchvision.transforms.functional_tensor import rgb_to_grayscale"
+          assert old in text
+          f.write_text(text.replace(old,"from torchvision.transforms.functional import rgb_to_grayscale"))
+          PY
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/RealESRGAN_x2plus.pth" https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth
+          python -u ci/prepare_design4_player.py "$RUNNER_TEMP/RealESRGAN_x2plus.pth"
+      - name: Verify cached or newly generated player artwork
+        run: |
+          python - <<'PY'
+          import hashlib, json, struct
+          from pathlib import Path
+          report=json.loads(Path("design4-artwork-verification.json").read_text())
+          expected={"design4_player_header":(3708,213),"design4_player_dock":(3708,252),"design4_player_key":(495,188),"design4_player_options":(3108,123)}
+          assert set(report)==set(expected)
+          for name,size in expected.items():
+              b=(Path("app/src/main/res/drawable-nodpi")/(name+".png")).read_bytes()
+              assert b[:8]==b'\x89PNG\r\n\x1a\n'
+              assert struct.unpack('>II',b[16:24])==size
+              assert tuple(report[name]["size"])==size
+              assert report[name]["source_canvas"]==[2560,1440]
+              assert report[name]["model"]=="RealESRGAN_x2plus"
+              assert report[name]["ai_output_size"]==[2*v for v in report[name]["source_size"]]
+              assert hashlib.sha256(b).hexdigest()==report[name]["sha256"]
+              assert 0<=report[name]["mean_delta"]<=12
+          for filename,size in [("player-skin-qhd.png",(2560,1440)),("player-skin-uhd.png",(3840,2160))]:
+              b=Path(filename).read_bytes()
+              assert b[:8]==b'\x89PNG\r\n\x1a\n' and struct.unpack(">II",b[16:24])==size
+          print("PASS: QHD source and UHD AI player artwork outputs, checksums and dimensions")
+          PY
+      - name: Save verified enhanced player artwork
+        if: steps.artwork-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/res/drawable-nodpi/design4_player_header.png
+            app/src/main/res/drawable-nodpi/design4_player_dock.png
+            app/src/main/res/drawable-nodpi/design4_player_key.png
+            app/src/main/res/drawable-nodpi/design4_player_options.png
+            design4-artwork-verification.json
+            player-skin-qhd.png
+            player-skin-uhd.png
+          key: ${{ steps.artwork-cache.outputs.cache-primary-key }}
+      - name: Generate and verify transparent PNG symbols
+        run: |
+          python -m pip install Pillow==11.3.0 fonttools==4.59.2
+          python ci/prepare_sky_font.py
+          python ci/extract_premium_art.py
+          python ci/prepare_holding_art34.py --enhanced-dir enhanced-artwork
+          python ci/prepare_player_art.py
+          echo '8b93640d45757966232af87dafbbc0d4dcfe11e9a05bd9f3143a7c609b6e50ba  app/src/main/res/drawable-nodpi/four_sharks_atlas.png' | sha256sum -c -
+          python -c "from PIL import Image; im=Image.open('app/src/main/res/drawable-nodpi/four_sharks_atlas.png'); assert im.mode=='RGBA' and im.size==(1672,941) and im.getchannel('A').getextrema()==(0,255)"
+      - name: Prune build-only resources from APK
+        run: python ci/prune_build_only_art.py
+      - name: Generate pinned Gradle wrapper and verify local debug build
+        run: |
+          set -euo pipefail
+          gradle --no-daemon wrapper --gradle-version 9.3.1
+          ./gradlew --no-daemon :app:assembleDebug
+          test -s app/libs/media3-ffmpeg-1.12.0-rc01.aar
+          test -s app/build/outputs/apk/debug/app-debug.apk
+      - name: Prepare portable Android Studio project
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/studio-kit"
+          cp -a app gradle gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties tmdb.properties "$RUNNER_TEMP/studio-kit/"
+          rm -rf "$RUNNER_TEMP/studio-kit/app/build" "$RUNNER_TEMP/studio-kit/app/.gradle"
+          cp ffmpeg-cache.sha256 "$RUNNER_TEMP/studio-kit/FFMPEG-CHECKSUMS.txt"
+          cat > "$RUNNER_TEMP/studio-kit/README-LOCAL.txt" <<'EOF'
+          Sky Shark 5.0.71 portable Android Studio source project
+          Open this folder in Android Studio. Use JDK 17 or compatible configured Gradle JDK.
+          Install Android SDK platform android-37.0 if prompted. The Gradle wrapper pins 9.3.1.
+          Run gradlew.bat :app:assembleDebug on Windows, or use Build APK(s).
+          Custom Media3 FFmpeg AAR and approved generated artwork are already included.
+          Debug APK is NOT signed with the production key. It cannot update a release-signed installation.
+          Use GitHub for production signing and complete release verification.
+          No production signing credentials are included.
+          EOF
+          test -s "$RUNNER_TEMP/studio-kit/app/libs/media3-ffmpeg-1.12.0-rc01.aar"
+          test -s "$RUNNER_TEMP/studio-kit/gradle/wrapper/gradle-wrapper.jar"
+      - name: Upload complete local build project
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sky-Shark-5.0.71-Android-Studio-ready
+          path: ${{ runner.temp }}/studio-kit/
+          if-no-files-found: error
+          compression-level: 1
