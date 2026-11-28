@@ -183,7 +183,7 @@ public class MainActivity extends Activity {
  String server="",user="",pass="",page="Home",cat="",seriesId="",liveExt="ts";
  int screenToken,loadToken,epgToken,catPos,itemPos;
  int returnAnchor=-1,returnOffset,returnCategory=-1,returnCategoryOffset;String returnCatalogue="";
- boolean full;
+ volatile boolean full;
  Item selected;
  List<Item> cats=new ArrayList<>(),items=new ArrayList<>();
  long download=-1;
@@ -657,14 +657,15 @@ public class MainActivity extends Activity {
   clearSurfaceHint();matchProbe=null;requestedFps=requestedHz=-1;refreshRequestedAt=-1;refreshRequest="Not requested";
   if(restore&&matchedWindow){matchedWindow=false;applyDisplayMode();}
  }
+ boolean refreshInCurrentView(){return full||(page.equals("Live TV")&&activeSdrPath==0);}
  void scheduleRefreshMatch(ExoPlayer p,FrameRateSample sample,int attempts){
-  if(!full||stopped||!autoRefresh()||sample==null||playbackProbe==null)return;
+  if(!refreshInCurrentView()||stopped||!autoRefresh()||sample==null||playbackProbe==null)return;
   final PlaybackProbe probe=playbackProbe;
   if(matchProbe==probe&&requestedFps>0)return;
   if(matchTask!=null)ui.removeCallbacks(matchTask);
   refreshRequest="Collecting stream FPS";
   matchTask=()->{matchTask=null;
-   if(player!=p||playbackProbe!=probe||stopped||!full||!autoRefresh()||p.getPlayerError()!=null)return;
+   if(player!=p||playbackProbe!=probe||stopped||!refreshInCurrentView()||!autoRefresh()||p.getPlayerError()!=null)return;
    if(startupFirstMs<0||p.getPlaybackState()!=Player.STATE_READY){if(attempts<8)scheduleRefreshMatch(p,sample,attempts+1);else refreshRequest="Waiting for decoded video";return;}
    Format f=p.getVideoFormat();float declared=f==null?-1:f.frameRate,estimated=sample.estimate();if(!RefreshMatch.valid(declared))declared=probe.sourceFps;
    
@@ -711,7 +712,7 @@ public class MainActivity extends Activity {
   TreeSet<Float> rates=new TreeSet<>();for(android.view.Display.Mode m:d.getSupportedModes())if(m.getPhysicalWidth()==current.getPhysicalWidth()&&m.getPhysicalHeight()==current.getPhysicalHeight())rates.add(m.getRefreshRate());
   StringBuilder list=new StringBuilder();for(float r:rates){if(list.length()>0)list.append(", ");list.append(String.format(Locale.US,"%.2f",r));}
   boolean movie=movieDisplayPolicy();int movieMode=movie?chooseDisplayMode(current,d.getSupportedModes(),DISPLAY_60):0;
-  String request=movie?(movieMode!=0?"Movies / Series: 60 Hz preference":"Movies / Series: 60 Hz unavailable; system fallback"):defaultLiveEngine()?"Stock engine":prefs.getInt("display_mode",0)!=0?"Manual display mode":!autoRefresh()?"Off":!full?"Preview (automatic switch deferred)":refreshRequest;
+  String request=movie?(movieMode!=0?"Movies / Series: 60 Hz preference":"Movies / Series: 60 Hz unavailable; system fallback"):defaultLiveEngine()?"Stock engine":prefs.getInt("display_mode",0)!=0?"Manual display mode":!autoRefresh()?"Off":!refreshInCurrentView()?"Preview (automatic switch deferred)":refreshRequest;
   String outcome=RefreshMatch.exact(hz,fps)?"Exact integer multiple":RefreshMatch.compatible(hz,fps)?"Nominal integer multiple":requestedFps>0&&refreshRequestedAt>=0&&SystemClock.elapsedRealtime()-refreshRequestedAt<5000?"Request pending; Android has not matched":requestedFps>0?"Not confirmed by Android":"Not matched";
   if(movie)outcome=movieMode==0?"60 Hz unavailable; system controlled":current.getModeId()==movieMode?"Movie display preference active":"60 Hz preference requested; Android decides";
   return "\nAuto FPS: "+request+"\nRequested refresh: "+(movie?(movieMode!=0?"60 Hz (same resolution)":"None"):requestedHz>0?String.format(Locale.US,"%.2f Hz",requestedHz):requestedFps>0?String.format(Locale.US,"%.2f fps content hint",requestedFps):"None")+"\nRequest result: "+outcome+"\nSupported modes (same resolution): "+(list.length()==0?"Not reported":list+" Hz");
@@ -1091,10 +1092,8 @@ public class MainActivity extends Activity {
   final boolean stock=defaultLiveEngine();
   applyDisplayMode();
   startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
-  // Force SDR preview outputs SDR; use an in-window texture to avoid the separate small video layer compositor path.
-  // Fullscreen and native HDR remain on the existing SurfaceView.
-  final boolean texturePreview=!fullscreen&&!stock&&sdrPath==0&&page.equals("Live TV");
-  PlayerView v=texturePreview?(PlayerView)getLayoutInflater().inflate(R.layout.shark_sdr_player,host,false):new PlayerView(this);
+  // Keep one SurfaceView for preview and fullscreen, avoiding TextureView composition and decoder restart.
+  PlayerView v=new PlayerView(this);
   v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   if(!fullscreen&&page.equals("Live TV")&&host==preview&&findViewById(android.R.id.content) instanceof FrameLayout){
    FrameLayout root=(FrameLayout)findViewById(android.R.id.content);
@@ -1109,8 +1108,8 @@ public class MainActivity extends Activity {
   final boolean fast=!stock&&page.equals("Live TV");
   final PlaybackProbe probe=new PlaybackProbe(started,fast,fast?(sdrPath==0?Math.max(1000,liveStartupBufferMs()):liveStartupBufferMs()):-1);probe.sourceItem=sourceItem;probe.alternate=!sourceItem.id.equals(i.id);probe.sampleMemory(SystemClock.elapsedRealtime());playbackProbe=probe;
   final boolean gpu=sdrPath==0&&!stock;
-  // Restore the pre-5.1.2 draw-on-release sequence for Live TV preview only.
-  final boolean previewDrawOnRelease=gpu&&!fullscreen&&page.equals("Live TV");
+  // Preserve draw-on-release in preview and enable pre-draw only when the same session is fullscreen.
+  final boolean liveGraph=page.equals("Live TV");
   DefaultRenderersFactory factory=new DefaultRenderersFactory(this){
    @Override protected void buildVideoRenderers(Context context,int extensionRendererMode,MediaCodecSelector selector,boolean fallback,Handler handler,androidx.media3.exoplayer.video.VideoRendererEventListener listener,long joining,ArrayList<androidx.media3.exoplayer.Renderer> out){
     if(!gpu){super.buildVideoRenderers(context,extensionRendererMode,selector,fallback,handler,listener,joining,out);return;}
@@ -1136,7 +1135,7 @@ public class MainActivity extends Activity {
          };
          if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
           probe.directGraph=true;
-          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name,()->requestNextDirectFrame(),probe.directDrawCall::record,probe.directPresentCall::record,info->probe.directGraphics=info,!previewDrawOnRelease);
+          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name,()->requestNextDirectFrame(),probe.directDrawCall::record,probe.directPresentCall::record,info->probe.directGraphics=info,()->!liveGraph||full);
          }
          return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
           @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}
@@ -1261,7 +1260,7 @@ public class MainActivity extends Activity {
    @Override public void onPlayWhenReadyChanged(boolean ready,int reason){if(!ready){probe.closeStall();probe.health.reset();}}
    @Override public void onRenderedFirstFrame(){
     if(player!=p||playbackProbe!=probe||recovering)return;
-    firstFrame=true;if(firstRenderedAt<0)firstRenderedAt=SystemClock.elapsedRealtime();if(startupFirstMs<0){startupFirstMs=SystemClock.elapsedRealtime()-startupBeginMs;android.util.Log.i("SharkPlayback","startup profile="+(fast?"fast-live":"stock-buffer")+" firstFrameMs="+startupFirstMs+" firstByteMs="+probe.firstByte.get()+" decoderMs="+startupDecoderMs+" startupBufferMs="+probe.startupBufferMs);if(!stock&&full&&autoRefresh())scheduleRefreshMatch(p,sample,0);}ui.removeCallbacks(watch);
+    firstFrame=true;if(firstRenderedAt<0)firstRenderedAt=SystemClock.elapsedRealtime();if(startupFirstMs<0){startupFirstMs=SystemClock.elapsedRealtime()-startupBeginMs;android.util.Log.i("SharkPlayback","startup profile="+(fast?"fast-live":"stock-buffer")+" firstFrameMs="+startupFirstMs+" firstByteMs="+probe.firstByte.get()+" decoderMs="+startupDecoderMs+" startupBufferMs="+probe.startupBufferMs);if(!stock&&refreshInCurrentView()&&autoRefresh())scheduleRefreshMatch(p,sample,0);}ui.removeCallbacks(watch);
     if(!stock&&vod&&attempt==1)rememberDecoder(i);
     Format f=p.getVideoFormat();
     playbackDiagnostics=(activeDecoder.isEmpty()?"Decoder unavailable":activeDecoder)+(f==null?"":" · "+f.width+"×"+f.height+(f.bitrate>0?" · "+String.format(Locale.US,"%.1f Mb/s",f.bitrate/1000000.0):""))
@@ -1488,8 +1487,8 @@ public class MainActivity extends Activity {
  }
  void playFull(Item i){
   if(!full&&(page.equals("Movies")||page.equals("Series")))rememberCataloguePosition();
-  // Force SDR uses a fresh full-screen EGL surface instead of resizing the preview surface.
-  if(page.equals("Live TV")&&!"SDR Full".equals(rangeFor(true))&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
+  // Reuse the same live player for both native and forced SDR when the selected channel is unchanged.
+  if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
   // Capture only a declared rate from the identical feed. Never guess from a different channel or alternative SDR feed.
   float previewFps=-1;
   if(!full&&autoRefresh()&&player!=null&&playbackProbe!=null&&playbackProbe.sourceItem!=null&&i.id.equals(activeStreamId)&&i.id.equals(playbackProbe.sourceItem.id)){
@@ -1533,7 +1532,8 @@ public class MainActivity extends Activity {
  }
  boolean exitLiveFullscreen(){
   if(liveSurfaceHost==null||player==null||video==null||preview==null)return false;
-  clearRefreshMatch(true);removeRangeButton();video.hideController();video.setUseController(false);video.setFocusable(false);
+  // Keep the matched mode across SDR preview/fullscreen transitions to avoid a display reset.
+  if(activeSdrPath!=0||!autoRefresh())clearRefreshMatch(true);removeRangeButton();video.hideController();video.setUseController(false);video.setFocusable(false);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
   player.setVolume(0f);full=false;if(regionalGuide!=null)regionalGuide.setBusy(stopped);if(playbackProbe!=null)playbackProbe.health.reset();status=liveReturnStatus;liveReturnStatus=null;
   positionLiveSurface();if(highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(selected!=null&&epg!=null)loadEpg(selected);
@@ -1542,7 +1542,7 @@ public class MainActivity extends Activity {
   android.util.Log.i("SharkPlayback","Live preview: same player and surface resized");return true;
  }
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;Item resumePreview=page.equals("Live TV")?playbackItem:null;release();browser(true);if(resumePreview!=null&&preview!=null){selected=resumePreview;attach(preview,resumePreview,false);loadEpg(resumePreview);}return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
- @Override protected void onStart(){super.onStart();stopped=false;if(regionalGuide!=null)regionalGuide.setBusy(full);if(resumeExo!=null&&resumeExo==player){resumeExo=null;applyDisplayMode();player.play();if(autoRefresh()&&full)scheduleRefreshMatch(player,frameRateSample,0);}if(liveHealthWatch!=null){if(playbackProbe!=null)playbackProbe.health.reset();stopLiveHealth();ui.postDelayed(liveHealthWatch,2000);}ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
+ @Override protected void onStart(){super.onStart();stopped=false;if(regionalGuide!=null)regionalGuide.setBusy(full);if(resumeExo!=null&&resumeExo==player){resumeExo=null;applyDisplayMode();player.play();if(autoRefresh()&&refreshInCurrentView())scheduleRefreshMatch(player,frameRateSample,0);}if(liveHealthWatch!=null){if(playbackProbe!=null)playbackProbe.health.reset();stopLiveHealth();ui.postDelayed(liveHealthWatch,2000);}ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}
  @Override protected void onStop(){if(pendingGuideFocus!=null)ui.removeCallbacks(pendingGuideFocus);pendingGuideFocus=null;ui.removeCallbacks(tickRows);ui.removeCallbacks(refreshEpg);stopped=true;if(regionalGuide!=null)regionalGuide.setBusy(true);resumeExo=player!=null&&player.getPlayWhenReady()&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_ENDED?player:null;stopLiveHealth();if(playbackProbe!=null)playbackProbe.health.reset();cancelDecoderTasks();clearRefreshMatch(true);if(premiumPlayer!=null)premiumPlayer.hide();super.onStop();if(player!=null)player.pause();if(nativeVideo!=null){nativeVideo.pause();if(premiumPlayer!=null)premiumPlayer.nativeEnded();}}
  @Override protected void onDestroy(){if(regionalGuide!=null)regionalGuide.close();screenToken++;loadToken++;epgToken++;guideRequest++;if(guideDialog!=null&&guideDialog.isShowing())guideDialog.dismiss();release();detachCatalogueViews();if(catalogueJob!=null)catalogueJob.cancel(true);if(previewGuideJob!=null)previewGuideJob.cancel(true);if(fullGuideJob!=null)fullGuideJob.cancel(true);io.shutdownNow();epgIo.shutdownNow();rowGuideIo.shutdownNow();updateIo.shutdownNow();posterIo.shutdownNow();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();clearCatalogue();PremiumMockupHome.trimArtwork();ui.removeCallbacksAndMessages(null);super.onDestroy();}
  final ExecutorService updateIo=Executors.newSingleThreadExecutor();
