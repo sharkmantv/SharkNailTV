@@ -94,22 +94,29 @@ public class MainActivity extends Activity {
  }
  static final class StageTiming {
   volatile long count,totalNs,maxNs,over20ms;
-  void record(long ns){totalNs+=ns;maxNs=Math.max(maxNs,ns);if(ns>20_000_000L)over20ms++;count++;}
+  private long firstSampleNs=Long.MIN_VALUE;
+  volatile long steadyCount,steadyTotalNs,steadyMaxNs,steadyOver20ms;
+  void record(long ns){long now=System.nanoTime();if(firstSampleNs==Long.MIN_VALUE)firstSampleNs=now;totalNs+=ns;maxNs=Math.max(maxNs,ns);if(ns>20_000_000L)over20ms++;count++;if(now-firstSampleNs>=5_000_000_000L){steadyTotalNs+=ns;steadyMaxNs=Math.max(steadyMaxNs,ns);if(ns>20_000_000L)steadyOver20ms++;steadyCount++;}}
+  String steadyLabel(){long n=steadyCount;return n==0?"collecting":String.format(Locale.US,"%.2f ms avg / %.2f max; >20 ms %d/%d",steadyTotalNs/1e6/n,steadyMaxNs/1e6,steadyOver20ms,n);}
   String label(){long n=count;return n==0?"collecting":String.format(Locale.US,"%.2f ms avg / %.2f max",totalNs/1e6/n,maxNs/1e6);}
  }
  // Single-writer counters; no frame-sized storage, allocations or locks in the hot path.
  static final class IntervalProbe {
-  private long previous=Long.MIN_VALUE;
-  volatile long count,gaps,nonIncreasing,maxUs,totalUs;
+  private long previous=Long.MIN_VALUE,firstObservedNs=Long.MIN_VALUE;
+  private boolean steadyPrevious;
+  volatile long count,gaps,nonIncreasing,maxUs,totalUs,steadyCount,steadyGaps,steadyMaxUs;
   void record(long stampUs,long expectedUs){
+   long now=System.nanoTime();if(firstObservedNs==Long.MIN_VALUE)firstObservedNs=now;
+   boolean steady=now-firstObservedNs>=5_000_000_000L;
    if(previous!=Long.MIN_VALUE){
     long delta=stampUs-previous;
     if(delta<=0)nonIncreasing++;
-    else{count++;totalUs+=delta;maxUs=Math.max(maxUs,delta);if(expectedUs>0&&delta>expectedUs*3/2)gaps++;}
+    else{boolean gap=expectedUs>0&&delta>expectedUs*3/2;count++;totalUs+=delta;maxUs=Math.max(maxUs,delta);if(gap)gaps++;if(steady&&steadyPrevious){steadyCount++;steadyMaxUs=Math.max(steadyMaxUs,delta);if(gap)steadyGaps++;}}
    }
-   previous=stampUs;
+   previous=stampUs;steadyPrevious=steady;
   }
   String label(){long n=count;return n==0?"collecting":String.format(Locale.US,"%.2f ms avg / %.2f max; gaps %d/%d; non-increasing %d",totalUs/1000.0/n,maxUs/1000.0,gaps,n,nonIncreasing);}
+  String steadyLabel(){long n=steadyCount;return n==0?"collecting":String.format(Locale.US,"gaps %d/%d; max %.2f ms",steadyGaps,n,steadyMaxUs/1000.0);}
  }
  static final class PlaybackProbe implements TransferListener {
   final StageTiming directLatch=new StageTiming(),directDraw=new StageTiming(),directSwap=new StageTiming(),directLate=new StageTiming(),directQueue=new StageTiming();
@@ -410,7 +417,7 @@ public class MainActivity extends Activity {
   return playbackDiagnostics+"\nActive video decoder: "+(activeDecoder.isEmpty()?"Not initialized":activeDecoder)+" · "+activeDecoderKind+(activeSdrPath==0?" (hardware-only policy)":"")+"\nPicture request: "+rangeLabel()+"\n"+sdrStatus(f)+(playbackProbe!=null&&playbackProbe.headroomRequested?"\nSDR headroom requested; panel unverified":"")+"\nAndroid API: "+Build.VERSION.SDK_INT+"\n\nEngine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom ExoPlayer")+"\nStream FPS: "+fps+"\nDisplay: "+String.format(Locale.US,"%.2f Hz",hz)+"\nFrame matching: "+match+refreshDiagnostics(rate,hz)
    +(playbackProbe!=null&&playbackProbe.alternate?"\nSDR alternative feed: "+playbackProbe.sourceItem.name:"")
    +"\nVideo bitrate (declared): "+(bitrate>0?String.format(Locale.US,"%.2f Mb/s",bitrate/1000000.0):"Not reported")
-   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label()+"\nSDR shader: "+playbackProbe.directShader+"\nDecoded timestamp intervals: "+playbackProbe.decodedPts.label()+"\nRequested release intervals: "+playbackProbe.targetPts.label()+"\nSurface submission intervals (not panel): "+playbackProbe.submittedIntervals.label():""):"")
+   +(activeSdrPath==0&&playbackProbe!=null?"\nGPU input: "+playbackProbe.graphInput.label()+"\nGPU ready: "+playbackProbe.graphReady.label()+"\nSurface submissions: "+playbackProbe.graphSubmitted.label()+"\nGraph output drops: "+playbackProbe.graphOutputDrops+(playbackProbe.directGraph?"\nDecoder texture latch: "+playbackProbe.directLatch.label()+"\nDraw submission CPU time: "+playbackProbe.directDraw.label()+"\nEGL swap: "+playbackProbe.directSwap.label()+"\nSubmission past target (not panel): "+playbackProbe.directLate.label()+"\nSubmissions >20 ms late: "+playbackProbe.directLate.over20ms+"/"+playbackProbe.directLate.count+"\nGL thread queue delay: "+playbackProbe.directQueue.label()+"\nSDR shader: "+playbackProbe.directShader+"\nDecoded timestamp intervals: "+playbackProbe.decodedPts.label()+"\nRequested release intervals: "+playbackProbe.targetPts.label()+"\nSurface submission intervals (not panel): "+playbackProbe.submittedIntervals.label()+"\nAfter first 5 s — draw: "+playbackProbe.directDraw.steadyLabel()+"\nSteady lateness: "+playbackProbe.directLate.steadyLabel()+"\nSteady decoded intervals: "+playbackProbe.decodedPts.steadyLabel()+"\nSteady release intervals: "+playbackProbe.targetPts.steadyLabel()+"\nSteady submission intervals: "+playbackProbe.submittedIntervals.steadyLabel():""):"")
    +"\nDropped frames (reported): "+droppedVideoFrames+(activeSdrPath==0&&playbackProbe!=null?"\nGPU frame callbacks: "+playbackProbe.graphFrames+"; "+(playbackProbe.graphFrames>1&&playbackProbe.graphLastNs>playbackProbe.graphFirstNs?String.format(Locale.US,"%.2f callbacks/s",(playbackProbe.graphFrames-1)*1e9/(playbackProbe.graphLastNs-playbackProbe.graphFirstNs)):"collecting"):"")
    +"\nBuffered: "+String.format(Locale.US,"%.2f s",p.getTotalBufferedDuration()/1000.0)
    +"\nVideo codec: "+(f==null?"Unknown":String.valueOf(f.sampleMimeType))
@@ -1076,6 +1083,7 @@ public class MainActivity extends Activity {
     androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder b=new androidx.media3.exoplayer.video.MediaCodecVideoRenderer.Builder(context)
      .setCodecAdapterFactory(getCodecAdapterFactory()).setMediaCodecSelector(hardwareVideoSelector).setEnableDecoderFallback(fallback).setAllowedJoiningTimeMs(joining).setEventHandler(handler).setEventListener(listener).setMaxDroppedFramesToNotify(50).setEarlySchedulingThresholdUs(150_000);
     out.add(new androidx.media3.exoplayer.video.MediaCodecVideoRenderer(b){
+     private void requestNextDirectFrame(){androidx.media3.exoplayer.Renderer.WakeupListener wake=getWakeupListener();if(wake!=null)wake.onWakeup();}
      @Override protected androidx.media3.exoplayer.video.PlaybackVideoGraphWrapper createPlaybackVideoGraphWrapper(Context context,androidx.media3.exoplayer.video.VideoFrameReleaseControl control){
       androidx.media3.effect.DefaultVideoFrameProcessor.Factory processor=new androidx.media3.effect.DefaultVideoFrameProcessor.Factory.Builder()
        .setSdrWorkingColorSpace(androidx.media3.effect.DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_ORIGINAL)
@@ -1093,7 +1101,7 @@ public class MainActivity extends Activity {
          };
          if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
           probe.directGraph=true;
-          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name);
+          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name,()->requestNextDirectFrame());
          }
          return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
           @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}

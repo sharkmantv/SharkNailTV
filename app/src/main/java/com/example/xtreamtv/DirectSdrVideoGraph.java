@@ -41,7 +41,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private static final float[] FULL={1,1,1,0,-.1646f,1.8814f,1.4746f,-.5714f,0};
  private final Listener listener;
  private final Executor callback;
- private final Runnable inputCounter,submitCounter,dropCounter;
+ private final Runnable inputCounter,submitCounter,dropCounter,slotAvailable;
  private final java.util.function.LongConsumer latchTiming,drawTiming,swapTiming,lateTiming,queueTiming,targetTiming,submissionTiming;
  private final java.util.function.Consumer<String> shaderName;
  private final AtomicBoolean pending=new AtomicBoolean();
@@ -65,8 +65,8 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private volatile boolean ready,released,failed,zero,configured;
  private volatile int generation;
  private SurfaceInfo output;
- DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming,java.util.function.LongConsumer targetTiming,java.util.function.LongConsumer submissionTiming,java.util.function.Consumer<String> shaderName){
-  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;this.targetTiming=targetTiming;this.submissionTiming=submissionTiming;this.shaderName=shaderName;Matrix.setIdentityM(identity,0);
+ DirectSdrVideoGraph(Listener l,Executor cb,Runnable in,Runnable out,Runnable drop,java.util.function.LongConsumer latchTiming,java.util.function.LongConsumer drawTiming,java.util.function.LongConsumer swapTiming,java.util.function.LongConsumer lateTiming,java.util.function.LongConsumer queueTiming,java.util.function.LongConsumer targetTiming,java.util.function.LongConsumer submissionTiming,java.util.function.Consumer<String> shaderName,Runnable slotAvailable){
+  listener=l;callback=cb;inputCounter=in;submitCounter=out;dropCounter=drop;this.latchTiming=latchTiming;this.drawTiming=drawTiming;this.swapTiming=swapTiming;this.lateTiming=lateTiming;this.queueTiming=queueTiming;this.targetTiming=targetTiming;this.submissionTiming=submissionTiming;this.shaderName=shaderName;this.slotAvailable=slotAvailable;Matrix.setIdentityM(identity,0);
  }
  private interface Task{void run()throws Exception;}
  private void sync(Task task)throws Exception{
@@ -220,6 +220,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
    }
    latched=false;pending.set(false);
    if(ended)notifyEnded();
+   else callback.execute(()->{if(!released&&!failed&&token==generation)slotAvailable.run();});
   });
  }
  private void notifyEnded(){long timestamp=lastPts;int token=generation;callback.execute(()->{if(!released&&token==generation)listener.onEnded(timestamp);});}
