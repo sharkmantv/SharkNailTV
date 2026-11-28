@@ -35,7 +35,7 @@ jobs:
           from pathlib import Path
           base=os.environ['KIT_BASE']
           changed=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
-          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts' or p=='ci/SdrStreamMatchTest.java'
+          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts' or p=='ci/SdrStreamMatchTest.java' or p=='app/src/main/res/raw/fragment_shader_transformation_external_yuv_es3.glsl'
           assert all(map(allowed,changed)), 'Quick build only supports Java and version changes; use full workflow for other files: '+str([p for p in changed if not allowed(p)])
           gradle=Path('app/build.gradle.kts').read_text()
           old=subprocess.check_output(['git','show',base+':app/build.gradle.kts'],text=True)
@@ -65,6 +65,8 @@ jobs:
           rm -rf "$kit/app/src/main/java"
           cp -a app/src/main/java "$kit/app/src/main/java"
           cp app/build.gradle.kts "$kit/app/build.gradle.kts"
+          mkdir -p "$kit/app/src/main/res/raw"
+          cp app/src/main/res/raw/fragment_shader_transformation_external_yuv_es3.glsl "$kit/app/src/main/res/raw/fragment_shader_transformation_external_yuv_es3.glsl"
           rm -rf app
           cp -a "$kit/app" app
           rm -rf app/build app/.gradle
