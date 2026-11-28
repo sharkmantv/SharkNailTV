@@ -118,7 +118,19 @@ public class MainActivity extends Activity {
   String label(){long n=count;return n==0?"collecting":String.format(Locale.US,"%.2f ms avg / %.2f max; gaps %d/%d; non-increasing %d",totalUs/1000.0/n,maxUs/1000.0,gaps,n,nonIncreasing);}
   String steadyLabel(){long n=steadyCount;return n==0?"collecting":String.format(Locale.US,"gaps %d/%d; max %.2f ms",steadyGaps,n,steadyMaxUs/1000.0);}
  }
+ static final class ModeRenderStats {
+  final FrameCadence surface=new FrameCadence(); final StageTiming late=new StageTiming(),draw=new StageTiming(),swap=new StageTiming();
+  final IntervalProbe intervals=new IntervalProbe(); final AtomicLong graphDrops=new AtomicLong(),reportedDrops=new AtomicLong();
+ }
  static final class PlaybackProbe implements TransferListener {
+  volatile ModeRenderStats modeStats=new ModeRenderStats();
+  void resetModeStats(){modeStats=new ModeRenderStats();}
+  void submitted(){graphSubmitted.record();modeStats.surface.record();}
+  void graphDrop(){graphOutputDrops++;modeStats.graphDrops.incrementAndGet();}
+  void late(long ns){directLate.record(ns);modeStats.late.record(ns);}
+  void drawn(long ns){directDraw.record(ns);modeStats.draw.record(ns);}
+  void swapped(long ns){directSwap.record(ns);modeStats.swap.record(ns);}
+  void submissionInterval(long ns){long us=ns/1000;long expected=expectedFrameUs();submittedIntervals.record(us,expected);modeStats.intervals.record(us,expected);}
   final StageTiming directLatch=new StageTiming(),directDraw=new StageTiming(),directSwap=new StageTiming(),directLate=new StageTiming(),directQueue=new StageTiming(),directDrawCall=new StageTiming(),directPresentCall=new StageTiming();
   volatile String directGraphics="Not initialized";
   final FrameCadence graphInput=new FrameCadence(), graphReady=new FrameCadence(), graphSubmitted=new FrameCadence();
@@ -415,6 +427,7 @@ public class MainActivity extends Activity {
     +"Decoded gaps: "+q.decodedPts.steadyLabel()+"\n"
     +"Render requests are not measured surface swaps.\nPanel timing unverified • Details below\n\n";
   }
+  ModeRenderStats window=q.modeStats;
   String[] lines=q.directGraphics.split("\\n");
   String fence="GPU fence: collecting",lead="Lead: collecting",pre="Pre-draw: collecting";
   for(String line:lines){
@@ -424,10 +437,10 @@ public class MainActivity extends Activity {
   }
   return "SDR "+(full?"full-screen":"preview")+" • "+BuildConfig.VERSION_NAME+"\n"
    +String.format(Locale.US,"%s | %.2f fps / %.2f Hz\n",f==null?"Unknown size":f.width+"x"+f.height,rate,hz)
-   +"Surface: "+q.graphSubmitted.label()+" | drops "+q.graphOutputDrops+"/"+droppedVideoFrames+"\n"
-   +"Steady gaps: "+q.submittedIntervals.steadyGaps+"/"+q.submittedIntervals.steadyCount+" | late >20ms "+q.directLate.steadyOver20ms+"/"+q.directLate.steadyCount+"\n"
-   +fence+"\n"+lead+"\n"+pre+"\n"+(!full&&video!=null?"Output: "+(video.getVideoSurfaceView() instanceof android.view.TextureView?"TextureView":"SurfaceView")+"\n":"")
-   +"Draw: "+q.directDraw.label()+"\n"+(!full?"Swap: "+q.directSwap.label()+"\n":"")
+   +"Surface: "+window.surface.label()+" | drops "+window.graphDrops.get()+"/"+window.reportedDrops.get()+"\n"
+   +"Steady gaps: "+window.intervals.steadyGaps+"/"+window.intervals.steadyCount+" | late >20ms "+window.late.steadyOver20ms+"/"+window.late.steadyCount+"\n"
+   +"Session totals — "+fence+"\n"+lead+"\n"+pre+"\n"+(video!=null?"Output: "+(video.getVideoSurfaceView() instanceof android.view.TextureView?"TextureView":"SurfaceView")+"\n":"")
+   +"Draw: "+window.draw.label()+"\nSwap: "+window.swap.label()+"\n"
    +"Panel timing unverified • Details below\n\n";
  }
  String currentPlaybackDiagnostics(){
@@ -1084,6 +1097,21 @@ public class MainActivity extends Activity {
   synchronized(catalogueLock){for(Map.Entry<String,CatalogueEntry> entry:catalogue.snapshot().entrySet())if(entry.getKey().startsWith("items:live:")&&SystemClock.elapsedRealtime()-entry.getValue().created<STREAM_TTL)for(Item candidate:entry.getValue().items)if(!candidate.id.equals(original.id)&&SdrStreamMatch.matches(original.name,original.epgId,candidate.name,candidate.epgId,false))found.put(candidate.id,candidate);}
   return found.size()==1?found.values().iterator().next():null;
  }
+ PlayerView createPlaybackView(FrameLayout host,boolean texture){
+  return texture?(PlayerView)getLayoutInflater().inflate(R.layout.shark_sdr_player,host,false):new PlayerView(this);
+ }
+ // Swap only the presentation target; never stop, prepare or replace the live media item.
+ void switchLiveSdrOutput(boolean toFull){
+  if(activeSdrPath!=0||liveSurfaceHost==null||player==null||video==null)return;
+  boolean texture=video.getVideoSurfaceView() instanceof TextureView;
+  if(texture==!toFull)return;
+  PlayerView previous=video,next=createPlaybackView(liveSurfaceHost,!toFull);
+  next.setUseController(false);next.setControllerAutoShow(false);next.setFocusable(toFull);
+  next.setResizeMode(toFull?prefs.getInt("resize_mode",0):4);
+  liveSurfaceHost.addView(next,0,new FrameLayout.LayoutParams(-1,-1));
+  PlayerView.switchTargetView(player,previous,next);
+  video=next;liveSurfaceHost.removeView(previous);
+ }
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath){attachExo(host,i,fullscreen,attempt,position,cachedFirst,sdrPath,i);}
  void attachExo(FrameLayout host,Item i,boolean fullscreen,int attempt,long position,boolean cachedFirst,int sdrPath,Item sourceItem){
   long started=android.os.SystemClock.elapsedRealtime();
@@ -1092,8 +1120,8 @@ public class MainActivity extends Activity {
   final boolean stock=defaultLiveEngine();
   applyDisplayMode();
   startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
-  // Keep one SurfaceView for preview and fullscreen, avoiding TextureView composition and decoder restart.
-  PlayerView v=new PlayerView(this);
+  // Restore the better-performing texture compositor for forced SDR preview only.
+  PlayerView v=createPlaybackView(host,!fullscreen&&!stock&&sdrPath==0&&page.equals("Live TV"));
   v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   if(!fullscreen&&page.equals("Live TV")&&host==preview&&findViewById(android.R.id.content) instanceof FrameLayout){
    FrameLayout root=(FrameLayout)findViewById(android.R.id.content);
@@ -1135,7 +1163,7 @@ public class MainActivity extends Activity {
          };
          if(fast&&android.os.Build.VERSION.SDK_INT>=29&&color.colorTransfer==C.COLOR_TRANSFER_SDR&&!automatic){
           probe.directGraph=true;
-          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe.graphSubmitted::record,()->probe.graphOutputDrops++,probe.directLatch::record,probe.directDraw::record,probe.directSwap::record,probe.directLate::record,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),ns->probe.submittedIntervals.record(ns/1000,probe.expectedFrameUs()),name->probe.directShader=name,()->requestNextDirectFrame(),probe.directDrawCall::record,probe.directPresentCall::record,info->probe.directGraphics=info,()->!liveGraph||full);
+          return new DirectSdrVideoGraph(monitored,executor,probe.graphInput::record,probe::submitted,probe::graphDrop,probe.directLatch::record,probe::drawn,probe::swapped,probe::late,probe.directQueue::record,ns->probe.targetPts.record(ns/1000,probe.expectedFrameUs()),probe::submissionInterval,name->probe.directShader=name,()->requestNextDirectFrame(),probe.directDrawCall::record,probe.directPresentCall::record,info->probe.directGraphics=info,()->!liveGraph||full);
          }
          return new androidx.media3.effect.SingleInputVideoGraph(ctx,processor,color,monitored,debug,executor,automatic){
           @Override public boolean registerInputFrame(int index){boolean accepted=super.registerInputFrame(index);if(accepted)probe.graphInput.record();return accepted;}
@@ -1206,7 +1234,7 @@ public class MainActivity extends Activity {
   streamAnalytics=new AnalyticsListener(){
    boolean current(AnalyticsListener.EventTime time){return player==p&&playbackProbe==probe&&time.windowIndex>=0&&time.windowIndex<time.timeline.getWindowCount()&&mediaId.equals(time.timeline.getWindow(time.windowIndex,new Timeline.Window()).mediaItem.mediaId);}
    @Override public void onLoadStarted(AnalyticsListener.EventTime time,androidx.media3.exoplayer.source.LoadEventInfo info,androidx.media3.exoplayer.source.MediaLoadData data){if(current(time)&&startupLoadMs<0)startupLoadMs=Math.max(0,info.elapsedRealtimeMs-startupBeginMs);}
-   @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(current(time))droppedVideoFrames+=count;}
+   @Override public void onDroppedVideoFrames(AnalyticsListener.EventTime time,int count,long elapsedMs){if(current(time)){droppedVideoFrames+=count;probe.modeStats.reportedDrops.addAndGet(count);}}
    @Override public void onAudioUnderrun(AnalyticsListener.EventTime time,int size,long sizeMs,long elapsedMs){if(current(time))probe.audioUnderruns++;}
    @Override public void onVideoFrameProcessingOffset(AnalyticsListener.EventTime time,long offsetUs,int frameCount){if(current(time)){probe.videoOffsetSumUs+=offsetUs;probe.videoOffsetFrames+=frameCount;}}
    @Override public void onAudioDecoderInitialized(AnalyticsListener.EventTime time,String name,long ts,long duration){if(player==p)android.util.Log.i("SharkPlayback","audio decoder="+name);}
@@ -1441,7 +1469,7 @@ public class MainActivity extends Activity {
    if(!full||playbackItem!=item)return;
    if(liveSurfaceHost!=null&&page.equals("Live TV")){
     if(!exitLiveFullscreen())return;
-    if("SDR Full".equals(range)){playFull(item);return;}
+    // A picture-mode change requires a new renderer; ordinary screen-size changes do not.
     attach(preview,item,false);if(player!=null&&liveSurfaceHost!=null)enterLiveFullscreen();
    }else{
     long pos=player!=null?Math.max(0,player.getCurrentPosition()):nativeVideo!=null?Math.max(0,nativeVideo.getCurrentPosition()):0;
@@ -1488,7 +1516,7 @@ public class MainActivity extends Activity {
  void playFull(Item i){
   if(!full&&(page.equals("Movies")||page.equals("Series")))rememberCataloguePosition();
   // Reuse the same live player for both native and forced SDR when the selected channel is unchanged.
-  if(page.equals("Live TV")&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
+  if(page.equals("Live TV")&&!full&&((activeSdrPath==0)=="SDR Full".equals(rangeFor(true)))&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
   // Capture only a declared rate from the identical feed. Never guess from a different channel or alternative SDR feed.
   float previewFps=-1;
   if(!full&&autoRefresh()&&player!=null&&playbackProbe!=null&&playbackProbe.sourceItem!=null&&i.id.equals(activeStreamId)&&i.id.equals(playbackProbe.sourceItem.id)){
@@ -1522,13 +1550,13 @@ public class MainActivity extends Activity {
   liveReturnFocus=getCurrentFocus();liveReturnStatus=status;
   full=true;if(regionalGuide!=null)regionalGuide.setBusy(true);if(playbackProbe!=null)playbackProbe.health.reset();status=null;
   if(body!=null){liveBodyFocusMode=body.getDescendantFocusability();liveBodyAccessibility=body.getImportantForAccessibility();body.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);}
-  // Do not detach the video surface or create a second PlayerView.
-  liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));liveSurfaceHost.setPadding(0,0,0,0);video.setResizeMode(prefs.getInt("resize_mode",0));liveSurfaceHost.setForeground(null);
+  // Fullscreen uses the original SurfaceView and pre-draw pipeline, not the preview texture.
+  liveSurfaceHost.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));liveSurfaceHost.setPadding(0,0,0,0);switchLiveSdrOutput(true);if(playbackProbe!=null)playbackProbe.resetModeStats();video.setResizeMode(prefs.getInt("resize_mode",0));liveSurfaceHost.setForeground(null);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
   video.setFocusable(true);video.setUseController(true);video.setControllerAutoShow(true);
   player.setVolume(1f);if(!player.getPlayWhenReady())player.play();video.requestFocus();if(playbackItem!=null)addRangeButton(liveSurfaceHost,playbackItem,video);
   if(autoRefresh())scheduleRefreshMatch(player,frameRateSample,0);
-  android.util.Log.i("SharkPlayback","Live fullscreen: same player and surface resized");return true;
+  android.util.Log.i("SharkPlayback","Live fullscreen: same player, output target ready for fullscreen");return true;
  }
  boolean exitLiveFullscreen(){
   if(liveSurfaceHost==null||player==null||video==null||preview==null)return false;
@@ -1536,10 +1564,10 @@ public class MainActivity extends Activity {
   if(activeSdrPath!=0||!autoRefresh())clearRefreshMatch(true);removeRangeButton();video.hideController();video.setUseController(false);video.setFocusable(false);
   liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
   player.setVolume(0f);full=false;if(regionalGuide!=null)regionalGuide.setBusy(stopped);if(playbackProbe!=null)playbackProbe.health.reset();status=liveReturnStatus;liveReturnStatus=null;
-  positionLiveSurface();if(highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(selected!=null&&epg!=null)loadEpg(selected);
+  switchLiveSdrOutput(false);if(playbackProbe!=null)playbackProbe.resetModeStats();positionLiveSurface();if(highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);else if(selected!=null&&epg!=null)loadEpg(selected);
   if(body!=null){body.setDescendantFocusability(liveBodyFocusMode);body.setImportantForAccessibility(liveBodyAccessibility);}
   View focus=liveReturnFocus;liveReturnFocus=null;if(focus!=null&&focus.isAttachedToWindow())focus.requestFocus();else if(right!=null)focusAt(right,itemPos);
-  android.util.Log.i("SharkPlayback","Live preview: same player and surface resized");return true;
+  android.util.Log.i("SharkPlayback","Live preview: same player, output target ready for preview");return true;
  }
  @Override public void onBackPressed(){if(full){if(exitLiveFullscreen())return;Item resumePreview=page.equals("Live TV")?playbackItem:null;release();browser(true);if(resumePreview!=null&&preview!=null){selected=resumePreview;attach(preview,resumePreview,false);loadEpg(resumePreview);}return;}if(page.equals("Series")&&!seriesId.isEmpty()){seriesId="";loadItems();return;}if(!page.equals("Home")){home();return;}super.onBackPressed();}
  @Override protected void onStart(){super.onStart();stopped=false;if(regionalGuide!=null)regionalGuide.setBusy(full);if(resumeExo!=null&&resumeExo==player){resumeExo=null;applyDisplayMode();player.play();if(autoRefresh()&&refreshInCurrentView())scheduleRefreshMatch(player,frameRateSample,0);}if(liveHealthWatch!=null){if(playbackProbe!=null)playbackProbe.health.reset();stopLiveHealth();ui.postDelayed(liveHealthWatch,2000);}ui.removeCallbacks(tickRows);if(page.equals("Live TV"))ui.postDelayed(tickRows,60000);if(page.equals("Live TV")&&!full&&highlightedGuideItem!=null&&epg!=null)loadEpg(highlightedGuideItem);}

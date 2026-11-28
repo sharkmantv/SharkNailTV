@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Experimental surface-only, single-input graph. No intermediate RGBA frame or second draw.
  * ExoPlayer retains codec, audio clock, demuxing and frame release scheduling.
@@ -55,7 +54,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
  private static final int DRAW_ERROR_CHECK_INTERVAL=60;
  private boolean fenceDisabled;
  private String gpuDescription="Not initialized";
- private final AtomicBoolean pending=new AtomicBoolean();
+ private final SdrFrameSlot pending=new SdrFrameSlot();
  private final HandlerThread thread=new HandlerThread("SharkDirectSDR",android.os.Process.THREAD_PRIORITY_DISPLAY);
  private Handler gl;
  private EGLDisplay display;
@@ -92,7 +91,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   f.get(5,TimeUnit.SECONDS);
  }
  private void error(Throwable e){
-  if(failed||released)return;failed=true;pending.set(false);
+  if(failed||released)return;failed=true;pending.reset();
   callback.execute(()->{if(!released)listener.onError(new VideoFrameProcessingException(e));});
  }
  private void post(Task task){
@@ -168,10 +167,10 @@ final class DirectSdrVideoGraph implements VideoGraph {
   }catch(Exception e){error(e);}
  }
  @Override public boolean registerInputFrame(int index){
-  if(!configured||failed||released||!pending.compareAndSet(false,true))return false;
+  if(!configured||failed||released||!pending.tryAcquire())return false;
   inputCounter.run();return true;
  }
- @Override public int getPendingInputFrameCount(int index){return pending.get()?1:0;}
+ @Override public int getPendingInputFrameCount(int index){return pending.isPending()?1:0;}
  private void discardFence(){
   if(sampledFence!=0){GLES30.glDeleteSync(sampledFence);sampledFence=0;}
  }
@@ -280,7 +279,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
    if(latched)throw new IllegalStateException("Unexpected extra decoder frame");
    pollFence(false);
    long begin=System.nanoTime();texture.updateTexImage();latchTiming.accept(System.nanoTime()-begin);
-   if(!pending.get())return;
+   if(!pending.isPending())return;
    texture.getTransformMatrix(texMatrix);pts=texture.getTimestamp()/1000+offset;
    latched=true;preparedDrawNs=-1;if(pts==0)zero=true;lastPts=pts;
    final long timestamp=pts;final int token=generation;
@@ -298,6 +297,7 @@ final class DirectSdrVideoGraph implements VideoGraph {
   post(()->{
    if(token!=generation)return;
    if(!latched){throw new IllegalStateException("No latched decoder frame");}
+   boolean releasedBeforeSwap=false;
    if(ns==VideoFrameProcessor.DROP_OUTPUT_FRAME){dropCounter.run();}
    else if(window!=null&&output!=null){
     long drawStart=System.nanoTime();queueTiming.accept(drawStart-queuedAt);
@@ -309,12 +309,19 @@ final class DirectSdrVideoGraph implements VideoGraph {
     long presentStart=System.nanoTime();
     if(!EGLExt.eglPresentationTimeANDROID(display,window,time)){eglTimestampRejected++;if(sampledFence!=0&&fenceLatchPolls==0)fenceTargetNs=-1;}
     long swapStart=System.nanoTime();presentationCallTiming.accept(swapStart-presentStart);drawTiming.accept(swapStart-drawStart+Math.max(0,preDrawNs));
+    // Preview is swap-bound: allow exactly one next decoded frame to queue while EGL swaps.
+    // The GL handler cannot latch that next texture until this draw/swap finishes.
+    // Keep the known fullscreen pre-draw path serialized and unchanged.
+    if(!preDrawEnabled.getAsBoolean()&&!ended){
+     latched=false;releasedBeforeSwap=pending.releaseForSwap(true,false);
+     callback.execute(()->{if(!released&&!failed&&token==generation)slotAvailable.run();});
+    }
     if(!EGL14.eglSwapBuffers(display,window))throw new IllegalStateException("SDR surface swap failed");
     long finished=System.nanoTime();swapTiming.accept(finished-swapStart);if(ns>=0){long lead=ns-finished;submissionLeadCount++;submissionLeadTotal+=lead;submissionLeadMin=Math.min(submissionLeadMin,lead);if(lead<20_000_000L)submissionLeadUnder20++;lateTiming.accept(Math.max(0,-lead));targetTiming.accept(ns);}submissionTiming.accept(finished);submitCounter.run();pollFence(true);
    }
-   preparedDrawNs=-1;latched=false;pending.set(false);
-   if(ended)notifyEnded();
-   else callback.execute(()->{if(!released&&!failed&&token==generation)slotAvailable.run();});
+   preparedDrawNs=-1;latched=false;pending.finishSwap(releasedBeforeSwap);
+   if(ended&&!pending.isPending())notifyEnded();
+   else if(!ended&&!releasedBeforeSwap)callback.execute(()->{if(!released&&!failed&&token==generation)slotAvailable.run();});
   });
  }
  private void notifyEnded(){long timestamp=lastPts;int token=generation;callback.execute(()->{if(!released&&token==generation)listener.onEnded(timestamp);});}
@@ -325,11 +332,11 @@ final class DirectSdrVideoGraph implements VideoGraph {
  @Override public void flush(){
   if(released||failed)return;
   generation++;
-  try{sync(()->{discardFence();preparedDrawNs=-1;latched=false;pending.set(false);ended=false;lastPts=C.TIME_UNSET;});}catch(Exception e){error(e);}
+  try{sync(()->{discardFence();preparedDrawNs=-1;latched=false;pending.reset();ended=false;lastPts=C.TIME_UNSET;});}catch(Exception e){error(e);}
  }
- @Override public void signalEndOfInput(int i){post(()->{ended=true;if(!pending.get())notifyEnded();});}
+ @Override public void signalEndOfInput(int i){post(()->{ended=true;if(!pending.isPending())notifyEnded();});}
  @Override public void release(){
-  if(released)return;released=true;ready=false;pending.set(false);
+  if(released)return;released=true;ready=false;pending.reset();
   if(gl!=null)try{sync(()->{
    if(display!=null&&context!=null&&placeholder!=null)focusPlaceholder();
    discardFence();

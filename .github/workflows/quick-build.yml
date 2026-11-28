@@ -35,7 +35,7 @@ jobs:
           from pathlib import Path
           base=os.environ['KIT_BASE']
           changed=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
-          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts' or p=='ci/SdrStreamMatchTest.java'
+          allowed=lambda p:p.startswith('app/src/main/java/') or p.startswith('.github/workflows/') or p=='app/build.gradle.kts' or p in ('ci/SdrStreamMatchTest.java','ci/SdrFrameSlotTest.java')
           assert all(map(allowed,changed)), 'Quick build only supports Java and version changes; use full workflow for other files: '+str([p for p in changed if not allowed(p)])
           gradle=Path('app/build.gradle.kts').read_text()
           old=subprocess.check_output(['git','show',base+':app/build.gradle.kts'],text=True)
@@ -54,6 +54,8 @@ jobs:
           javac -d "$RUNNER_TEMP/sdr-tests" app/src/main/java/com/example/xtreamtv/RefreshMatch.java ci/RefreshMatchTest.java app/src/main/java/com/example/xtreamtv/SdrCadence.java ci/SdrCadenceTest.java
           java -cp "$RUNNER_TEMP/sdr-tests" com.example.xtreamtv.RefreshMatchTest
           java -cp "$RUNNER_TEMP/sdr-tests" com.example.xtreamtv.SdrCadenceTest
+          javac -d "$RUNNER_TEMP/sdr-tests" app/src/main/java/com/example/xtreamtv/SdrFrameSlot.java ci/SdrFrameSlotTest.java
+          java -cp "$RUNNER_TEMP/sdr-tests" com.example.xtreamtv.SdrFrameSlotTest
       - name: Reuse verified FFmpeg and prepared UHD artwork
         env:
           GH_TOKEN: ${{ github.token }}
@@ -130,10 +132,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run view 46155731524 --repo "$GITHUB_REPOSITORY" --json conclusion,headSha | jq -e '.conclusion=="success" and .headSha=="5402ba3530688b722be6512ed8e6d96fabbd1310"'
-          gh run download 46155731524 --repo "$GITHUB_REPOSITORY" --name Sky-Shark-5.1.12-quick-install-verified --dir "$RUNNER_TEMP/prior512"
-          (cd "$RUNNER_TEMP/prior512" && sha256sum -c quick-install-verified.sha256)
-          cert=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/prior512/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          gh run view 46156801867 --repo "$GITHUB_REPOSITORY" --json conclusion,headSha | jq -e '.conclusion=="success" and .headSha=="75ea4b20f00cceac4aadb6244a6976294364249d"'
+          gh run download 46156801867 --repo "$GITHUB_REPOSITORY" --name Sky-Shark-5.1.13-quick-install-verified --dir "$RUNNER_TEMP/prior513"
+          (cd "$RUNNER_TEMP/prior513" && sha256sum -c quick-install-verified.sha256)
+          cert=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/prior513/SharkNailTV.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           test "$cert" = '14fea534b29f1196c0a2fcb0618cde8f6391ad6e9153a941fd8c86e3cb0fca96'
       - name: Enable emulator acceleration
         run: if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
@@ -149,8 +151,8 @@ jobs:
           disable-animations: true
           script: |
             set -e
-            adb install "$RUNNER_TEMP/prior512/SharkNailTV.apk"
-            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50112 '
+            adb install "$RUNNER_TEMP/prior513/SharkNailTV.apk"
+            adb shell dumpsys package com.example.xtreamtv | grep -F 'versionCode=50113 '
             adb install -r SharkNailTV.apk
             adb shell dumpsys package com.example.xtreamtv | grep -F "versionCode=$VERSION_CODE "
             adb logcat -c
