@@ -426,7 +426,7 @@ public class MainActivity extends Activity {
    +String.format(Locale.US,"%s | %.2f fps / %.2f Hz\n",f==null?"Unknown size":f.width+"x"+f.height,rate,hz)
    +"Surface: "+q.graphSubmitted.label()+" | drops "+q.graphOutputDrops+"/"+droppedVideoFrames+"\n"
    +"Steady gaps: "+q.submittedIntervals.steadyGaps+"/"+q.submittedIntervals.steadyCount+" | late >20ms "+q.directLate.steadyOver20ms+"/"+q.directLate.steadyCount+"\n"
-   +fence+"\n"+lead+"\n"+pre+"\n"
+   +fence+"\n"+lead+"\n"+pre+"\n"+(!full&&video!=null?"Output: "+(video.getVideoSurfaceView() instanceof android.view.TextureView?"TextureView":"SurfaceView")+"\n":"")
    +"Draw: "+q.directDraw.label()+"\n"+(!full?"Swap: "+q.directSwap.label()+"\n":"")
    +"Panel timing unverified • Details below\n\n";
  }
@@ -1091,7 +1091,11 @@ public class MainActivity extends Activity {
   final boolean stock=defaultLiveEngine();
   applyDisplayMode();
   startupBeginMs=started;startupFirstMs=startupLoadMs=startupDecoderMs=startupDecoderCostMs=startupReadyMs=-1;droppedVideoFrames=0;host.removeAllViews();activeSdrPath=sdrPath;playbackDiagnostics="Waiting for first video frame";
-  PlayerView v=new PlayerView(this);v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
+  // Force SDR preview outputs SDR; use an in-window texture to avoid the separate small video layer compositor path.
+  // Fullscreen and native HDR remain on the existing SurfaceView.
+  final boolean texturePreview=!fullscreen&&!stock&&sdrPath==0&&page.equals("Live TV");
+  PlayerView v=texturePreview?(PlayerView)getLayoutInflater().inflate(R.layout.shark_sdr_player,host,false):new PlayerView(this);
+  v.setUseController(fullscreen);v.setControllerAutoShow(fullscreen);
   if(!fullscreen&&page.equals("Live TV")&&host==preview&&findViewById(android.R.id.content) instanceof FrameLayout){
    FrameLayout root=(FrameLayout)findViewById(android.R.id.content);
    liveSurfaceHost=new FrameLayout(this);liveSurfaceHost.setBackgroundColor(Color.BLACK);liveSurfaceHost.setFocusable(false);liveSurfaceHost.setClickable(false);liveSurfaceHost.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
@@ -1486,7 +1490,23 @@ public class MainActivity extends Activity {
   if(!full&&(page.equals("Movies")||page.equals("Series")))rememberCataloguePosition();
   // Force SDR uses a fresh full-screen EGL surface instead of resizing the preview surface.
   if(page.equals("Live TV")&&!"SDR Full".equals(rangeFor(true))&&!full&&player!=null&&video!=null&&preview!=null&&liveSurfaceHost!=null&&video.getParent()==liveSurfaceHost&&i.id.equals(activeStreamId)&&player.getPlayerError()==null&&player.getPlaybackState()!=Player.STATE_IDLE&&player.getPlaybackState()!=Player.STATE_ENDED&&enterLiveFullscreen())return;
-  release();screenToken++;loadToken++;epgToken++;full=true;if(regionalGuide!=null)regionalGuide.setBusy(true);status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);if(video!=null&&premiumPlayer==null)video.requestFocus();
+  // Capture only a declared rate from the identical feed. Never guess from a different channel or alternative SDR feed.
+  float previewFps=-1;
+  if(!full&&autoRefresh()&&player!=null&&playbackProbe!=null&&playbackProbe.sourceItem!=null&&i.id.equals(activeStreamId)&&i.id.equals(playbackProbe.sourceItem.id)){
+   Format known=player.getVideoFormat();if(known!=null&&RefreshMatch.valid(known.frameRate))previewFps=known.frameRate;
+  }
+  release();screenToken++;loadToken++;epgToken++;full=true;if(regionalGuide!=null)regionalGuide.setBusy(true);status=null;FrameLayout f=new FrameLayout(this);f.setBackgroundColor(Color.BLACK);setContentView(f);immersive();attach(f,i,true);
+  if(RefreshMatch.valid(previewFps)&&autoRefresh()&&playbackProbe!=null&&playbackProbe.sourceItem!=null&&i.id.equals(playbackProbe.sourceItem.id)){
+   android.view.Display d=getWindowManager().getDefaultDisplay();android.view.Display.Mode cur=d.getMode();
+   ArrayList<Float> available=new ArrayList<>();for(android.view.Display.Mode mode:d.getSupportedModes())if(mode.getPhysicalWidth()==cur.getPhysicalWidth()&&mode.getPhysicalHeight()==cur.getPhysicalHeight())available.add(mode.getRefreshRate());
+   float[] rates=new float[available.size()];for(int n=0;n<rates.length;n++)rates[n]=available.get(n);
+   if(RefreshMatch.select(cur.getRefreshRate(),previewFps,rates)>=0||RefreshMatch.compatible(cur.getRefreshRate(),previewFps)){
+    requestRefresh(playbackProbe,previewFps);
+    // Recheck the new player format normally after first frame; identical mode requests are no-ops.
+    matchProbe=null;
+   }
+  }
+  if(video!=null&&premiumPlayer==null)video.requestFocus();
  }
  void positionLiveSurface(){
   if(liveSurfaceHost==null||preview==null||full||preview.getWidth()<=0||preview.getHeight()<=0)return;
