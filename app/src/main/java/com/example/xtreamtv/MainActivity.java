@@ -181,7 +181,7 @@ public class MainActivity extends Activity {
  @Override public void onLowMemory(){super.onLowMemory();clearCatalogue();posterCache.evictAll();posterUrls.evictAll();guideCache.evictAll();posterIo.purge();rowGuideIo.purge();if(!page.equals("Home"))PremiumMockupHome.trimArtwork();}
  static class Item { String id,name,ext,art="",year="",tmdb="",epgId="",epgRegion=""; Item(String i,String n,String e){id=i;name=n;ext=e;} }
  interface Work<T>{T run()throws Exception;} interface Done<T>{void run(T t);} interface Pick{void run(Item i,int p);}
- @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);regionalGuide=new RegionalGuide(this,()->ui.post(()->{if(isFinishing()||isDestroyed())return;guideCache.evictAll();if(!full&&!stopped&&page.equals("Live TV")){if(right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);if(highlightedGuideItem!=null)loadEpg(highlightedGuideItem);if(regionalGuideRefresh!=null)regionalGuideRefresh.run();}}));if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_policy_50060",false)){prefs.edit().putBoolean("match_frame_rate",true).putBoolean("refresh_policy_50060",true).apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
+ @Override public void onCreate(Bundle b){super.onCreate(b);posterIo.allowCoreThreadTimeOut(true);rowGuideIo.allowCoreThreadTimeOut(true);getWindow().addFlags(128);prefs=getSharedPreferences("clean_shark_sky",0);regionalGuide=new RegionalGuide(this,()->ui.post(()->{if(isFinishing()||isDestroyed())return;guideCache.evictAll();if(!full&&!stopped&&page.equals("Live TV")){if(right!=null&&right.getAdapter() instanceof LiveGuideRows)((LiveGuideRows)right.getAdapter()).refreshVisible(right);if(highlightedGuideItem!=null)loadEpg(highlightedGuideItem);if(regionalGuideRefresh!=null)regionalGuideRefresh.run();}}));if(!prefs.getBoolean("baseline_reset_50043",false)){restorePlaybackDefaults();prefs.edit().putBoolean("baseline_reset_50043",true).apply();}if(!prefs.getBoolean("refresh_policy_50060",false)){prefs.edit().putBoolean("match_frame_rate",true).putBoolean("refresh_policy_50060",true).apply();}if(!prefs.getBoolean("native_range_50068",false)){android.content.SharedPreferences.Editor migration=prefs.edit().putBoolean("native_range_50068",true);if("Prefer SDR".equals(prefs.getString("range_live","Auto")))migration.putString("range_live","Auto");if("Prefer SDR".equals(prefs.getString("range_vod","Auto")))migration.putString("range_vod","Auto");migration.apply();}server=prefs.getString("server","");user=prefs.getString("user","");pass=prefs.getString("pass","");liveExt=prefs.getString("format","ts");download=prefs.getLong("download",-1);uiRegular=PremiumVisuals.font(this,false);uiMedium=PremiumVisuals.font(this,true);uiLight=uiRegular;applyDisplayMode();home();}
  int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
  void immersive(){getWindow().getDecorView().setSystemUiVisibility(5894);}
  GradientDrawable bg(int a,int b,int border,int width){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{a,b});g.setCornerRadius(0);if(width>0)g.setStroke(dp(width),border);return g;}
@@ -298,11 +298,11 @@ public class MainActivity extends Activity {
   PremiumVisuals.Tile tile=new PremiumVisuals.Tile(this,label,icon,false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(5),dp(5),dp(5),dp(5));r.addView(tile,lp);tile.setOnTouchListener((v,e)->{if(e.getActionMasked()==MotionEvent.ACTION_DOWN)v.requestFocus();return false;});tile.setOnClickListener(v->action.run());
  }
  void restorePlaybackDefaults(){
-  prefs.edit().remove("display_mode").remove("resize_mode").remove("audio_lang").remove("text_lang").remove("subtitles_on").remove("show_codec_info").remove("match_frame_rate").remove("range_live").remove("range_vod").remove("format").putBoolean("default_live_engine",true).apply();
+  prefs.edit().remove("display_mode").remove("resize_mode").remove("audio_lang").remove("text_lang").remove("subtitles_on").remove("show_codec_info").remove("match_frame_rate").remove("range_live").remove("range_vod").remove("format").putBoolean("default_live_engine",false).apply();
   decoderPrefs().edit().clear().apply();liveExt="ts";
  }
  void resetVisualSettings(){
-  new AlertDialog.Builder(this).setTitle("Reset playback and display preferences?").setMessage("Restore stock ExoPlayer for Live TV, Movies and Series, automatic display and TS live format. Xtream login and favourites will be kept.").setNegativeButton("Cancel",null).setPositiveButton("Reset",(d,n)->{restorePlaybackDefaults();applyDisplayMode();settings();}).show();
+  new AlertDialog.Builder(this).setTitle("Reset playback and display preferences?").setMessage("Restore Custom ExoPlayer with native picture output, automatic Live FPS and TS live format. Xtream login and favourites will be kept.").setNegativeButton("Cancel",null).setPositiveButton("Reset",(d,n)->{restorePlaybackDefaults();applyDisplayMode();settings();}).show();
  }
  void settings(){
   page="Settings";screen("Settings");
@@ -474,18 +474,18 @@ public class MainActivity extends Activity {
   LinearLayout r2=row();int mode=prefs.getInt("resize_mode",0);button(r2,"Picture: "+(mode==3?"Stretch":mode==4?"Zoom":"Fit"),()->{prefs.edit().putInt("resize_mode",mode==0?3:mode==3?4:0).apply();playbackSettings();});
   button(r2,"Audio: "+prefs.getString("audio_lang","Automatic"),()->languageDialog("audio_lang","Preferred audio language"));button(r2,"Text: "+prefs.getString("text_lang","Automatic"),()->languageDialog("text_lang","Preferred subtitle language"));body.addView(r2);
   LinearLayout range=row();button(range,"Live TV: "+rangeName(rangeFor(true)),()->rangeSettings(true));button(range,"Movies / Series: "+rangeName(rangeFor(false)),()->rangeSettings(false));body.addView(range);
-  TextView hint=text("SDR uses OpenGL tone mapping on compatible devices. Auto preserves the source. HDR prefers native HDR tracks. Changes apply at the next playback.",13);body.addView(hint);
+  TextView hint=text("Auto preserves native HDR/SDR (recommended). SDR tone mapping can stutter on UHD streams. HDR prefers native HDR tracks. Changes apply at next playback.",13);body.addView(hint);
   LinearLayout r3=row();button(r3,"Display mode",this::displayDialog);button(r3,"Clear remembered decoders",()->{decoderPrefs().edit().clear().apply();msg("Decoder memory cleared.");});body.addView(r3);
   LinearLayout rate=row();button(rate,"Playback engine: "+(defaultLiveEngine()?"Default ExoPlayer":"Custom"),()->{prefs.edit().putBoolean("default_live_engine",!defaultLiveEngine()).apply();playbackSettings();});button(rate,"Live FPS (custom): "+(prefs.getBoolean("match_frame_rate",true)?"Auto":"Off"),()->{prefs.edit().putBoolean("match_frame_rate",!prefs.getBoolean("match_frame_rate",true)).apply();playbackSettings();});body.addView(rate);
   displayStatus=text(displaySummary(),14);body.addView(displayStatus);
   LinearLayout back=row();button(back,"Reset playback defaults",this::resetVisualSettings);button(back,"Back",this::settings);body.addView(back);r.getChildAt(0).requestFocus();
  }
- boolean defaultLiveEngine(){return prefs.getBoolean("default_live_engine",true);}
- String rangeFor(boolean live){return defaultLiveEngine()?"Auto":prefs.getString(live?"range_live":"range_vod",live?"Prefer SDR":"Auto");}
+ boolean defaultLiveEngine(){return prefs.getBoolean("default_live_engine",false);}
+ String rangeFor(boolean live){return defaultLiveEngine()?"Auto":prefs.getString(live?"range_live":"range_vod","Auto");}
  String rangeName(String mode){return mode.equals("Prefer SDR")?"SDR":mode.equals("Prefer HDR")?"HDR":"Auto";}
  void rangeSettings(boolean live){
   if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Default mode uses native picture output. Switch Playback engine to Custom to change SDR/HDR preferences.").setPositiveButton("OK",null).show();return;}
-  String[] choices={"Auto","SDR (tone mapping)","HDR (native preferred)"},values={"Auto","Prefer SDR","Prefer HDR"};
+  String[] choices={"Auto","SDR (experimental tone mapping)","HDR (native preferred)"},values={"Auto","Prefer SDR","Prefer HDR"};
   new AlertDialog.Builder(this).setTitle(live?"Live TV picture mode":"Movie and series picture mode").setSingleChoiceItems(choices,Arrays.asList(values).indexOf(rangeFor(live)),(d,n)->{prefs.edit().putString(live?"range_live":"range_vod",values[n]).apply();d.dismiss();playbackSettings();}).setNegativeButton("Cancel",null).show();
  }
  void languageDialog(String key,String title){String[] labels={"Automatic","English","Spanish","French","German","Italian","Arabic"},codes={null,"en","es","fr","de","it","ar"};new AlertDialog.Builder(this).setTitle(title).setItems(labels,(d,i)->{prefs.edit().putString(key,codes[i]).apply();playbackSettings();}).setNegativeButton("Cancel",null).show();}
@@ -1264,7 +1264,7 @@ public class MainActivity extends Activity {
   }return super.dispatchKeyEvent(event);
  }
  void choosePlayerRange(Item item){
-  String[] choices={"Auto (source)","SDR (tone mapping)","HDR (prefer HDR source)"};
+  String[] choices={"Auto (source)","SDR (experimental tone mapping)","HDR (prefer HDR source)"};
   String[] values={"Auto","Prefer SDR","Prefer HDR"};
   boolean live=page.equals("Live TV");if(defaultLiveEngine()){new AlertDialog.Builder(this).setTitle("Default ExoPlayer").setMessage("Native picture output. To change SDR/HDR, select Custom in Playback settings.").setPositiveButton("Close",null).show();return;}int current=Arrays.asList(values).indexOf(rangeFor(live));
   new AlertDialog.Builder(this).setTitle("Video dynamic range").setSingleChoiceItems(choices,current,(dialog,n)->{
